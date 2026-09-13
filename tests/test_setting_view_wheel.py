@@ -60,8 +60,14 @@ class TestSettingWheelDisabled(unittest.TestCase):
         self.assertEqual(card.spinBox.value(), 51, "键盘上下键应依然能调节 SpinBox 数值")
 
     def test_setting_interface_all_inputs_wheel_disabled(self):
-        cfg = ConfigService()
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from services.library import create_library
+        isolated = TemporaryDirectory(prefix="nekori-setting-test-")
+        self.addCleanup(isolated.cleanup)
+        cfg = ConfigService(create_library(Path(isolated.name) / "library"))
         interface = SettingInterface(cfg)
+        self.addCleanup(interface.deleteLater)
 
         from PySide6.QtWidgets import QAbstractSpinBox, QAbstractSlider, QComboBox
         target_types = (QAbstractSpinBox, QAbstractSlider, QComboBox, SpinBox, Slider, ComboBox)

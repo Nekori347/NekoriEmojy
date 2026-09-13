@@ -1,7 +1,7 @@
 import os
 import sys
-import json
 import sqlite3
+from services.library import connect_existing
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -15,28 +15,16 @@ class FeatureDB:
 
     def __init__(self, db_path: Optional[str] = None):
         if db_path is None:
-            # 兼容打包 (PyInstaller/Nuitka) 与开发环境路径
-            if getattr(sys, 'frozen', False):
-                base_dir = os.path.dirname(sys.executable)
-            else:
-                base_dir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
-            data_dir = os.path.join(base_dir, "data")
-            os.makedirs(data_dir, exist_ok=True)
-            self.db_path = os.path.join(data_dir, "features.db")
-            self.base_dir = base_dir
-            self.data_dir = data_dir
-        else:
-            self.db_path = os.path.abspath(db_path)
-            self.data_dir = os.path.dirname(self.db_path)
-            os.makedirs(self.data_dir, exist_ok=True)
-            self.base_dir = os.path.dirname(self.data_dir)
-
-        self._init_db()
-        self.check_and_migrate_from_json()
+            raise TypeError("FeatureDB requires an explicit library database path")
+        self.db_path = os.path.abspath(db_path)
+        self.data_dir = os.path.dirname(self.db_path)
+        self.base_dir = os.path.dirname(self.data_dir)
+        if not os.path.isfile(self.db_path):
+            raise FileNotFoundError("Library feature database is missing")
 
     def _get_connection(self) -> sqlite3.Connection:
         """获取 SQLite 数据库连接，设置 row_factory 便于按字典形式读取列名"""
-        conn = sqlite3.connect(self.db_path)
+        conn = connect_existing(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -60,71 +48,6 @@ class FeatureDB:
         except Exception as e:
             logger.error(f"[FeatureDB] 数据库初始化失败: {e}")
             print(f"[ERROR] [FeatureDB] 数据库初始化失败: {e}")
-
-    def check_and_migrate_from_json(self):
-        """
-        静默迁移逻辑:
-        1. 使用 pathlib.Path 定位 data 目录与 hashes.json。
-        2. 读取 JSON 中的图片与 MD5 映射，使用 INSERT OR IGNORE 批量存入 features.db。
-        3. 提交成功后静默删除旧 hashes.json。
-        """
-        data_dir_path = Path(__file__).resolve().parent.parent / "data"
-        candidate_paths = [
-            data_dir_path / "hashes.json",
-            Path(self.base_dir) / "hashes.json",
-            data_dir_path / "metadata.json",
-            Path(self.base_dir) / "metadata.json"
-        ]
-
-        for hashes_path in candidate_paths:
-            if not hashes_path.exists():
-                continue
-
-            try:
-                with open(hashes_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-
-                if not isinstance(data, dict) or not data:
-                    continue
-
-                records_to_insert = []
-
-                if "hashes.json" in hashes_path.name:
-                    for key, val in data.items():
-                        if isinstance(val, str):
-                            if len(key) == 32 and all(c in '0123456789abcdefABCDEF' for c in key):
-                                md5, image_path = key, val
-                            else:
-                                image_path, md5 = key, val
-                            records_to_insert.append((image_path, md5, None, None, 0.0))
-                elif "metadata.json" in hashes_path.name:
-                    for img_path, meta in data.items():
-                        if isinstance(meta, dict):
-                            md5 = meta.get("md5")
-                            dhash = meta.get("dhash")
-                            phash = meta.get("phash")
-                            score = float(meta.get("quality_score", 0.0))
-                            if md5:
-                                records_to_insert.append((img_path, md5, dhash, phash, score))
-
-                if records_to_insert:
-                    sql = """
-                    INSERT OR IGNORE INTO image_features (image_path, md5, dhash, phash, quality_score)
-                    VALUES (?, ?, ?, ?, ?)
-                    """
-                    with self._get_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.executemany(sql, records_to_insert)
-                        conn.commit()
-
-                # 提交成功后静默删除旧 hashes.json
-                hashes_path.unlink(missing_ok=True)
-                logger.info(f"旧版 {hashes_path.name} 已成功静默迁移至 features.db 并已清理。")
-                print(f"[INFO] 旧版 {hashes_path.name} 已成功静默迁移至 features.db 并已清理。")
-
-            except Exception as e:
-                logger.error(f"[FeatureDB] 迁移旧 JSON 文件失败 ({hashes_path}): {e}")
-                print(f"[ERROR] [FeatureDB] 迁移旧 JSON 文件失败 ({hashes_path}): {e}")
 
     def save_feature(
         self,

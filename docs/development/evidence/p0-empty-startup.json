@@ -1,0 +1,31 @@
+{
+  "platform": "offscreen",
+  "initial_data_directory_exists": false,
+  "qt": "6.11.2",
+  "startup_passed": true,
+  "external_avatar_request": "disabled in harness",
+  "instance_key": "unique test key (user has an existing SuzuEmojy process)",
+  "global_hotkey_binding": "disabled in harness to avoid user instance interference",
+  "native_window_behaviors": "not tested",
+  "components": [
+    "gallery_interface",
+    "setting_interface",
+    "about_interface",
+    "exchange_interface",
+    "qq_scan_interface",
+    "tg_sticker_interface",
+    "quick_panel"
+  ],
+  "title": "SuzuEmojy",
+  "databases": {
+    "categories.db": "ok",
+    "features.db": "ok",
+    "metadata.db": "ok",
+    "order.db": "ok",
+    "recent.db": "ok"
+  },
+  "images": 0,
+  "categories": 0,
+  "elapsed_to_observation_seconds": 2.587616100001469,
+  "screenshot": "p0-empty-window.png"
+}

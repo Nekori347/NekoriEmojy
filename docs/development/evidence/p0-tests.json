@@ -1,0 +1,13 @@
+{
+  "date": "2026-09-13",
+  "source_commit": "c84e5b2c201fe5103e721fca062283cadf97ca0d",
+  "files": 5,
+  "passed": 23,
+  "failed": 0,
+  "skipped": 0,
+  "seconds": 3.64,
+  "qt_platform": "offscreen",
+  "network_avatar": "mocked immediate failure",
+  "clipboard": "offscreen virtual clipboard",
+  "scope": "original unmodified test files in an isolated source copy"
+}

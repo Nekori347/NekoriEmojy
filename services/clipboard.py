@@ -13,13 +13,9 @@ class ClipboardService(QObject):
         self.clipboard = QGuiApplication.clipboard()
         self.config_service = config_service
         
-        # 确定缓存目录
-        import sys
-        if getattr(sys, 'frozen', False):
-            base_dir = os.path.dirname(sys.executable)
-        else:
-            base_dir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
-        self.cache_dir = os.path.join(base_dir, "data", "cache", "gif_output")
+        if config_service is None:
+            raise TypeError("ClipboardService requires library-bound preferences")
+        self.cache_dir = str(config_service.context.data_dir / "cache/gif_output")
         try:
             os.makedirs(self.cache_dir, exist_ok=True)
         except Exception as e:
@@ -28,12 +24,7 @@ class ClipboardService(QObject):
     def _get_config_service(self):
         if self.config_service:
             return self.config_service
-        try:
-            from services.config import ConfigService
-            self.config_service = ConfigService()
-            return self.config_service
-        except Exception:
-            return None
+        return None
 
     def _convert_static_to_1frame_gif(self, image_path):
         """

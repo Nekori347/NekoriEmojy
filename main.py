@@ -43,12 +43,45 @@ def main():
     app = QApplication(sys.argv)
     
     from PySide6.QtCore import QSharedMemory
-    shared_memory = QSharedMemory("SuzuEmojy_App_Instance")
+    shared_memory = QSharedMemory("NekoriEmojy_App_Instance")
     if not shared_memory.create(1):
         sys.exit(0)
     
+    next_path = None
+    while True:
+        next_path = _run_library_session(app, next_path)
+        if next_path is None:
+            break
+    shared_memory.detach()
+
+
+def _run_library_session(app, requested=None):
     from services.config import ConfigService
-    config_service = ConfigService()
+    from services.library import BootstrapStore
+    from services.diagnostics import configure, install_exception_hooks, event
+    from fluent_ui.library_dialog import choose_session
+    bootstrap = BootstrapStore()
+    diagnostics = configure(bootstrap.directory / "logs")
+    install_exception_hooks()
+    app.next_library = None
+    if requested is None and "--library" in sys.argv:
+        index = sys.argv.index("--library")
+        if index + 1 < len(sys.argv):
+            requested = sys.argv[index + 1]
+    session = choose_session(bootstrap, requested)
+    if session is None:
+        diagnostics.close()
+        return None
+    try:
+        bootstrap.remember(session.context)
+    except OSError as exc:
+        event("bootstrap.save_failed", level="warning", error=exc)
+    diagnostics = configure(session.context.data_dir / "logs", session.context)
+    event("application.startup", status="connected")
+    config_service = ConfigService(session)
+    from qfluentwidgets import qconfig
+    # Fluent's derived theme state is expendable; user preferences remain in DB.
+    qconfig.file = session.context.data_dir / "cache" / "qt-state.json"
     
     app_font = app.font()
     if app_font.pointSize() <= 0:
@@ -73,42 +106,11 @@ def main():
     
     app.setQuitOnLastWindowClosed(False)
     
-    from PySide6.QtWidgets import QProgressDialog
-    from services.migration_manager import MigrationManager
-    from services.deduplication_pipeline import DeduplicationPipeline
     from fluent_ui.main_window import MainWindow
 
-    # ----------------------------------------------------
-    # 1. 启动阶段：检查并执行老数据迁移至 SQLite 数据库
-    # ----------------------------------------------------
-    migration_mgr = MigrationManager()
-    if migration_mgr.needs_migration():
-        progress_dialog = QProgressDialog("正在升级数据引擎到 SQLite...", None, 0, 100)
-        progress_dialog.setWindowModality(Qt.ApplicationModal)
-        progress_dialog.setCancelButton(None)  # 禁止中途取消
-        progress_dialog.setWindowTitle("数据升级中")
-        progress_dialog.show()
-        app.processEvents()  # 刷新界面显示
-
-        def update_progress(msg, percent):
-            progress_dialog.setLabelText(f"正在升级数据: {msg}")
-            progress_dialog.setValue(int(percent))
-            app.processEvents()  # 确保 UI 实时更新不假死
-
-        migration_mgr.run_migration(progress_callback=update_progress)
-        progress_dialog.close()
-
-    # ----------------------------------------------------
-    # 2. 检查并建立全库表情包特征索引
-    # ----------------------------------------------------
-    dedup_pipeline = DeduplicationPipeline()
-    dedup_pipeline.run_full_deduplication()
-
-    storage_service = StorageService()
-    try:
-        storage_service.cleanup_dead_links()
-    except Exception as e:
-        print(f"[ERROR] 启动时执行死链自愈失败: {e}")
+    # Old formats are read only by the explicit isolated migration workflow.
+    # Startup never scans/hash-deduplicates or cleans the selected library.
+    storage_service = StorageService(session)
     clipboard_service = ClipboardService(config_service)
     
     # 初始化多语言引擎
@@ -126,6 +128,9 @@ def main():
     else:
         setTheme(Theme.AUTO)
 
+    app.library_session = session
+    app.bootstrap_store = bootstrap
+    app.diagnostics = diagnostics
     window = MainWindow(storage_service, clipboard_service, config_service)
     
     tray_icon = QSystemTrayIcon()
@@ -140,7 +145,7 @@ def main():
     else:
         pass
     
-    tray_icon.setToolTip("SuzuEmojy")
+    tray_icon.setToolTip("NekoriEmojy")
     
     tray_menu = RoundMenu()
     
@@ -155,7 +160,19 @@ def main():
     
     tray_menu.addSeparator()
     
-    quit_action = Action(t("退出"), triggered=app.quit)
+    def quit_when_idle():
+        from fluent_ui.library_panel import running_window_jobs
+        from PySide6.QtWidgets import QMessageBox
+        if running_window_jobs(window):
+            QMessageBox.information(window, "正在处理任务", "请等待后台任务结束后退出。")
+            return
+        try:
+            with session.maintenance():
+                pass
+        except Exception:
+            return
+        app.quit()
+    quit_action = Action(t("退出"), triggered=quit_when_idle)
     tray_menu.addAction(quit_action)
     
     # 动态刷新托盘菜单文案
@@ -178,7 +195,27 @@ def main():
     window.show()
     
     
-    sys.exit(app.exec())
+    app.library_session = session
+    app.bootstrap_store = bootstrap
+    app.diagnostics = diagnostics
+    exit_code = app.exec()
+    if getattr(window, "hotkey_listener", None):
+        window.hotkey_listener.stop()
+    window.close()
+    tray_icon.hide()
+    event("application.shutdown", status="clean")
+    session.close()
+    diagnostics.close()
+    next_path = app.next_library
+    i18n_engine.language_changed.disconnect(update_tray_texts)
+    from PySide6.QtCore import QCoreApplication, QEvent
+    window.quick_panel.close()
+    window.quick_panel.deleteLater()
+    window.deleteLater()
+    tray_icon.deleteLater()
+    tray_menu.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    return next_path
 
 if __name__ == "__main__":
     main()

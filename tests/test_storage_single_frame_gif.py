@@ -9,48 +9,9 @@ from services.storage import StorageService
 
 
 def _make_storage(tmp_path: Path) -> StorageService:
-    """创建完全隔离的 StorageService，避免读写项目真实 data 目录。"""
-    storage = StorageService.__new__(StorageService)
-    storage.lock = threading.RLock()
-    storage.base_dir = str(tmp_path)
-    storage.data_dir = str(tmp_path / "data")
-    storage.images_dir = str(tmp_path / "data" / "images")
-    storage.inbox_dir = str(tmp_path / "data" / "inbox")
-    storage.inbox_failed_dir = str(tmp_path / "data" / "inbox" / "failed")
-
-    storage.order_file = str(tmp_path / "data" / "order.json")
-    storage.categories_file = str(tmp_path / "data" / "categories.json")
-    storage.metadata_file = str(tmp_path / "data" / "metadata.json")
-    storage.icons_file = str(tmp_path / "data" / "category_icons.json")
-    storage.hashes_file = str(tmp_path / "data" / "hashes.json")
-    storage.recent_file = str(tmp_path / "data" / "recent.json")
-
-    storage.features_db_path = str(tmp_path / "data" / "features.db")
-    storage.metadata_db_path = str(tmp_path / "data" / "metadata.db")
-    storage.categories_db_path = str(tmp_path / "data" / "categories.db")
-    storage.order_db_path = str(tmp_path / "data" / "order.db")
-    storage.recent_db_path = str(tmp_path / "data" / "recent.db")
-
-    for directory in (
-        storage.data_dir,
-        storage.images_dir,
-        storage.inbox_dir,
-        storage.inbox_failed_dir,
-    ):
-        os.makedirs(directory, exist_ok=True)
-
-    storage._ensure_db_tables()
-    storage._hashes_cache = {}
-    storage._images_cache = []
-    storage._images_dirty = True
-    storage._categories_cache = {}
-    storage._image_to_categories_cache = {}
-    storage._categories_dirty = True
-    storage._metadata_cache = {}
-    storage._metadata_dirty = True
-    storage._recent_cache = None
-    storage._sync_key_index = None
-    return storage
+    """Use the production library schema in an isolated test directory."""
+    from services.library import create_library
+    return StorageService(create_library(tmp_path))
 
 
 def _make_clipboard_converter(tmp_path: Path) -> ClipboardService:

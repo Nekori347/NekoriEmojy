@@ -1,0 +1,28 @@
+{
+  "source_commit": "c84e5b2c201fe5103e721fca062283cadf97ca0d",
+  "product_sources_and_upstream_build_recipe_unchanged": true,
+  "extra_nuitka_options": [
+    "--zig",
+    "--jobs=4"
+  ],
+  "nuitka": "4.2.1",
+  "zig": "0.16.0",
+  "python": "3.12.14",
+  "qt": "6.11.2",
+  "compile_and_launcher_success": true,
+  "zip_compression": "Python zipfile ZIP_DEFLATED level 6",
+  "file_count": 91,
+  "unpacked_bytes": 206458073,
+  "zip_bytes": 76325406,
+  "zip_sha256": "2c0dcfe3afb230a946fd3ea73cd6e5d2a4db3cd8447269dadda91a1cd866c976",
+  "core_exe_sha256": "7e46cbce4279e9150d9434526dbbb23ac1f5aed547a2c97ba226454e94d08b11",
+  "launcher_exe_sha256": "54e850b346101e75d26b0e616bf98a8a795805554a979bd6a5de9debb44b7d2d",
+  "runtime_data_paths": [
+    "bin/data/categories.json",
+    "bin/data/config.json"
+  ],
+  "avx512_check": "not verified: original checker returned success after objdump was absent",
+  "binary_native_interaction": "not verified; existing user SuzuEmojy instance was not stopped",
+  "distribution": "internal baseline comparison only; not an approved NekoriEmojy release",
+  "zip_validation_elapsed_seconds": 9.672773700000107
+}

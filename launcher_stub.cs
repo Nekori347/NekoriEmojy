@@ -9,14 +9,14 @@ internal static class LauncherStub
     private static void Main()
     {
         string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
-        string targetPath = Path.Combine(baseDirectory, "bin", "SuzuEmojy.exe");
+        string targetPath = Path.Combine(baseDirectory, "bin", "NekoriEmojy.exe");
 
         if (!File.Exists(targetPath))
         {
             MessageBox.Show(
                 "找不到核心程序：" + Environment.NewLine + targetPath + Environment.NewLine + Environment.NewLine +
                 "请确保 bin 文件夹完整。",
-                "SuzuEmojy",
+                "NekoriEmojy",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
             return;
@@ -36,7 +36,7 @@ internal static class LauncherStub
         {
             MessageBox.Show(
                 "启动核心程序失败：" + Environment.NewLine + error.Message,
-                "SuzuEmojy",
+                "NekoriEmojy",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }

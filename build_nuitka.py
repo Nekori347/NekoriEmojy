@@ -29,7 +29,7 @@ def build_launcher_stub(release_dir):
 
     source_path = os.path.abspath("launcher_stub.cs")
     icon_path = os.path.abspath("ico.ico")
-    output_path = os.path.abspath(os.path.join(release_dir, "SuzuEmojy.exe"))
+    output_path = os.path.abspath(os.path.join(release_dir, "NekoriEmojy.exe"))
 
     if not os.path.isfile(source_path):
         raise FileNotFoundError(f"找不到启动器源码: {source_path}")
@@ -62,7 +62,7 @@ def build_launcher_stub(release_dir):
 
 def main():
     print("====================================")
-    print("Building SuzuEmojy with Nuitka")
+    print("Building NekoriEmojy with Nuitka")
     print("====================================")
 
     # 清理 Nuitka 上一次的 standalone 产物，避免旧依赖残留到新发布包。
@@ -80,7 +80,7 @@ def main():
         "--windows-icon-from-ico=ico.ico",
         "--include-data-file=ico.ico=ico.ico",
         "--output-dir=dist",
-        "--output-filename=SuzuEmojy.exe",
+        "--output-filename=NekoriEmojy.exe",
         "--assume-yes-for-downloads",
         "--include-package=qfluentwidgets",
         # services/fluent_ui 均通过入口和页面的显式导入自动跟踪，
@@ -158,7 +158,7 @@ def main():
         print("\n====================================")
         print("Nuitka Build Complete! Now preparing clean release folder...")
         
-        release_dir = "dist/SuzuEmojy_Release"
+        release_dir = "dist/NekoriEmojy_Release"
         bin_dir = os.path.join(release_dir, "bin")
         
         # 1. 清理旧的 release 文件夹
@@ -182,13 +182,13 @@ def main():
                 os.remove(optional_file)
         
         # 3. 复制文档、图标和数据
-        files_to_copy = ["README.md", "说明书.md", "ico.ico"]
+        files_to_copy = ["README.md", "说明书.md", "LICENSE", "ico.ico"]
         for f in files_to_copy:
             if os.path.exists(f):
                 shutil.copy2(f, release_dir)
 
-        if os.path.exists("data"):
-            shutil.copytree("data", os.path.join(bin_dir, "data"))
+        # User state belongs to an independently selected library. Never copy
+        # data/config from the source tree, even when the build checkout is dirty.
 
         if os.path.exists("translations"):
             shutil.copytree("translations", os.path.join(bin_dir, "translations"))
@@ -197,12 +197,14 @@ def main():
         # 启动器只负责调用 bin 内的 Nuitka 核心程序，不携带 Python runtime。
         launcher_path = build_launcher_stub(release_dir)
         print(f"Created lightweight launcher: {launcher_path}")
+        from scripts.release_policy import assert_clean_release
+        assert_clean_release(release_dir)
 
         # 清理可能遗留的旧版 PyInstaller 外壳及临时文件。
         for stale_path in (
-            "dist/SuzuEmojy.exe",
+            "dist/NekoriEmojy.exe",
             "mini_launcher.py",
-            "SuzuEmojy.spec",
+            "NekoriEmojy.spec",
         ):
             if os.path.isfile(stale_path):
                 os.remove(stale_path)
@@ -216,7 +218,7 @@ def main():
         # 运行 AVX-512 检测脚本
         check_script = "check_avx512.py"
         if os.path.exists(check_script):
-            check_cmd = [sys.executable, check_script, os.path.join(bin_dir, "SuzuEmojy.exe")]
+            check_cmd = [sys.executable, check_script, os.path.join(bin_dir, "NekoriEmojy.exe")]
             check_process = subprocess.run(check_cmd)
             if check_process.returncode != 0:
                 print("\n====================================")

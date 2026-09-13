@@ -1,0 +1,19 @@
+{
+  "platform": "offscreen",
+  "sessions": [
+    {
+      "library": "first",
+      "title": "NekoriEmojy",
+      "library_panel": true
+    },
+    {
+      "library": "second",
+      "title": "NekoriEmojy",
+      "library_panel": true
+    }
+  ],
+  "native_interaction": "not tested",
+  "hotkeys": "disabled in harness",
+  "avatar_network": "disabled in harness",
+  "passed": true
+}

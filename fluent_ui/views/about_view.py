@@ -41,12 +41,9 @@ class AvatarLoader(QThread):
         super().__init__(parent=parent)
         self.avatar_url = avatar_url
         
-        # 缓存文件路径
-        if getattr(sys, "frozen", False):
-            base_dir = os.path.dirname(sys.executable)
-        else:
-            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        self.cache_dir = os.path.join(base_dir, "data", "cache")
+        # This expendable avatar cache is not stored in the program tree.
+        from services.library import BootstrapStore
+        self.cache_dir = str(BootstrapStore().directory / "cache")
         self.cache_path = os.path.join(self.cache_dir, "avatar_IxinorTyan.png")
 
     def run(self):

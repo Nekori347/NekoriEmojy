@@ -1,0 +1,13 @@
+{
+  "phase": "P1",
+  "tests": 40,
+  "failures": 0,
+  "errors": 0,
+  "elapsed_seconds": 4.24,
+  "python": "3.12.14",
+  "qt": "6.11.2",
+  "environment": "Windows 11 x64; task-scoped generated inputs; offscreen GUI",
+  "source_scope": "23 upstream tests (two fixtures bound to isolated libraries) plus 17 P1 tests",
+  "native_gui": "not verified by this run",
+  "real_user_library": "not accessed"
+}

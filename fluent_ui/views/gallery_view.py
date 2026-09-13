@@ -2708,7 +2708,7 @@ class GalleryInterface(QWidget):
             parent=self
         )
 
-        self.exchange_import_thread = ExchangeImportThread(zip_path, base_dir=self.storage.base_dir, parent=self)
+        self.exchange_import_thread = ExchangeImportThread(zip_path, base_dir=getattr(self.storage, "session", None) or self.storage.context, parent=self)
         self.exchange_import_thread.progress.connect(self._on_exchange_import_progress)
         self.exchange_import_thread.finished.connect(self._on_exchange_import_finished)
         self.exchange_import_thread.start()
@@ -2859,7 +2859,7 @@ class GalleryInterface(QWidget):
         self.exchange_export_thread = ExchangeExportThread(
             zip_path,
             selected_categories=selected_categories,
-            base_dir=self.storage.base_dir,
+            base_dir=getattr(self.storage, "session", None) or self.storage.context,
             parent=self
         )
         self.exchange_export_thread.progress.connect(self._on_exchange_export_progress)

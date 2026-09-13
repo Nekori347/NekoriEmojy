@@ -456,6 +456,10 @@ class SettingInterface(QWidget):
         self.expandLayout.setSpacing(28)
         self.expandLayout.setContentsMargins(36, 0, 36, 20)
         
+        if getattr(self.config, "context", None) is not None:
+            from fluent_ui.library_panel import LibraryPanel
+            self.libraryPanel = LibraryPanel(self.config, self.scrollWidget)
+            self.expandLayout.addWidget(self.libraryPanel)
         self.expandLayout.addWidget(self.windowGroup)
         self.expandLayout.addWidget(self.themeGroup)
         self.expandLayout.addWidget(self.advancedGroup)
