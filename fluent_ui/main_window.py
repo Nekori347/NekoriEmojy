@@ -573,7 +573,10 @@ class MainWindow(FramelessWindow):
     def nativeEvent(self, eventType, message):
         """监听 Windows 底层消息，处理睡眠唤醒后快捷键失效的问题，以及系统主题切换"""
         try:
-            msg = message.contents
+            from fluent_ui.windows_cursor import native_message, restore_client_cursor
+            msg = native_message(message)
+            if restore_client_cursor(self, msg):
+                return True, 1
             # WM_POWERBROADCAST = 0x0218
             if msg.message == 0x0218:
                 # PBT_APMRESUMEAUTOMATIC = 0x0012 (系统自动唤醒)

@@ -16,7 +16,7 @@ import threading
 import uuid
 
 FORMAT_VERSION = 1
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 DATABASES = ("library", "features", "metadata", "categories", "order", "recent")
 REQUIRED_TABLES = {"library": ("library_identity", "preferences", "schema_migrations"),
                    "features": ("image_features",), "metadata": ("image_metadata",),
@@ -152,7 +152,12 @@ def _schema_two(conn, library_id):
         report_path TEXT NOT NULL, completed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
 
 
-MIGRATIONS = {1: _schema_one, 2: _schema_two}
+def _schema_three(conn, library_id):
+    from services.identity import create_schema
+    create_schema(conn)
+
+
+MIGRATIONS = {1: _schema_one, 2: _schema_two, 3: _schema_three}
 
 
 def _migrate(context, current, target=SCHEMA_VERSION):
@@ -228,6 +233,10 @@ def inspect_library(path, application_root=None):
                 tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
                 if not set(REQUIRED_TABLES[name]).issubset(tables):
                     raise LibraryError("资源库缺少必要数据表，请保留当前库并检查备份。")
+                if versions[-1] >= 3:
+                    needed = {"resource_identity"} if name == "features" else {"import_journal", "import_sources", "delete_journal"} if name == "library" else set()
+                    if not needed.issubset(tables):
+                        raise LibraryError("资源库索引或恢复记录缺失，请保留库并检查备份。")
                 if name == "library" and conn.execute("SELECT id FROM library_identity").fetchone() != (identity,):
                     raise LibraryError("库标识与数据库不一致。")
         if len(set(versions)) != 1 or versions[0] < 1:

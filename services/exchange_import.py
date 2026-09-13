@@ -94,7 +94,9 @@ class ExchangeImportService:
                     connection.execute("INSERT INTO categories(name, sort_order) VALUES (?, ?)", (name, sort_order))
 
             category_ids = self._load_categories(connections[2])
-            existing = self._scan_existing()
+            from services.identity import IdentityIndex, inspect_bytes, put_identity
+            identities = IdentityIndex(self.context)
+            existing = {}
             next_order = self._next_order(connections[3])
 
             occupied_names = set()
@@ -124,6 +126,15 @@ class ExchangeImportService:
                     current_step = total_zip_files + int((idx / total_resources) * 3 * total_zip_files) if total_resources > 0 else total_zip_files
                     progress_callback(current_step, total_zip_files * 4, f"正在导入表情: {resource.display_name}")
                 existing_path = existing.get(resource.sync_key)
+                if existing_path is None:
+                    identity = inspect_bytes(resource.source.read_bytes())
+                    # Validate only indexed sync candidates; preserve exchange v1 semantics.
+                    candidates = connection.execute("SELECT image_path FROM features.resource_identity WHERE sync_key=? AND state='ready' ORDER BY image_path", (resource.sync_key,)).fetchall()
+                    for (name,) in candidates:
+                        current = identities.refresh(name, connection=connection)
+                        if current and current['sync_key'] == resource.sync_key and (current['width'], current['height']) == (identity.width, identity.height):
+                            existing_path = self.context.resource(name)
+                            break
                 if existing_path is not None:
                     self._add_category_relations(
                         connections[2], resource, categories, existing_path.name, category_ids
@@ -148,6 +159,7 @@ class ExchangeImportService:
                 shutil.copy2(resource.source, destination)
                 created_files.append(destination)
                 image_path = destination.name
+                put_identity(connection, destination, inspect_bytes(destination.read_bytes()))
                 self._insert_feature(connections[0], image_path, resource)
                 self._insert_metadata(connections[1], image_path, resource)
                 self._add_category_relations(
@@ -351,38 +363,6 @@ class ExchangeImportService:
                 "width": width, "height": height,
             }
         raise ExchangeImportError(f"不支持的资源类型: {path.name}")
-
-    def _scan_existing(self) -> dict[str, Path]:
-        result: dict[str, Path] = {}
-        if not self.images_dir.is_dir():
-            return result
-
-        for path in sorted(self.images_dir.iterdir()):
-            if not path.is_file():
-                continue
-            try:
-                with path.open("rb") as f:
-                    header = f.read(8)
-
-                if header.startswith(b"\x89PNG\r\n\x1a\n"):
-                    data = path.read_bytes()
-                    with Image.open(BytesIO(data)) as image:
-                        if getattr(image, "is_animated", False) or getattr(image, "n_frames", 1) > 1:
-                            continue
-                        rgba = image.convert("RGBA")
-                        pixel_md5 = hashlib.md5(rgba.tobytes()).hexdigest()
-                        sync_key = f"p:{pixel_md5}"
-                elif header[:6] in (b"GIF87a", b"GIF89a"):
-                    data = path.read_bytes()
-                    file_md5 = hashlib.md5(data).hexdigest()
-                    sync_key = f"f:{file_md5}"
-                else:
-                    continue
-
-                result.setdefault(sync_key, path)
-            except Exception as e:
-                print(f"[WARNING] 扫描物理文件去重信息失败: {path.name}, 错误: {e}")
-        return result
 
     def _resource_sync_key(self, path: Path) -> str:
         inspected = self._inspect(path)

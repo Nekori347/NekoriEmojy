@@ -1,5 +1,7 @@
 # NekoriEmojy 开发约束
 
+用户补充需求见 [2026-09-14 增补](docs/spec/2026-09-14-addendum.md)，含一图一份、分类内平铺折叠小分类和 GitHub 介绍重写。
+
 完整产品契约是 [单文件交接 v1.1](docs/spec/NekoriEmojy-handoff-v1.1.md)。实施前阅读它以及 [阶段记录](docs/development/STATUS.md)。当前用户要求优先；交接文件中“本次仅整理文档、未开发”等句子是历史事实，不撤销当前开发授权。
 
 - 长期仓库为 `Nekori347/NekoriEmojy`；保留 `IxinorTyan/SuzuEmojy` 的历史和 upstream 关系。遵守 [上游维护规则](docs/development/UPSTREAM.md)，不得无条件同步、强推或覆盖 Nekori 修改。

@@ -520,9 +520,8 @@ class ImportPackThread(QThread):
                     with open(src_file, "wb") as f:
                         f.write(raw_bytes)
 
-                    dest_path, is_dup = self.storage.save_file(src_file)
+                    dest_path, is_dup = self.storage.save_file(src_file, target_category=self.category_name)
                     if dest_path:
-                        self.storage.add_image_to_category(dest_path, self.category_name)
                         return True, is_dup, sticker.index, None
                     return False, False, sticker.index, "保存文件失败"
                 except Exception as exc:

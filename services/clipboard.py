@@ -82,53 +82,19 @@ class ClipboardService(QObject):
             print(f"[ERROR] 静态图片转 1 帧 GIF 失败 ({image_path}): {e}")
             return None
 
-    def get_data_from_clipboard(self):
-        """
-        尝试从系统剪切板读取数据
-        优先级: 1.本地文件路径 -> 2.网络图片URL(从HTML提取) -> 3.纯位图
-        :return: (type, data)
-                 type 为 'file' 时，data 为本地文件绝对路径列表
-                 type 为 'network_url' 时，data 为网络图片URL字符串
-                 type 为 'image' 时，data 为 QImage 对象
-                 什么都没有返回 (None, None)
-        """
-        mime_data = self.clipboard.mimeData()
-        
-        # 1. 优先判断是否包含文件路径 (比如右键复制文件)
-        if mime_data.hasUrls():
-            urls = mime_data.urls()
-            filepaths = []
-            for url in urls:
-                if url.isLocalFile():
-                    filepaths.append(url.toLocalFile())
-            if filepaths:
-                return 'file', filepaths
-                
-        # 2. 如果是从浏览器右键复制动图，虽然不给文件，但会写入带 <img src> 的 HTML 数据
-        if mime_data.hasHtml():
-            html_text = mime_data.html()
-            # 简单的正则提取 src 属性
-            match = re.search(r'<img[^>]+src=["\']([^">]+)["\']', html_text, re.IGNORECASE)
-            if match:
-                img_url = match.group(1)
-                # 必须反编译 HTML 实体字符，否则带有 & 等 token 会导致 403 错误
-                img_url = html.unescape(img_url)
-                if img_url.startswith("http://") or img_url.startswith("https://"):
-                    return 'network_url', img_url
-                    
-        # 3. 判断是否是纯文本的 URL (比如直接复制了一个图片链接)
-        if mime_data.hasText():
-            text = mime_data.text().strip()
-            if text.startswith("http://") or text.startswith("https://"):
-                return 'network_url', text
+    def get_import_inputs(self):
+        from services.image_inputs import snapshot_inputs
+        return snapshot_inputs(self.clipboard.mimeData())
 
-        # 4. 退而求其次，判断是否包含直接的图像数据 (比如截图/不支持富文本的复制)
-        if mime_data.hasImage():
-            image = self.clipboard.image()
-            if not image.isNull():
-                return 'image', image
-                
-        return None, None
+    def get_data_from_clipboard(self):
+        # Historical adapter for integrations; normal UI consumes all inputs.
+        inputs = self.get_import_inputs()
+        if not inputs:
+            return None, None
+        first = inputs[0]
+        if first.kind == 'file':
+            return 'file', [item.value for item in inputs]
+        return ('network_url' if first.kind == 'url' else first.kind), first.value
 
     def copy_image_to_clipboard(self, image_path):
         """

@@ -195,7 +195,17 @@ def migrate_legacy(source, target, *, source_closed=False, choices=None):
                                       "reason": "ambiguous" if matches else "missing_resource"})
             return None
 
+        # Compute identities during the explicit migration, never on first paste.
+        from services.identity import inspect_bytes, put_identity
+        identities = {}
+        for name in mapping.values():
+            try:
+                identities[name] = inspect_bytes((context.images_dir / name).read_bytes())
+            except Exception as exc:
+                report["failed"].append({"kind": "identity", "reference": name, "reason": type(exc).__name__})
         with context.transaction() as conn:
+            for name, identity in identities.items():
+                put_identity(conn, context.images_dir / name, identity)
             for index, (category, paths) in enumerate((selected["categories"] or {}).items()):
                 conn.execute("INSERT INTO categories.categories(name, sort_order) VALUES (?, ?)", (category, index))
                 for path in paths:
