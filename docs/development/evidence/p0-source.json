@@ -1,0 +1,10 @@
+{
+  "baseline": "c84e5b2c201fe5103e721fca062283cadf97ca0d",
+  "verified_tracked_files": 91,
+  "all_git_blob_ids_match": true,
+  "archive_sha256": "e3f9f0b02134d53fe7436c148d34bd668353b82590bf8edf84631fb3f8cb13f8",
+  "commit_count": 55,
+  "shallow": "false",
+  "working_tree_clean": true,
+  "hydration": "full baseline files; all commits and trees; older blobs on demand"
+}

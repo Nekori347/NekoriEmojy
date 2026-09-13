@@ -1,0 +1,23 @@
+{
+  "sample_origin": "Pillow-generated solid-color PNG and two-frame GIF; no user images",
+  "original_source_files_unchanged": true,
+  "png_and_animated_gif_copy_import": "passed",
+  "duplicate_png": "passed",
+  "category_add_rename_membership_icon": "passed",
+  "manual_global_order_and_category_filter_order": "passed",
+  "keywords_search_and_recent_history": "passed",
+  "storage_reopen_retains_test_state": "passed",
+  "exchange_first_import": {
+    "imported": 2,
+    "skipped": 0,
+    "relations": 2
+  },
+  "exchange_duplicate_import": {
+    "imported": 0,
+    "skipped": 2
+  },
+  "exchange_empty_category": "declared on export; not created by original import (controlled reproduction)",
+  "exchange_manual_order": "format has no manual-order field; not claimed as restored",
+  "exchange_prerequisite": "database schema must be initialized by application storage before import",
+  "scope": "service calls in isolated copies; does not validate native GUI interactions or a real user package"
+}
