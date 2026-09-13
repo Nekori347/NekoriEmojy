@@ -1,0 +1,179 @@
+{
+  "platform": "windows",
+  "samples": [
+    {
+      "mode": "without_client_repair",
+      "target": "left",
+      "hit": 10,
+      "cursor": "horizontal",
+      "qt_widget": "QWidget"
+    },
+    {
+      "mode": "without_client_repair",
+      "target": "content",
+      "hit": 1,
+      "cursor": "arrow",
+      "qt_widget": "QWidget"
+    },
+    {
+      "mode": "without_client_repair",
+      "target": "top",
+      "hit": 12,
+      "cursor": "vertical",
+      "qt_widget": "StandardTitleBar"
+    },
+    {
+      "mode": "without_client_repair",
+      "target": "title",
+      "hit": 1,
+      "cursor": "arrow",
+      "qt_widget": "StandardTitleBar"
+    },
+    {
+      "mode": "without_client_repair",
+      "target": "right",
+      "hit": 11,
+      "cursor": "horizontal",
+      "qt_widget": "QWidget"
+    },
+    {
+      "mode": "without_client_repair",
+      "target": "text",
+      "hit": 1,
+      "cursor": "ibeam",
+      "qt_widget": "QLineEdit"
+    },
+    {
+      "mode": "without_client_repair",
+      "target": "bottom",
+      "hit": 15,
+      "cursor": "vertical",
+      "qt_widget": "QWidget"
+    },
+    {
+      "mode": "without_client_repair",
+      "target": "link",
+      "hit": 1,
+      "cursor": "hand",
+      "qt_widget": "QLabel"
+    },
+    {
+      "mode": "without_client_repair",
+      "target": "top_left",
+      "hit": 13,
+      "cursor": "nwse",
+      "qt_widget": "StandardTitleBar"
+    },
+    {
+      "mode": "without_client_repair",
+      "target": "content",
+      "hit": 1,
+      "cursor": "arrow",
+      "qt_widget": "QWidget"
+    },
+    {
+      "mode": "with_client_repair",
+      "target": "left",
+      "hit": 10,
+      "cursor": "horizontal",
+      "qt_widget": "QWidget"
+    },
+    {
+      "mode": "with_client_repair",
+      "target": "content",
+      "hit": 1,
+      "cursor": "arrow",
+      "qt_widget": "QWidget"
+    },
+    {
+      "mode": "with_client_repair",
+      "target": "top",
+      "hit": 12,
+      "cursor": "vertical",
+      "qt_widget": "StandardTitleBar"
+    },
+    {
+      "mode": "with_client_repair",
+      "target": "title",
+      "hit": 1,
+      "cursor": "arrow",
+      "qt_widget": "StandardTitleBar"
+    },
+    {
+      "mode": "with_client_repair",
+      "target": "right",
+      "hit": 11,
+      "cursor": "horizontal",
+      "qt_widget": "QWidget"
+    },
+    {
+      "mode": "with_client_repair",
+      "target": "text",
+      "hit": 1,
+      "cursor": "ibeam",
+      "qt_widget": "QWidget"
+    },
+    {
+      "mode": "with_client_repair",
+      "target": "bottom",
+      "hit": 1,
+      "cursor": "arrow",
+      "qt_widget": "QWidget"
+    },
+    {
+      "mode": "with_client_repair",
+      "target": "link",
+      "hit": 1,
+      "cursor": "hand",
+      "qt_widget": "QLabel"
+    },
+    {
+      "mode": "with_client_repair",
+      "target": "top_left",
+      "hit": 13,
+      "cursor": "nwse",
+      "qt_widget": "StandardTitleBar"
+    },
+    {
+      "mode": "with_client_repair",
+      "target": "content",
+      "hit": 1,
+      "cursor": "arrow",
+      "qt_widget": "QWidget"
+    }
+  ],
+  "screens": [
+    {
+      "size": [
+        3440,
+        1440
+      ],
+      "ratio": 1.0,
+      "dpi": 96.0
+    },
+    {
+      "size": [
+        3840,
+        2160
+      ],
+      "ratio": 1.0,
+      "dpi": 96.0
+    }
+  ],
+  "hotkeys": "disabled",
+  "source": "synthetic library only",
+  "native_rect": [
+    140,
+    120,
+    1220,
+    880
+  ],
+  "window_ratio": 1.0,
+  "maximized_text_cursor": "ibeam",
+  "normal_restored": true,
+  "limitations": [
+    "single current monitor layout only",
+    "no physical drag-resize or suspend/resume",
+    "source run, not packaged EXE"
+  ]
+}

@@ -1,0 +1,66 @@
+{
+  "platform": "windows",
+  "samples": [
+    {
+      "target": "text",
+      "before": "horizontal",
+      "handled": true,
+      "expected": "ibeam",
+      "actual": "ibeam",
+      "passed": true
+    },
+    {
+      "target": "link",
+      "before": "horizontal",
+      "handled": true,
+      "expected": "hand",
+      "actual": "hand",
+      "passed": true
+    },
+    {
+      "target": "title",
+      "before": "horizontal",
+      "handled": true,
+      "expected": "arrow",
+      "actual": "arrow",
+      "passed": true
+    }
+  ],
+  "screens": [
+    {
+      "size": [
+        3440,
+        1440
+      ],
+      "ratio": 1.0,
+      "dpi": 96.0
+    },
+    {
+      "size": [
+        3840,
+        2160
+      ],
+      "ratio": 1.0,
+      "dpi": 96.0
+    }
+  ],
+  "hotkeys": "disabled",
+  "source": "synthetic library only",
+  "native_rect": [
+    140,
+    120,
+    1220,
+    880
+  ],
+  "window_ratio": 1.0,
+  "scenario": "explicit stale-resize-cursor injection; not natural reproduction",
+  "parsed_message_type": "ctypes.wintypes.MSG from native pointer",
+  "edge_delegated": true,
+  "maximized_text_cursor": "ibeam",
+  "normal_restored": true,
+  "limitations": [
+    "first monitor at 96 DPI only; two screens detected",
+    "no physical drag-resize or suspend/resume",
+    "source run, not packaged EXE"
+  ]
+}

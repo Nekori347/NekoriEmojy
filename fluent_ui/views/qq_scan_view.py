@@ -131,9 +131,8 @@ class QQImportWorker(QThread):
                     if temp_gif:
                         target_file_to_save = temp_gif
 
-                dest_path, is_duplicated = self.storage.save_file(target_file_to_save)
+                dest_path, is_duplicated = self.storage.save_file(target_file_to_save, target_category=self.category_name)
                 if dest_path:
-                    self.storage.add_image_to_category(dest_path, self.category_name)
                     if is_duplicated:
                         dup_count += 1
                     imported_count += 1

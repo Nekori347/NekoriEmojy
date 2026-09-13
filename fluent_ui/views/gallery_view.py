@@ -13,6 +13,7 @@ from qfluentwidgets import (
     MessageBoxBase, SubtitleLabel, CheckBox
 )
 
+from services.image_inputs import can_import, snapshot_inputs
 from fluent_ui.components.emoji_card import EmojiCard
 from fluent_ui.components.hover_preview import HoverPreviewPopup
 from fluent_ui.components.hover_preview_controller import HoverPreviewController
@@ -20,56 +21,12 @@ from fluent_ui.components.safe_round_menu import SafeRoundMenu
 
 user32 = ctypes.windll.user32
 
-FAILED_RETENTION_DAYS = 7
-CLEANUP_THROTTLE_HOURS = 1
 
 def get_window_class_name(hwnd):
     """获取窗口的类名"""
     buff = ctypes.create_unicode_buffer(256)
     user32.GetClassNameW(hwnd, buff, 256)
     return buff.value
-
-class DownloadThread(QThread):
-    finished = Signal(bool, str, str, str) # success, temp_filepath, error_msg, url
-
-    def __init__(self, url, parent=None):
-        super().__init__(parent)
-        self.url = url
-
-    def run(self):
-        import urllib.request
-        import urllib.error
-        import tempfile
-        import os
-        try:
-            req = urllib.request.Request(self.url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-            with urllib.request.urlopen(req, timeout=10) as response:
-                # 检查 Content-Type
-                content_type = response.headers.get('Content-Type', '').lower()
-                is_image = content_type.startswith('image/')
-
-                # 如果 Content-Type 不明确，检查 URL 后缀
-                if not is_image:
-                    import urllib.parse
-                    parsed_url = urllib.parse.urlparse(self.url)
-                    _, ext = os.path.splitext(parsed_url.path)
-                    if ext.lower() in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
-                        is_image = True
-
-                if not is_image:
-                    self.finished.emit(False, "", "该链接不是有效的图片资源", self.url)
-                    return
-
-                content = response.read()
-
-                # 写入临时文件
-                fd, temp_path = tempfile.mkstemp(suffix=".tmp")
-                with os.fdopen(fd, 'wb') as f:
-                    f.write(content)
-
-                self.finished.emit(True, temp_path, "", self.url)
-        except Exception as e:
-            self.finished.emit(False, "", str(e), self.url)
 
 class DeleteThread(QThread):
     """后台批量删除文件的线程，防止批量删除时主线程卡死"""
@@ -101,74 +58,43 @@ class DeleteThread(QThread):
 
 
 class ImportThread(QThread):
-    """后台异步导入文件的线程，防止批量导入时主线程卡死"""
-    progress = Signal(int, int) # current, total
-    finished = Signal(int, int, int) # saved_count, skipped_count, failed_count
+    """One background adapter for files, clipboard images and browser payloads."""
+    progress = Signal(int, int)
+    finished = Signal(int, int, int)
 
-    def __init__(self, filepaths, storage, target_category, delete_after=False, parent=None):
+    def __init__(self, filepaths, storage, target_category, inbox=False, parent=None):
         super().__init__(parent)
-        self.filepaths = filepaths
-        self.storage = storage
-        self.target_category = target_category
-        self.delete_after = delete_after
-
-    def _handle_failed_import(self, filepath):
-        import os
-        import shutil
-        from datetime import datetime
-        if self.delete_after and os.path.exists(filepath):
-            abs_filepath = os.path.normcase(os.path.abspath(filepath))
-            abs_inbox = os.path.normcase(os.path.abspath(self.storage.inbox_dir))
-            if abs_filepath.startswith(abs_inbox) and not abs_filepath.startswith(os.path.normcase(os.path.abspath(self.storage.inbox_failed_dir))):
-                try:
-                    filename = os.path.basename(filepath)
-                    target_path = os.path.join(self.storage.inbox_failed_dir, filename)
-                    if os.path.exists(target_path):
-                        name, ext = os.path.splitext(filename)
-                        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-                        target_path = os.path.join(self.storage.inbox_failed_dir, f"{name}_{timestamp}{ext}")
-                    shutil.move(filepath, target_path)
-                except Exception as e:
-                    print(f"[ERROR] 移动失败文件到 failed 目录失败: {e}")
-            else:
-                try:
-                    os.remove(filepath)
-                except Exception:
-                    pass
+        from services.importing import ImportInput
+        self.inputs = [p if isinstance(p, ImportInput) else ImportInput('file', p) for p in filepaths]
+        self.storage, self.target_category, self.inbox = storage, target_category, inbox
 
     def run(self):
-        import os
-        saved_count = 0
-        skipped_count = 0
-        failed_count = 0
-        total = len(self.filepaths)
+        from services.importing import ImportPipeline
+        try:
+            counts = ImportPipeline(self.storage).run(self.inputs, self.target_category, self.progress.emit, inbox=self.inbox)
+        except Exception:
+            counts = {'saved': 0, 'duplicate': 0, 'failed': len(self.inputs)}
+        self.finished.emit(counts['saved'], counts['duplicate'], counts['failed'])
 
-        for i, filepath in enumerate(self.filepaths):
-            saved_path, is_duplicate = self.storage.save_file(filepath)
 
-            if saved_path:
-                if is_duplicate:
-                    skipped_count += 1
-                    self.storage.move_image_to_front(saved_path, self.target_category)
-                else:
-                    saved_count += 1
+class IdentityRepairThread(QThread):
+    progress = Signal(int, int)
+    def __init__(self, storage, parent=None):
+        super().__init__(parent)
+        self.storage = storage
 
-                if self.target_category not in ("全部表情", "未分类"):
-                    self.storage.add_image_to_category(saved_path, self.target_category)
-
-                if self.delete_after and os.path.exists(filepath):
-                    try:
-                        os.remove(filepath)
-                    except Exception:
-                        pass
-            else:
-                self._handle_failed_import(filepath)
-                failed_count += 1
-
-            # 每处理一个文件汇报一次进度
-            self.progress.emit(i + 1, total)
-
-        self.finished.emit(saved_count, skipped_count, failed_count)
+    def run(self):
+        from contextlib import nullcontext
+        from services.identity import IdentityIndex
+        from services.importing import recover_imports, recover_deletions
+        from services.diagnostics import event
+        try:
+            with (self.storage.session.task() if self.storage.session else nullcontext()):
+                recover_deletions(self.storage.context)
+                recover_imports(self.storage.context)
+                IdentityIndex(self.storage.context).complete_missing(self.isInterruptionRequested, self.progress.emit)
+        except Exception as exc:
+            event('import.recovery_failed', level='error', error=exc)
 
 
 class ExchangeImportThread(QThread):
@@ -915,7 +841,11 @@ class GalleryInterface(QWidget):
         self.focus_timer.timeout.connect(self.track_active_window)
         self.focus_timer.start(500)
 
-        self.download_threads = []
+        self.download_threads = []  # Kept for old lifecycle introspection.
+        self.identity_repair_thread = IdentityRepairThread(self.storage, self)
+        self.identity_repair_thread.progress.connect(lambda done, total: self.setToolTip(f"旧库索引补齐：{done}/{total}"))
+        self.identity_repair_thread.finished.connect(self.on_images_changed)
+        QTimer.singleShot(100, self.identity_repair_thread.start)
         self.import_thread = None
         # 删除任务按顺序后台执行。后续删除会进入队列，不能因已有任务而被拒绝。
         self.delete_thread = None
@@ -1072,6 +1002,9 @@ class GalleryInterface(QWidget):
         self.btn_setting.clicked.connect(self.setting_requested.emit)
 
         self.top_bar_layout.addStretch() # 把搜索框推到右边
+        self.btn_paste = PushButton("粘贴导入", self.top_bar)
+        self.btn_paste.clicked.connect(self.handle_global_paste)
+        self.top_bar_layout.addWidget(self.btn_paste)
         self.top_bar_layout.addWidget(self.btn_multi_select)
         self.top_bar_layout.addWidget(self.btn_filter)
         self.top_bar_layout.addWidget(self.btn_export)
@@ -1344,96 +1277,43 @@ class GalleryInterface(QWidget):
         self._check_inbox()
 
     def _check_inbox(self):
-        if self._inbox_scanning:
+        if self._inbox_scanning or self.import_thread and self.import_thread.isRunning():
             return
-
-        import time
-        # 自动清理 failed 目录
-        current_time = time.time()
-        if current_time - self._last_cleanup_time > CLEANUP_THROTTLE_HOURS * 3600:
-            self._last_cleanup_time = current_time
-            self._cleanup_failed_inbox()
-
-        if not os.path.exists(self.storage.inbox_dir):
+        from services.library import read_db
+        import hashlib
+        if not os.path.isdir(self.storage.inbox_dir):
             return
-
-        self._inbox_scanning = True
-
-        pending_files = []
-        from services.webm_converter import is_ffmpeg_available
-        ffmpeg_ready = is_ffmpeg_available()
-
-        for filename in os.listdir(self.storage.inbox_dir):
-            filepath = os.path.join(self.storage.inbox_dir, filename)
-            if not os.path.isfile(filepath):
+        with read_db(self.storage.context.db('library')) as conn:
+            processed = {key: (size, stamp) for key, size, stamp in conn.execute(
+                "SELECT source_key,byte_size,mtime_ns FROM import_sources")}
+        pending = {}
+        for entry in os.scandir(self.storage.inbox_dir):
+            if not entry.is_file(follow_symlinks=False):
                 continue
-
-            if not filename.lower().endswith(self.storage.SUPPORTED_FORMATS):
-                continue
-
-            # 第一层检测：文件锁
             try:
-                with open(filepath, 'a'):
-                    pass
-            except PermissionError:
+                stat = entry.stat()
+                key = hashlib.sha256(os.path.normcase(os.path.abspath(entry.path)).encode()).hexdigest()
+                signature = (stat.st_size, stat.st_mtime_ns)
+                if stat.st_size > 0 and processed.get(key) != signature:
+                    pending[entry.path] = signature
+            except OSError:
                 continue
-            except Exception:
-                continue
-
-            pending_files.append(filepath)
-
-        if not pending_files:
-            self._inbox_scanning = False
-            return
-
-        # 记录初始大小
-        initial_sizes = {}
-        for filepath in pending_files:
-            try:
-                initial_sizes[filepath] = os.path.getsize(filepath)
-            except FileNotFoundError:
-                pass
-
-        # 延迟 1 秒进行二次检测
-        QTimer.singleShot(1000, lambda: self._verify_and_import_inbox(initial_sizes))
+        if pending:
+            self._inbox_scanning = True
+            QTimer.singleShot(1000, lambda: self._verify_and_import_inbox(pending))
 
     def _verify_and_import_inbox(self, initial_sizes):
-        ready_files = []
-        for filepath, size1 in initial_sizes.items():
+        ready = []
+        for path, signature in initial_sizes.items():
             try:
-                size2 = os.path.getsize(filepath)
-                if size1 == size2 and size1 > 0:
-                    ready_files.append(filepath)
-            except FileNotFoundError:
+                stat = os.stat(path)
+                if signature == (stat.st_size, stat.st_mtime_ns):
+                    ready.append(path)
+            except OSError:
                 pass
-
-        if ready_files:
-            self._start_background_import(ready_files, delete_after=True, silent=True)
-
+        if ready:
+            self._start_background_import(ready, inbox=True, silent=True)
         self._inbox_scanning = False
-
-    def _cleanup_failed_inbox(self):
-        if not os.path.exists(self.storage.inbox_failed_dir):
-            return
-
-        import time
-        from datetime import datetime
-        current_time = time.time()
-        retention_seconds = FAILED_RETENTION_DAYS * 24 * 3600
-
-        for filename in os.listdir(self.storage.inbox_failed_dir):
-            filepath = os.path.join(self.storage.inbox_failed_dir, filename)
-            if not os.path.isfile(filepath):
-                continue
-
-            try:
-                mtime = os.path.getmtime(filepath)
-                if current_time - mtime > retention_seconds:
-                    os.remove(filepath)
-                    print(f"[INFO] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 已自动清理过期失败文件: {filename}")
-            except Exception as e:
-                print(f"[ERROR] 清理失败文件 {filename} 报错: {e}")
-
 
     def _apply_thumbnail_size(self, size):
         # 第一阶段：仅更新尺寸，不判断可见性
@@ -1852,33 +1732,9 @@ class GalleryInterface(QWidget):
             )
 
     def _execute_batch_add(self, paths, cat_name):
-        if not paths: return
-        success_count = 0
-        exist_count = 0
-        error_count = 0
-
-        for p in paths:
-            res = self.storage.add_image_to_category(p, cat_name)
-            if res == "success":
-                success_count += 1
-            elif res == "already_exists":
-                exist_count += 1
-            else:
-                error_count += 1
-
-        msg = f"成功添加 {success_count} 项。"
-        if exist_count > 0:
-            msg += f"\n跳过 {exist_count} 项 (目标分类已存在)。"
-        if error_count > 0:
-            msg += f"\n异常 {error_count} 项 (添加失败)。"
-
-        if success_count > 0:
-            self.show_success("批量添加完成", msg)
-        else:
-            self.show_error("批量添加未执行", msg)
-
-        self.set_selection_mode(False)
+        count = self.storage.add_images_to_category(paths, cat_name)
         self.on_images_changed()
+        self.show_success("添加到分类", f"已添加 {count} 个表情")
 
     def _execute_batch_move(self, paths, target_cat):
         if not paths: return
@@ -2072,7 +1928,7 @@ class GalleryInterface(QWidget):
     # ================== 拖拽逻辑 ==================
 
     def dragEnterEvent(self, event):
-        if event.mimeData().hasFormat("application/x-emojy-reorder") or event.mimeData().hasUrls():
+        if event.mimeData().hasFormat("application/x-emojy-reorder") or can_import(event.mimeData()):
             event.accept()
         else:
             event.ignore()
@@ -2082,7 +1938,7 @@ class GalleryInterface(QWidget):
         super().dragLeaveEvent(event)
 
     def dragMoveEvent(self, event):
-        if event.mimeData().hasFormat("application/x-emojy-reorder") or event.mimeData().hasUrls():
+        if event.mimeData().hasFormat("application/x-emojy-reorder") or can_import(event.mimeData()):
             event.accept()
 
             # 处理自动滚动
@@ -2158,6 +2014,16 @@ class GalleryInterface(QWidget):
             event.accept()
             return
 
+        if not mime_data.hasUrls() and can_import(mime_data):
+            inputs = snapshot_inputs(mime_data)
+            if inputs:
+                self._start_background_import(inputs)
+                event.acceptProposedAction()
+            else:
+                self.show_error("无法导入", "网页未提供可读取的图片，请尝试复制图片。")
+                event.ignore()
+            return
+
         if mime_data.hasUrls():
             local_files = []
             folder_to_import = None
@@ -2171,14 +2037,14 @@ class GalleryInterface(QWidget):
                     else:
                         abs_filepath = os.path.normcase(os.path.abspath(filepath))
                         abs_storage = os.path.normcase(os.path.abspath(self.storage.images_dir))
-                        if not abs_filepath.startswith(abs_storage):
+                        from pathlib import Path
+                        if not Path(abs_filepath).is_relative_to(Path(abs_storage)):
                             local_files.append(filepath)
                 elif url.scheme() in ("http", "https"):
-                    self.show_success("正在下载", "正在从网络获取图片，请稍候...")
-                    thread = DownloadThread(url.toString(), self)
-                    self.download_threads.append(thread)
-                    thread.finished.connect(self._on_download_finished)
-                    thread.start()
+                    from services.image_inputs import snapshot_inputs
+                    self._start_background_import(snapshot_inputs(mime_data))
+                    event.acceptProposedAction()
+                    return
 
             event.accept()
 
@@ -2572,14 +2438,14 @@ class GalleryInterface(QWidget):
         self.delete_thread.finished.connect(on_thread_finished)
         self.delete_thread.start()
 
-    def _start_background_import(self, filepaths, delete_after=False, silent=False, target_category=None, folder_stats=None):
+    def _start_background_import(self, filepaths, inbox=False, silent=False, target_category=None, folder_stats=None):
         if self.import_thread and self.import_thread.isRunning():
             if not silent:
                 self.show_error("导入中", "当前有导入任务正在进行，请稍候...")
             return
 
         import_category = target_category if target_category else self.current_category
-        self.import_thread = ImportThread(filepaths, self.storage, import_category, delete_after, self)
+        self.import_thread = ImportThread(filepaths, self.storage, import_category, inbox, self)
         self.import_thread.progress.connect(self._on_import_progress)
         self.import_thread.finished.connect(lambda s, k, f: self._on_import_finished(s, k, f, silent, folder_stats))
 
@@ -2609,6 +2475,8 @@ class GalleryInterface(QWidget):
             self._import_info_bar = None
 
         self.on_images_changed()
+        if failed_count:
+            self.show_error("部分图片未导入", f"{failed_count} 项获取、解码或保存失败。原文件已保留，可通过本地文件重试。")
 
         if folder_stats:
             # 文件夹导入的详细统计弹窗
@@ -2637,29 +2505,11 @@ class GalleryInterface(QWidget):
                 self.show_success("导入完成", "，".join(msg))
 
     def handle_global_paste(self):
-        data_type, data = self.clipboard.get_data_from_clipboard()
-
-        if data_type == 'file':
-            self._start_background_import(data)
-        elif data_type == 'image':
-            saved_path, is_duplicate = self.storage.save_image(data)
-            if saved_path:
-                if is_duplicate:
-                    self.storage.move_image_to_front(saved_path, self.current_category)
-                elif self.current_category not in ("全部表情", "未分类"):
-                    self.storage.add_image_to_category(saved_path, self.current_category)
-                self.on_images_changed()
-                if is_duplicate:
-                    self.show_success("导入完成", "该图片已存在，已排至最前")
-                else:
-                    self.show_success("保存成功", "静态图片已保存")
-        elif data_type == 'network_url':
-            url = data
-            self.show_success("正在下载", "正在从网络获取图片，请稍候...")
-            thread = DownloadThread(url, self)
-            self.download_threads.append(thread)
-            thread.finished.connect(self._on_download_finished)
-            thread.start()
+        inputs = self.clipboard.get_import_inputs()
+        if inputs:
+            self._start_background_import(inputs)
+        else:
+            self.show_error("无法导入", "剪贴板没有可读取的图片，请复制图片或本地文件。")
 
     def _show_exchange_menu(self):
         menu = RoundMenu(parent=self)
@@ -2886,16 +2736,3 @@ class GalleryInterface(QWidget):
                 "导出成功",
                 f"已导出 {count} 个资源、{category_count} 个收藏夹到\n{zip_path}\n跳过 {skipped} 项"
             )
-
-    def _on_download_finished(self, success, temp_filepath, error_msg, url):
-        for t in self.download_threads[:]:
-            if t.url == url:
-                self.download_threads.remove(t)
-                t.deleteLater()
-
-        if not success:
-            self.show_error("下载失败", f"无法获取网络图片: {error_msg}")
-            return
-
-        # 将下载好的临时文件交给统一的导入流程，并要求导入后删除临时文件
-        self._start_background_import([temp_filepath], delete_after=True)

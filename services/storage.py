@@ -1,7 +1,5 @@
 import os
-import uuid
 from datetime import datetime
-import shutil
 import hashlib
 import io
 from contextlib import closing, nullcontext
@@ -50,26 +48,15 @@ class StorageService:
         self._metadata_dirty = True
         self._recent_cache = None
         self._sync_key_index = None
+        self._import_number = 0
         # Opening never repairs, hashes or rewrites user state.
 
 
     def _get_sync_key_index(self):
-        if self._sync_key_index is not None:
-            return self._sync_key_index
-        
-        self._sync_key_index = {}
-        if os.path.exists(self.images_dir):
-            from services.hasher import compute_sync_key
-            filenames = sorted(os.listdir(self.images_dir))
-            for filename in filenames:
-                if filename.lower().endswith(self.SUPPORTED_FORMATS):
-                    abspath = self._to_abspath(filename)
-                    skey = compute_sync_key(abspath)
-                    if skey:
-                        self._sync_key_index.setdefault(skey, filename)
-        return self._sync_key_index
-
-
+        # Compatibility view over persistent values; never opens image bytes.
+        with read_db(self.features_db_path) as conn:
+            return {key: name for key, name in conn.execute(
+                "SELECT sync_key, image_path FROM resource_identity WHERE state='ready' AND sync_key IS NOT NULL ORDER BY image_path DESC")}
 
 
     # ==========================
@@ -157,43 +144,18 @@ class StorageService:
     # ==========================
 
     def get_all_images(self):
-        """扫描并返回所有保存的图片绝对路径列表（支持自定义排序）"""
+        """Only committed resources are visible; order is always read from SQLite."""
         if not self._images_dirty:
-            return self._images_cache
-            
-        if not os.path.exists(self.images_dir):
-            self._images_cache = []
-            self._images_dirty = False
-            return self._images_cache
-            
-        actual_filenames = []
-        for filename in os.listdir(self.images_dir):
-            if filename.lower().endswith(self.SUPPORTED_FORMATS):
-                actual_filenames.append(filename)
-        
-        actual_filenames.sort(reverse=True)
-        
-        saved_filenames = []
-
+            return self._images_cache.copy()
         with read_db(self.order_db_path) as conn:
-            saved_filenames = [self._to_filename(row[0]) for row in conn.execute(
-                "SELECT image_path FROM item_orders ORDER BY sort_order ASC")]
-
-        if saved_filenames:
-            actual_set = set(actual_filenames)
-            saved_set = set(saved_filenames)
-            
-            valid_saved_filenames = [f for f in saved_filenames if f in actual_set]
-            new_filenames = [f for f in actual_filenames if f not in saved_set]
-            
-            ordered_filenames = new_filenames + valid_saved_filenames
-            self._images_cache = [self._to_abspath(f) for f in ordered_filenames]
-            self._images_dirty = False
-            return self._images_cache
-                
-        self._images_cache = [self._to_abspath(f) for f in actual_filenames]
+            names = [row[0] for row in conn.execute("SELECT image_path FROM item_orders ORDER BY sort_order")]
+        with read_db(self.features_db_path) as conn:
+            known = {row[0] for row in conn.execute("SELECT image_path FROM resource_identity WHERE state IN ('ready','unindexed','error')")}
+            pending = {row[0] for row in conn.execute("SELECT image_path FROM resource_identity WHERE state='pending'")}
+        ordered = sorted(known - set(names), reverse=True) + names
+        self._images_cache = [self._to_abspath(name) for name in ordered if name not in pending and os.path.isfile(self._to_abspath(name))]
         self._images_dirty = False
-        return self._images_cache
+        return self._images_cache.copy()
 
     @library_operation
     def move_image_to_front(self, filepath, target_category=None):
@@ -306,21 +268,19 @@ class StorageService:
 
 
     @library_operation
+    def add_images_to_category(self, filepaths, category_name):
+        from services.importing import add_relations
+        names = list(dict.fromkeys(self._to_filename(self._to_abspath(p)) for p in filepaths))
+        for name in names:
+            if not os.path.isfile(self._to_abspath(name)):
+                raise LibraryError("分类操作中的资源已不存在。")
+        with self.context.transaction() as conn:
+            count = add_relations(conn, names, category_name)
+        self._categories_dirty = True
+        return count
+
     def add_image_to_category(self, filepath, category_name):
-        """将图片添加到指定分类"""
-        categories = self.get_all_categories()
-        if category_name not in categories:
-            categories[category_name] = []
-            
-        abs_filepath = self._to_abspath(filepath)
-        if abs_filepath not in categories[category_name]:
-            categories[category_name].append(abs_filepath)
-            try:
-                self.save_categories(categories)
-                return "success"
-            except Exception:
-                return "error"
-        return "already_exists"
+        return "success" if self.add_images_to_category([filepath], category_name) else "already_exists"
 
     @library_operation
     def remove_image_from_category(self, filepath, category_name):
@@ -610,15 +570,8 @@ class StorageService:
                 raise RuntimeError(f"解析 WebP 图像失败: {e}")
 
             if is_animated:
-                from services.webm_converter import convert_animated_webp_to_gif
-                try:
-                    gif_bytes = convert_animated_webp_to_gif(data_bytes)
-                    with Image.open(io.BytesIO(gif_bytes)) as test_img:
-                        if getattr(test_img, "n_frames", 1) < 1:
-                            raise RuntimeError("转换后的 GIF 帧数无效")
-                    return gif_bytes, "gif", True
-                except Exception as e:
-                    raise RuntimeError(f"动态 WebP 转 GIF 失败: {e}")
+                # Preserve the original animation, timing, alpha and WebP quality.
+                return data_bytes, "webp", True
             else:
                 # 静态 WebP 不转为 GIF，保持现有静态处理方式
                 return data_bytes, "webp", False
@@ -676,119 +629,57 @@ class StorageService:
 
         return data_bytes, fmt, False
 
-    def _standardize_and_save(self, data_bytes, original_ext, source_path=None):
-        try:
-            # 步骤 1：格式归一化预处理（魔数识别、动态 WebM/动态 WebP/APNG 转为标准 GIF）
-            norm_bytes, norm_fmt, is_norm_animated = self._convert_source_to_standard_bytes(data_bytes, source_path)
-
-            img = Image.open(io.BytesIO(norm_bytes))
-            is_animated = getattr(img, "is_animated", False) or is_norm_animated
-
-            # 步骤 2：清洗与编码
-            if is_animated:
-                # 动态资源（GIF）保留原始帧与透明通道，对转换后的最终 GIF 执行哈希
+    def _standardize_and_save(self, data_bytes, original_ext, source_path=None, target_category=None):
+        from services.importing import commit_image
+        import time
+        import threading
+        started = time.perf_counter()
+        self._import_number += 1
+        event("import.started", count={"sequence": self._import_number, "ui_thread": int(threading.current_thread() is threading.main_thread())})
+        norm_bytes, norm_fmt, animated = self._convert_source_to_standard_bytes(data_bytes, source_path)
+        with Image.open(io.BytesIO(norm_bytes)) as img:
+            animated = animated or getattr(img, "n_frames", 1) > 1
+            if animated:
                 final_bytes = norm_bytes
-                final_ext = '.gif'
-                file_hash = self._calculate_bytes_hash(final_bytes)
+                extension = ".webp" if norm_fmt == "webp" else ".gif"
             else:
-                # 静态资源（静态 WebP/PNG/JPG/BMP 等）现有处理方式一律不改
-                if img.mode != 'RGBA':
-                    img = img.convert('RGBA')
-
-                clean_img = Image.new('RGBA', img.size)
-                clean_img.paste(img, (0, 0))
-
-                output_io = io.BytesIO()
-                clean_img.save(output_io, format="PNG", optimize=True)
-                final_bytes = output_io.getvalue()
-                final_ext = '.png'
-
-                # 语义钉死：写入 image_features.md5 的值一律是 file_md5
-                file_hash = self._calculate_bytes_hash(final_bytes)
-
-            # 步骤 3：哈希查重与去重入库
-            # L1 快路径：用最终入库文件的 file_md5 在 _hashes_cache 中查找
-            if file_hash and file_hash in self._hashes_cache:
-                existing_filename = self._hashes_cache[file_hash]
-                existing_path = self._to_abspath(existing_filename)
-                if os.path.exists(existing_path):
-                    self.move_image_to_front(existing_path)
-                    return existing_path, True
-                else:
-                    del self._hashes_cache[file_hash]
-
-            # L2 像素路径：快路径未命中且为静态图时，与本地 images 目录的 sync_key 索引比对
-            if not is_animated:
-                pixel_hash = self._calculate_pixel_hash(img)
-                if pixel_hash:
-                    skey = f"p:{pixel_hash}"
-                    sync_index = self._get_sync_key_index()
-                    if skey in sync_index:
-                        existing_filename = sync_index[skey]
-                        existing_path = self._to_abspath(existing_filename)
-                        if os.path.exists(existing_path):
-                            self._hashes_cache[file_hash] = existing_filename
-                            self._save_hashes()
-                            self.move_image_to_front(existing_path)
-                            return existing_path, True
-
-            # 步骤 4：正式写入磁盘
-            filename = self.generate_new_filename(final_ext)
-            filepath = os.path.join(self.images_dir, filename)
-
-            with open(filepath, 'wb') as f:
-                f.write(final_bytes)
-
-            if file_hash:
-                self._hashes_cache[file_hash] = filename
-                self._save_hashes()
-
-            # 同步维护内存中的 sync_key 索引
-            if not is_animated:
-                pixel_hash = self._calculate_pixel_hash(img)
-                if pixel_hash:
-                    skey = f"p:{pixel_hash}"
-                    self._get_sync_key_index().setdefault(skey, filename)
-            else:
-                skey = f"f:{file_hash}"
-                self._get_sync_key_index().setdefault(skey, filename)
-
-            self._images_dirty = True
-            return self._to_abspath(filename), False
-
-        except Exception as e:
-            print(f"[ERROR] 图片标准化保存失败: {e}")
-            return None, False
+                clean = Image.new("RGBA", img.size)
+                clean.paste(img.convert("RGBA"), (0, 0))
+                output = io.BytesIO()
+                clean.save(output, format="PNG", optimize=True)
+                final_bytes, extension = output.getvalue(), ".png"
+        event("import.normalized", elapsed_ms=round((time.perf_counter()-started)*1000, 2), count={"input_bytes": len(data_bytes)})
+        result = commit_image(self.context, final_bytes, extension, target_category)
+        self._images_dirty = True
+        self._categories_dirty = True
+        self._metadata_dirty = True
+        return self._to_abspath(result[0]), result[1]
 
     @library_operation
-    def save_image(self, qimage):
+    def save_image(self, qimage, target_category=None):
         from PySide6.QtCore import QByteArray, QBuffer, QIODevice
-
         byte_array = QByteArray()
         buffer = QBuffer(byte_array)
         buffer.open(QIODevice.WriteOnly)
-        qimage.save(buffer, "PNG")
-        image_bytes = byte_array.data()
-
-        return self._standardize_and_save(image_bytes, ".png")
+        if not qimage.save(buffer, "PNG"):
+            raise LibraryError("剪贴板图片编码失败。")
+        return self._standardize_and_save(byte_array.data(), ".png", target_category=target_category)
 
     @library_operation
-    def save_file(self, source_path):
-        if not os.path.exists(source_path):
-            return None, False
-
+    def save_file(self, source_path, target_category=None):
+        from services.importing import MAX_INPUT_BYTES
         try:
-            with open(source_path, 'rb') as f:
-                data_bytes = f.read()
-
-            _, ext = os.path.splitext(source_path)
-            ext = ext.lower()
-            if not ext:
-                ext = ".png"
-
-            return self._standardize_and_save(data_bytes, ext, source_path=source_path)
-        except Exception as e:
-            print(f"[ERROR] 读取文件失败: {e}")
+            before = os.stat(source_path)
+            if before.st_size > MAX_INPUT_BYTES:
+                raise LibraryError("图片超过 128 MiB 导入上限。")
+            with open(source_path, 'rb') as source:
+                data = source.read(MAX_INPUT_BYTES + 1)
+            after = os.stat(source_path)
+            if len(data) > MAX_INPUT_BYTES or (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+                raise LibraryError("源文件正在变化，请稍后重试。")
+            return self._standardize_and_save(data, '', source_path=source_path, target_category=target_category)
+        except Exception as exc:
+            event("import.failed", level="warning", stage="file", error=exc)
             return None, False
 
     def force_reload(self):
@@ -893,188 +784,9 @@ class StorageService:
 
     @library_operation
     def delete_images_batch(self, filepaths, progress_callback=None, cancel_check=None):
-        """批量删除指定的图片文件，并同步清理分类、元数据、哈希、最近使用（数据库同步清理）"""
-        result = {
-            'requested': len(filepaths),
-            'deleted': 0,
-            'missing_cleaned': 0,
-            'failed': 0,
-            'cancelled': 0,
-            'unprocessed': 0,
-            'failure_details': {}
-        }
-        
-        if not filepaths:
-            return result
-            
-        norm_paths = []
-        seen = set()
-        for p in filepaths:
-            if not p:
-                continue
-            abs_p = self._to_abspath(p)
-            if abs_p not in seen:
-                seen.add(abs_p)
-                norm_paths.append(abs_p)
-                
-        result['requested'] = len(norm_paths)
-        
-        valid_paths = []
-        for p in norm_paths:
-            real_p = os.path.normcase(os.path.abspath(os.path.realpath(p)))
-            real_images_dir = os.path.normcase(os.path.abspath(os.path.realpath(self.images_dir)))
-            if not real_p.startswith(real_images_dir + os.sep) and real_p != real_images_dir:
-                result['failed'] += 1
-                result['failure_details'][p] = "拒绝删除：路径越出资源库边界"
-            else:
-                valid_paths.append(p)
-                
-        if not valid_paths:
-            return result
-
-        CHUNK_SIZE = 50
-        total_valid = len(valid_paths)
-        
-        db_paths = {
-            'features': self.features_db_path,
-            'metadata': self.metadata_db_path,
-            'categories': self.categories_db_path,
-            'order': self.order_db_path,
-            'recent': self.recent_db_path
-        }
-        
-        all_items_to_clean = []
-
-        with self.lock:
-            for chunk_idx in range(0, total_valid, CHUNK_SIZE):
-                if cancel_check and cancel_check():
-                    result['cancelled'] += len(valid_paths) - chunk_idx
-                    result['unprocessed'] = len(valid_paths) - chunk_idx
-                    break
-
-                chunk = valid_paths[chunk_idx:chunk_idx + CHUNK_SIZE]
-
-                deleted_in_chunk = []
-                missing_in_chunk = []
-                failed_in_chunk = []
-
-                for p in chunk:
-                    if cancel_check and cancel_check():
-                        break
-
-                    if not os.path.exists(p):
-                        missing_in_chunk.append(p)
-                    else:
-                        try:
-                            os.remove(p)
-                            deleted_in_chunk.append(p)
-                        except Exception as e:
-                            failed_in_chunk.append(p)
-                            result['failure_details'][p] = f"物理删除失败: {str(e)}"
-
-                items_to_clean = deleted_in_chunk + missing_in_chunk
-                if items_to_clean:
-                    all_items_to_clean.extend(items_to_clean)
-
-                result['deleted'] += len(deleted_in_chunk)
-                result['missing_cleaned'] += len(missing_in_chunk)
-                result['failed'] += len(failed_in_chunk)
-
-                if progress_callback:
-                    progress_callback(result['deleted'] + result['missing_cleaned'] + result['failed'], total_valid)
-
-            # 循环全部结束后，一次性更新数据库记录，极大地提高大批量删除效率
-            if all_items_to_clean:
-                filenames_to_clean = [self._to_filename(p) for p in all_items_to_clean]
-                filenames_set = set(filenames_to_clean)
-                filepaths_set = set(all_items_to_clean)
-
-                # 1. 批量清理并保存分类关系
-                categories = self.get_all_categories()
-                changed_cats = False
-                for cat_name, paths in categories.items():
-                    new_paths = [path for path in paths if path not in filepaths_set]
-                    if len(new_paths) != len(paths):
-                        categories[cat_name] = new_paths
-                        changed_cats = True
-                if changed_cats:
-                    self.save_categories(categories)
-
-                # 2. 批量清理并保存元数据
-                metadata = self.get_all_metadata()
-                changed_meta = False
-                for p in all_items_to_clean:
-                    if p in metadata:
-                        del metadata[p]
-                        changed_meta = True
-                if changed_meta:
-                    self.save_metadata(metadata)
-
-                # 3. 批量清理并保存最近缓存
-                if self._recent_cache is not None:
-                    new_recent = [p for p in self._recent_cache if p not in filepaths_set]
-                    if len(new_recent) != len(self._recent_cache):
-                        self._recent_cache = new_recent
-
-                # 4. 批量清理并保存哈希缓存
-                changed_hashes = False
-                hash_keys_to_remove = []
-                for h, f in self._hashes_cache.items():
-                    if f in filenames_set:
-                        hash_keys_to_remove.append(h)
-                for h in hash_keys_to_remove:
-                    del self._hashes_cache[h]
-                    changed_hashes = True
-                if changed_hashes:
-                    self._save_hashes()
-
-                # 5. 批量清理并重建同步键索引缓存
-                if self._sync_key_index is not None:
-                    keys_to_del = [k for k, v in self._sync_key_index.items() if v in filenames_set]
-                    for k in keys_to_del:
-                        del self._sync_key_index[k]
-
-                    if keys_to_del:
-                        from services.hasher import compute_sync_key
-                        all_images_remaining = []
-                        if os.path.exists(self.images_dir):
-                            all_images_remaining = sorted(os.listdir(self.images_dir))
-                        for other_name in all_images_remaining:
-                            if other_name not in filenames_set and other_name.lower().endswith(self.SUPPORTED_FORMATS):
-                                other_path = self._to_abspath(other_name)
-                                other_skey = compute_sync_key(other_path)
-                                if other_skey in keys_to_del:
-                                    self._sync_key_index[other_skey] = other_name
-
-                # 6. 批量清理并保存全局列表顺序
-                all_images = self.get_all_images()
-                new_all_images = [p for p in all_images if p not in filepaths_set]
-                if len(new_all_images) != len(all_images):
-                    self.save_order(new_all_images)
-
-                # 7. 批量提交 SQLite 数据库删除事务
-                try:
-                    for db_name, db_path in db_paths.items():
-                        if os.path.exists(db_path):
-                            with connect_existing(db_path) as conn:
-                                if db_name == 'features':
-                                    conn.executemany("DELETE FROM image_features WHERE image_path = ?", [(f,) for f in filenames_to_clean])
-                                elif db_name == 'metadata':
-                                    conn.executemany("DELETE FROM image_metadata WHERE image_path = ?", [(f,) for f in filenames_to_clean])
-                                elif db_name == 'categories':
-                                    conn.executemany("DELETE FROM category_images WHERE image_path = ?", [(f,) for f in filenames_to_clean])
-                                elif db_name == 'order':
-                                    conn.executemany("DELETE FROM item_orders WHERE image_path = ?", [(f,) for f in filenames_to_clean])
-                                elif db_name == 'recent':
-                                    conn.executemany("DELETE FROM recent_history WHERE image_path = ?", [(f,) for f in filenames_to_clean])
-                                conn.commit()
-                except Exception as e:
-                    print(f"[FATAL] 数据库批量删除事务失败: {e}")
-                    raise e
-
-        self._images_dirty = True
-        self._categories_dirty = True
-        self._metadata_dirty = True
+        from services.importing import delete_resources
+        result = delete_resources(self.context, filepaths, progress_callback, cancel_check)
+        self.force_reload()
         return result
 
     def delete_image(self, filepath):

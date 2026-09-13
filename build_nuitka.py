@@ -96,10 +96,7 @@ def main():
         "--nofollow-import-to=PySide6.QtPdfWidgets",
         
         # imageio-ffmpeg 只用于定位 FFmpeg；发布包仅携带实际需要的单个可执行文件。
-        "--include-data-file=" + os.path.join(
-            os.path.dirname(__import__("imageio_ffmpeg").get_ffmpeg_exe()),
-            "ffmpeg-win-x86_64-v7.1.exe",
-        ) + "=ffmpeg/ffmpeg.exe",
+        "--include-data-file=" + __import__("imageio_ffmpeg").get_ffmpeg_exe() + "=ffmpeg/ffmpeg.exe",
 
         # ---- 体积优化：禁止无用的 OpenCV/NumPy 整套依赖进入发布包 ----
         "--nofollow-import-to=cv2",
@@ -234,6 +231,7 @@ def main():
         print("\n====================================")
         print("Build failed with return code", process.returncode)
         print("====================================")
+        sys.exit(process.returncode or 1)
 
 if __name__ == "__main__":
     main()
