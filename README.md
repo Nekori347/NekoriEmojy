@@ -1,3 +1,13 @@
+# NekoriEmojy
+
+基于 [IxinorTyan/SuzuEmojy](https://github.com/IxinorTyan/SuzuEmojy) 的公开 Fork，保留 GPL-3.0 和原作者来源。固定上游基线为 v1.11.6 / `c84e5b2`，上游更新先审查 diff，再选择性吸收。
+
+目前按 [开发阶段记录](docs/development/STATUS.md) 实施，尚无完整 NekoriEmojy 成品 ZIP。完整需求与证据边界见 [交接契约](docs/spec/NekoriEmojy-handoff-v1.1.md)。开发版采用程序目录之外的独立资源库；首次运行明确创建或打开库，数据库、图片、整理结果与偏好随库保存。
+
+以下保留上游 README 和原有能力说明；其中 SuzuEmojy 的旧发布、路径和版本描述不代表 NekoriEmojy 已完成的新功能或交付。
+
+---
+
 # 🥟 SuzuEmojy
 
 [简体中文](#-suzuemojy-cn) | [English](#-suzuemojy-en)

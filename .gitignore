@@ -44,3 +44,9 @@ mini_launcher.py
 # User Data & Config
 data/
 config/config.json
+
+# Nekori development output and local editor state
+.pytest_cache/
+*.swp
+nuitka-crash-report.xml
+NekoriEmojy_Release/

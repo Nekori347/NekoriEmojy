@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Optional, Callable
 
+from contextlib import ExitStack
+from services.library import LibraryContext, LibrarySession, inspect_library
 from PIL import Image
 from io import BytesIO
 
@@ -45,10 +47,18 @@ class ExchangeImportService:
     FORMAT_VERSION = 1
 
     def __init__(self, base_dir: str | os.PathLike[str] | None = None) -> None:
-        root = Path(base_dir) if base_dir is not None else Path(__file__).resolve().parent.parent
-        self.base_dir = root
-        self.data_dir = root / "data"
-        self.images_dir = self.data_dir / "images"
+        self.session = base_dir if isinstance(base_dir, LibrarySession) else None
+        if self.session:
+            self.context = self.session.context
+        elif isinstance(base_dir, LibraryContext):
+            self.context = base_dir
+        elif base_dir is not None:
+            self.context, _ = inspect_library(base_dir)
+        else:
+            raise TypeError("Exchange import requires an explicit library")
+        self.base_dir = self.context.root
+        self.data_dir = self.context.data_dir
+        self.images_dir = self.context.images_dir
 
     def import_zip(
         self,
@@ -60,28 +70,28 @@ class ExchangeImportService:
             raise ExchangeImportError(f"ZIP 文件不存在: {archive}")
 
         staging = Path(tempfile.mkdtemp(prefix="suzu-exchange-import-"))
+        stack = ExitStack()
         connections: list[sqlite3.Connection] = []
         created_files: list[Path] = []
         try:
+            if self.session:
+                stack.enter_context(self.session.task())
             total_zip_files = self._extract_zip(archive, staging, progress_callback)
             total_zip_files = max(total_zip_files, 1)
             manifest = self._load_json(staging / "manifest.json")
             catalog = self._load_json(staging / "catalog.json")
             resources, categories = self._parse_catalog(manifest, catalog, staging)
 
-            self.data_dir.mkdir(parents=True, exist_ok=True)
-            self.images_dir.mkdir(parents=True, exist_ok=True)
-            db_paths = (
-                self.data_dir / "features.db",
-                self.data_dir / "metadata.db",
-                self.data_dir / "categories.db",
-                self.data_dir / "order.db",
-            )
-            for path in db_paths:
-                connection = sqlite3.connect(path)
-                connection.execute("PRAGMA foreign_keys=ON")
-                connection.execute("BEGIN")
-                connections.append(connection)
+            # Existing table names are unique across the retained databases.
+            # ATTACH lets the existing specialized importer use one atomic commit.
+            connection = stack.enter_context(self.context.transaction())
+            connections = [connection] * 4
+
+            # Declared empty categories are part of the format, too.
+            for name in dict.fromkeys(categories.values()):
+                if connection.execute("SELECT 1 FROM categories WHERE name=?", (name,)).fetchone() is None:
+                    sort_order = connection.execute("SELECT COALESCE(MAX(sort_order), -1)+1 FROM categories").fetchone()[0]
+                    connection.execute("INSERT INTO categories(name, sort_order) VALUES (?, ?)", (name, sort_order))
 
             category_ids = self._load_categories(connections[2])
             existing = self._scan_existing()
@@ -151,17 +161,15 @@ class ExchangeImportService:
                 existing[resource.sync_key] = destination
                 imported += 1
 
-            for connection in connections:
-                connection.commit()
+            stack.close()  # Commit all attached databases together.
             if progress_callback:
-                progress_callback(total_zip_files * 4, total_zip_files * 4, "导入完成")
+                try:
+                    progress_callback(total_zip_files * 4, total_zip_files * 4, "导入完成")
+                except Exception:
+                    pass  # Notification failure cannot undo a committed import.
             return imported, skipped
         except Exception as exc:
-            for connection in connections:
-                try:
-                    connection.rollback()
-                except sqlite3.Error:
-                    pass
+            stack.__exit__(type(exc), exc, exc.__traceback__)
             for path in reversed(created_files):
                 try:
                     path.unlink()
@@ -171,8 +179,7 @@ class ExchangeImportService:
                 raise
             raise ExchangeImportError(str(exc)) from exc
         finally:
-            for connection in connections:
-                connection.close()
+            stack.close()
             shutil.rmtree(staging, ignore_errors=True)
 
     def _extract_zip(

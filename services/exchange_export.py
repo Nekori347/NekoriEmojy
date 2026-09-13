@@ -50,17 +50,23 @@ class ExchangeExportService:
     """
 
     def __init__(self, base_dir: Optional[str] = None):
-        if base_dir is None:
-            base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
-        self.base_dir = base_dir
-        self.data_dir = os.path.join(self.base_dir, "data")
-        self.images_dir = os.path.join(self.data_dir, "images")
-        self.features_db_path = os.path.join(self.data_dir, "features.db")
-        self.metadata_db_path = os.path.join(self.data_dir, "metadata.db")
-        self.categories_db_path = os.path.join(self.data_dir, "categories.db")
-        self.metadata_file = os.path.join(self.data_dir, "metadata.json")
-        self.categories_file = os.path.join(self.data_dir, "categories.json")
-        self.app_version = self._read_app_version()
+        from services.library import LibraryContext, LibrarySession, inspect_library
+        self.session = base_dir if isinstance(base_dir, LibrarySession) else None
+        if self.session:
+            self.context = self.session.context
+        elif isinstance(base_dir, LibraryContext):
+            self.context = base_dir
+        elif base_dir is not None:
+            self.context, _ = inspect_library(base_dir)
+        else:
+            raise TypeError("Exchange export requires an explicit library")
+        self.base_dir = str(self.context.root)
+        self.data_dir = str(self.context.data_dir)
+        self.images_dir = str(self.context.images_dir)
+        self.features_db_path = str(self.context.db("features"))
+        self.metadata_db_path = str(self.context.db("metadata"))
+        self.categories_db_path = str(self.context.db("categories"))
+        self.app_version = "NekoriEmojy-P1-dev"
 
     def export_zip(
         self,
@@ -104,7 +110,7 @@ class ExchangeExportService:
             if selected_categories is not None and not refs:
                 continue
 
-            meta_keywords = metadata.get(result.display_name, "")
+            meta_keywords = self._parse_keywords(metadata.get(result.display_name, ""))
             meta_quality = quality_map.get(result.display_name, 0.0)
 
             existing = resource_map.get(result.sync_key)
@@ -287,42 +293,14 @@ class ExchangeExportService:
 
         return ExportSkip(name=display_name, reason=f"unsupported type: {self._sniff_type(data)}")
 
-    def _load_categories_readonly(self) -> Tuple[Dict[str, List[str]], List[Dict[str, Any]]]:
-        raw_entries: List[Tuple[str, List[str]]] = []
+    def _load_categories_readonly(self):
+        from services.library import read_db
+        with read_db(self.categories_db_path) as conn:
+            names = [row[0] for row in conn.execute("SELECT name FROM categories ORDER BY sort_order, id")]
+            entries = [(name, [os.path.basename(row[0]) for row in conn.execute(
+                "SELECT image_path FROM category_images WHERE category_name=?", (name,))]) for name in names]
+        return self._merge_category_entries(entries)
 
-        if os.path.exists(self.categories_db_path):
-            try:
-                with sqlite3.connect(f"file:{self.categories_db_path}?mode=ro", uri=True) as conn:
-                    cur = conn.cursor()
-                    cur.execute("SELECT name FROM categories ORDER BY sort_order ASC, id ASC")
-                    names = [row[0] for row in cur.fetchall()]
-                    for cat_name in names:
-                        cur.execute(
-                            "SELECT image_path FROM category_images WHERE category_name = ?",
-                            (cat_name,),
-                        )
-                        files = [os.path.basename(row[0]) for row in cur.fetchall() if row and row[0]]
-                        raw_entries.append((cat_name, files))
-                    if raw_entries:
-                        return self._merge_category_entries(raw_entries)
-            except Exception:
-                pass
-
-        if os.path.exists(self.categories_file):
-            try:
-                with open(self.categories_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, dict):
-                    for cat_name, paths in data.items():
-                        if isinstance(paths, list):
-                            files = [os.path.basename(p) for p in paths if isinstance(p, str)]
-                        else:
-                            files = []
-                        raw_entries.append((cat_name, files))
-            except Exception:
-                pass
-
-        return self._merge_category_entries(raw_entries)
 
     def _merge_category_entries(self, raw_entries: List[Tuple[str, List[str]]]) -> Tuple[Dict[str, List[str]], List[Dict[str, Any]]]:
         merged: Dict[str, Dict[str, Any]] = {}
@@ -357,31 +335,11 @@ class ExchangeExportService:
 
         return {name: item["files"] for name, item in merged.items()}, warnings
 
-    def _load_metadata_readonly(self) -> Dict[str, str]:
-        result: Dict[str, str] = {}
+    def _load_metadata_readonly(self):
+        from services.library import read_db
+        with read_db(self.metadata_db_path) as conn:
+            return {os.path.basename(name): keywords or "" for name, keywords in conn.execute("SELECT image_path, keywords FROM image_metadata")}
 
-        if os.path.exists(self.metadata_db_path):
-            try:
-                with sqlite3.connect(f"file:{self.metadata_db_path}?mode=ro", uri=True) as conn:
-                    cur = conn.cursor()
-                    cur.execute("SELECT image_path, keywords FROM image_metadata")
-                    for image_path, keywords in cur.fetchall():
-                        result[os.path.basename(image_path)] = str(keywords or "")
-                    return result
-            except Exception:
-                pass
-
-        if os.path.exists(self.metadata_file):
-            try:
-                with open(self.metadata_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, dict):
-                    for k, v in data.items():
-                        result[os.path.basename(k)] = v if isinstance(v, str) else str(v)
-            except Exception:
-                pass
-
-        return result
 
     def _load_quality_scores_readonly(self) -> Dict[str, float]:
         result: Dict[str, float] = {}
@@ -458,7 +416,7 @@ class ExchangeExportService:
     def _parse_keywords(value: Any) -> List[str]:
         if value is None:
             return []
-        raw = str(value)
+        raw = " ".join(str(item) for item in value) if isinstance(value, (list, tuple)) else str(value)
         if not raw.strip():
             return []
 

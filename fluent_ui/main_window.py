@@ -86,7 +86,7 @@ class MainWindow(FramelessWindow):
         self.apply_window_flags()
 
     def _init_window(self):
-        self.setWindowTitle("SuzuEmojy")
+        self.setWindowTitle("NekoriEmojy")
         icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ico.ico")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
