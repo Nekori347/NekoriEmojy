@@ -160,6 +160,9 @@ class CategoryListWidget(QListWidget):
         self.setDropIndicatorShown(True)
         self.setDragDropMode(QListWidget.InternalMove)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        from fluent_ui.components.category_delegate import CategoryDelegate
+        self.setItemDelegate(CategoryDelegate(self))
+        self._drop_target = -1
 
         # 自定义拖拽自动滚动
         self.auto_scroll_timer = QTimer(self)
@@ -174,11 +177,21 @@ class CategoryListWidget(QListWidget):
 
     def dragLeaveEvent(self, event):
         self.auto_scroll_timer.stop()
+        self._drop_target = -1
+        self.viewport().update()
         super().dragLeaveEvent(event)
 
     def dragMoveEvent(self, event):
         if event.mimeData().hasFormat("application/x-emojy-reorder"):
-            event.accept()
+            item = self.itemAt(event.position().toPoint())
+            name = item.data(Qt.UserRole) if item else None
+            valid = name and name not in ("全部表情", "未分类", "新建分类")
+            self._drop_target = self.row(item) if valid else -1
+            self.viewport().update()
+            if valid:
+                event.acceptProposedAction()
+            else:
+                event.ignore()
 
             # 处理自动滚动
             pos_y = event.pos().y()
@@ -196,7 +209,6 @@ class CategoryListWidget(QListWidget):
             else:
                 self.auto_scroll_timer.stop()
 
-            super().dragMoveEvent(event)
         else:
             super().dragMoveEvent(event)
 
@@ -208,6 +220,8 @@ class CategoryListWidget(QListWidget):
 
     def dropEvent(self, event):
         self.auto_scroll_timer.stop()
+        self._drop_target = -1
+        self.viewport().update()
         if event.source() == self:
             current_item = self.currentItem()
             if not current_item:
@@ -236,22 +250,24 @@ class CategoryListWidget(QListWidget):
             if hasattr(self.parent(), 'on_categories_reordered'):
                 QTimer.singleShot(50, self.parent().on_categories_reordered)
         elif event.mimeData().hasFormat("application/x-emojy-reorder"):
-            source_path = bytes(event.mimeData().data("application/x-emojy-reorder")).decode('utf-8')
-            drop_pos = event.pos()
-            target_item = self.itemAt(drop_pos)
-
-            if target_item:
-                target_cat = target_item.data(Qt.UserRole)
-                if not target_cat: target_cat = target_item.text()
-
-                if target_cat and target_cat not in ("全部表情", "新建分类"):
-                    if hasattr(self.parent(), 'storage') and hasattr(self.parent(), 'gallery_view'):
-                        if self.parent().storage.add_image_to_category(source_path, target_cat):
-                            self.parent().gallery_view.show_success("添加成功", f"已快速添加到分类 '{target_cat}'")
-                            # 如果当前在未分类视图，添加后需要刷新以移除该图片
-                            if self.parent().gallery_view.filter_state.unclassified:
-                                self.parent().gallery_view.remove_card_by_path(source_path)
-            event.accept()
+            item = self.itemAt(event.position().toPoint())
+            category = item.data(Qt.UserRole) if item else None
+            if category and category not in ("全部表情", "未分类", "新建分类"):
+                try:
+                    from fluent_ui.drag_payload import paths_from_mime
+                    sidebar = self.parent()
+                    paths = paths_from_mime(event.mimeData(), sidebar.storage.context)
+                    count = sidebar.storage.add_images_to_category(paths, category)
+                    sidebar.gallery_view.on_images_changed()
+                    sidebar.refresh_list(sidebar.gallery_view.current_category)
+                    sidebar.gallery_view.show_success("添加到分类", f"已添加 {count} 个表情")
+                    event.setDropAction(Qt.CopyAction)
+                    event.accept()
+                except Exception as exc:
+                    self.parent().gallery_view.show_error("分类未更改",str(exc))
+                    event.ignore()
+            else:
+                event.ignore()
         else:
             event.ignore()
 
@@ -300,6 +316,12 @@ class CategorySidebar(QWidget):
         self.list_widget.setContextMenuPolicy(Qt.CustomContextMenu)
         self.list_widget.customContextMenuRequested.connect(self._show_context_menu)
 
+        self.tools = QWidget(self)
+        self.tools_layout = QVBoxLayout(self.tools)
+        self.tools_layout.setContentsMargins(8,0,8,8)
+        self.tools_buttons = QHBoxLayout()
+        self.tools_layout.addLayout(self.tools_buttons)
+        layout.addWidget(self.tools)
         layout.addWidget(self.list_widget)
 
         self.list_widget.currentItemChanged.connect(self._on_item_changed)
@@ -434,13 +456,21 @@ class CategorySidebar(QWidget):
         super().resizeEvent(event)
         # 网格模式下不触发外观变化
         if getattr(self, 'is_grid_mode', False):
+            self._update_grid_metrics()
             return
 
         # 根据当前真实宽度自动切换模式
-        if self.width() < 100:
+        if self.width() < 100 or not self.config.get("show_category_names", True):
             self.set_icon_only_mode(True)
         else:
             self.set_icon_only_mode(False)
+
+    def _update_grid_metrics(self):
+        size = self.config.get("category_grid_icon_size", 64)
+        width = max(48, min(size+32, self.list_widget.viewport().width()-12))
+        actual_icon = min(size, width-20)
+        self.list_widget.setIconSize(QSize(actual_icon,actual_icon))
+        self.list_widget.setGridSize(QSize(width,actual_icon+(46 if self.config.get("show_category_names",True) else 24)))
 
     def on_categories_reordered(self):
         """当拖放导致顺序改变时被调用，同步给 storage"""
@@ -465,7 +495,7 @@ class CategorySidebar(QWidget):
         if getattr(self, 'is_grid_mode', False):
             icon_size = self.config.get("category_grid_icon_size", 64) if self.config else 64
             self.list_widget.setIconSize(QSize(icon_size, icon_size))
-            self.list_widget.setGridSize(QSize(icon_size + 20, icon_size + 20))
+            self._update_grid_metrics()
         else:
             icon_size = self.config.get("sidebar_icon_size", 20) if self.config else 20
             self.list_widget.setIconSize(QSize(icon_size, icon_size))
@@ -526,13 +556,19 @@ class CategorySidebar(QWidget):
 
         # 应用 icon_only 状态（网格模式下强制隐藏文字）
         if getattr(self, 'is_grid_mode', False):
-            self._apply_icon_only_state(True)
+            self._apply_icon_only_state(not self.config.get("show_category_names", True))
         else:
-            is_icon_only = getattr(self, '_is_icon_only', False)
+            is_icon_only = getattr(self, '_is_icon_only', False) or not self.config.get("show_category_names", True)
             self._apply_icon_only_state(is_icon_only)
 
-        self.list_widget.blockSignals(False)
         self.set_active_category(select_category)
+        self.list_widget.blockSignals(False)
+        # Repainting category entries must not clear the current multi-selection.
+        current = self.list_widget.currentItem()
+        if current and self.gallery_view and hasattr(self.gallery_view, 'gallery_layout'):
+            name = current.data(Qt.UserRole)
+            if name != self.gallery_view.current_category:
+                self.gallery_view.set_category(name)
 
     def set_icon_only_mode(self, is_icon_only):
         if getattr(self, '_is_icon_only', False) == is_icon_only:
@@ -824,6 +860,13 @@ class GalleryInterface(QWidget):
         self._saved_scroll_position = 0
         self._inbox_scanning = False
         self._last_cleanup_time = 0
+        from services.category_groups import CategoryGroups
+        self.groups = CategoryGroups(self.storage.session or self.storage.context)
+        self._group_sections = []
+        self._group_for_image_index = []
+        self._group_headers = []
+        self._group_card_positions = []
+        self._group_card_tops = []
 
         self._init_ui()
 
@@ -902,6 +945,39 @@ class GalleryInterface(QWidget):
 
         # 首次强制刷新
         self.sidebar.refresh_list("全部表情")
+        self.apply_preferences()
+        self.on_images_changed()
+
+    def apply_preferences(self):
+        sidebar = self.sidebar
+        desired = self.config.get("sidebar_is_grid_mode",False)
+        if sidebar.is_grid_mode != desired:
+            sidebar.is_grid_mode = desired
+            sidebar._apply_grid_mode(desired,is_init=False)
+        sidebar.refresh_list(self.current_category)
+        left_search = self.config.get("left_search",False)
+        left_multi = self.config.get("left_multiselect",False)
+        left_filter = self.config.get("left_filter",False)
+        for widget,left in ((self.btn_multi_select,left_multi),(self.btn_filter,left_filter)):
+            (sidebar.tools_buttons if left else self.top_bar_layout).addWidget(widget)
+        if left_search:
+            sidebar.tools_layout.insertWidget(0,self.search_box)
+        else:
+            self.top_bar_layout.addWidget(self.search_box,1)
+        sidebar.tools.setVisible(left_search or left_multi or left_filter)
+        sidebar.setMinimumWidth(180 if left_search else 60)
+        self.btn_export.hide()
+        self.btn_setting.hide()
+        size = self.config.get('thumbnail_size', 120)
+        for card in self._all_card_widgets:
+            if card.current_size != size:
+                card.update_size(size, load_image=False)
+        self._trigger_responsive_layout(force=True)
+
+    def drag_paths(self, anchor):
+        if anchor in self.selected_paths:
+            return [p for p in self.storage.get_all_images() if p in self.selected_paths]
+        return [anchor]
 
     def _update_i18n_texts(self, lang):
         from services.i18n import t
@@ -977,7 +1053,8 @@ class GalleryInterface(QWidget):
         from services.i18n import t
         self.search_box = SearchLineEdit(self.top_bar)
         self.search_box.setPlaceholderText(t("搜索表情关键词..."))
-        self.search_box.setFixedWidth(240)
+        self.search_box.setMinimumWidth(120)
+        self.search_box.setMaximumWidth(16777215)
         # 搜索防抖定时器
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
@@ -1007,11 +1084,22 @@ class GalleryInterface(QWidget):
         self.top_bar_layout.addWidget(self.btn_paste)
         self.top_bar_layout.addWidget(self.btn_multi_select)
         self.top_bar_layout.addWidget(self.btn_filter)
-        self.top_bar_layout.addWidget(self.btn_export)
-        self.top_bar_layout.addWidget(self.btn_setting)
+        self.btn_export.hide()
+        self.btn_setting.hide()
         self.top_bar_layout.addWidget(self.search_box)
 
         self.right_layout.addWidget(self.top_bar)
+        self.group_toolbar = QWidget(self.right_container)
+        group_row = QHBoxLayout(self.group_toolbar)
+        group_row.setContentsMargins(16,0,16,4)
+        self.group_hint = BodyLabel("小分类可以展开或折叠",self.group_toolbar)
+        self.group_hint.setWordWrap(True)
+        group_row.addWidget(self.group_hint,1)
+        self.btn_new_group = PushButton("新建小分类",self.group_toolbar)
+        self.btn_new_group.clicked.connect(self.create_group)
+        group_row.addWidget(self.btn_new_group)
+        self.group_toolbar.hide()
+        self.right_layout.addWidget(self.group_toolbar)
 
         # 右侧下部：滚动区 (承载网格)
         self.scroll_area = ScrollArea(self.right_container)
@@ -1136,7 +1224,10 @@ class GalleryInterface(QWidget):
         if not self._is_loading:
             scrollbar = self.scroll_area.verticalScrollBar()
             # 当滚动到距离底部 100px 以内时，加载下一批
-            if scrollbar.maximum() - value < 100:
+            if self._group_sections:
+                if self._visible_group_end() > self._loaded_count:
+                    self._load_next_batch()
+            elif scrollbar.maximum() - value < 100:
                 self._load_next_batch()
 
         # 滚动节流：延迟 32ms 执行懒加载，合并高频滚动事件。
@@ -1159,6 +1250,8 @@ class GalleryInterface(QWidget):
         self._trigger_responsive_layout()
 
     def eventFilter(self, obj, event):
+        if obj == self.scroll_area.viewport() and event.type() == event.Type.Resize and hasattr(self, '_all_card_widgets'):
+            self._trigger_responsive_layout()
         if hasattr(self, 'splitter') and obj == self.splitter.handle(1):
             if event.type() == event.Type.MouseButtonRelease:
                 sizes = self.splitter.sizes()
@@ -1344,9 +1437,8 @@ class GalleryInterface(QWidget):
         current_size = self.config.get("thumbnail_size", 120)
 
         for index, widget in enumerate(self._all_card_widgets):
-            row = index // columns
-            card_y = self.LAYOUT_TOP_MARGIN + row * (current_size + self.LAYOUT_SPACING)
-            card_bottom = card_y + current_size
+            card_y = widget.geometry().top()
+            card_bottom = widget.geometry().bottom()
 
             if card_bottom >= visible_top and card_y <= visible_bottom:
                 if widget.needs_reload(current_size):
@@ -1372,59 +1464,55 @@ class GalleryInterface(QWidget):
 
     def _rearrange_gallery(self, columns):
         self.grid_container.setUpdatesEnabled(False)
-
         while self.gallery_layout.count():
             self.gallery_layout.takeAt(0)
-
-        from PySide6.QtCore import QSignalBlocker
-
-        for index, widget in enumerate(getattr(self, '_all_card_widgets', [])):
-            row = index // columns
-            col = index % columns
-
-            blocker = QSignalBlocker(widget)
-            self.gallery_layout.addWidget(widget, row, col)
-            widget.show()
-            del blocker
-
+        for row in range(self.gallery_layout.rowCount()):
+            self.gallery_layout.setRowMinimumHeight(row, 0)
+        cards = getattr(self, '_all_card_widgets', [])
+        self._group_card_positions = []
+        self._group_card_tops = []
+        if self._group_sections:
+            # Empty Qt grid rows omit automatic spacing. Reserve it explicitly so
+            # the scrollbar range remains stable as placeholder rows gain cards.
+            self.gallery_layout.setVerticalSpacing(0)
+            row = 0
+            top = self.LAYOUT_TOP_MARGIN
+            size = self.config.get('thumbnail_size', 120)
+            for section in self._group_sections:
+                self.gallery_layout.addWidget(section['header'], row, 0, 1, columns)
+                section['header'].show()
+                self.gallery_layout.setRowMinimumHeight(row, section['header'].height() + self.LAYOUT_SPACING)
+                row += 1
+                top += section['header'].height() + self.LAYOUT_SPACING
+                rows = (len(section['paths']) + columns - 1) // columns
+                # Reserve section geometry so distant groups do not jump as cards load.
+                for offset in range(rows):
+                    self.gallery_layout.setRowMinimumHeight(row + offset, size + self.LAYOUT_SPACING)
+                for index in range(len(section['paths'])):
+                    self._group_card_positions.append((row + index // columns, index % columns))
+                    self._group_card_tops.append(top + (index // columns) * (size + self.LAYOUT_SPACING))
+                row += rows
+                top += rows * (size + self.LAYOUT_SPACING)
+            for index, widget in enumerate(cards):
+                if index < len(self._group_card_positions):
+                    self.gallery_layout.addWidget(widget, *self._group_card_positions[index])
+                    widget.show()
+        else:
+            self.gallery_layout.setVerticalSpacing(self.LAYOUT_SPACING)
+            for index, widget in enumerate(cards):
+                self.gallery_layout.addWidget(widget, index // columns, index % columns)
+                widget.show()
         self.grid_container.setUpdatesEnabled(True)
         self.grid_container.update()
-
-        # 恢复懒加载定时器，接管缩放结束后的剩余加载任务
         self._lazy_load_timer.start(32)
 
+    def _visible_group_end(self):
+        from bisect import bisect_right
+        bottom = self.scroll_area.verticalScrollBar().value() + self.scroll_area.viewport().height() + 200
+        return bisect_right(self._group_card_tops, bottom)
+
     def remove_card_by_path(self, image_path):
-        """局部刷新：仅移除指定的卡片并重排，避免全局重绘卡顿"""
-        widget_to_remove = None
-        for widget in getattr(self, '_all_card_widgets', []):
-            if getattr(widget, 'image_path', None) == image_path:
-                widget_to_remove = widget
-                break
-
-        if widget_to_remove:
-            self.grid_container.setUpdatesEnabled(False)
-
-            self.gallery_layout.removeWidget(widget_to_remove)
-            widget_to_remove.hide()
-            widget_to_remove.clear_resources()
-            widget_to_remove.setParent(None)
-            widget_to_remove.deleteLater()
-
-            self._all_card_widgets.remove(widget_to_remove)
-
-            if image_path in self._all_current_images:
-                self._all_current_images.remove(image_path)
-                self._loaded_count = max(0, self._loaded_count - 1)
-
-            if image_path in self.selected_paths:
-                self.selected_paths.remove(image_path)
-                self.update_selection_count()
-
-            columns = getattr(self, '_current_columns', max(1, self.scroll_area.viewport().width() // (self.config.get("thumbnail_size", 120) + 10)))
-            self._rearrange_gallery(columns)
-
-            self.grid_container.setUpdatesEnabled(True)
-            self.grid_container.update()
+        self.remove_cards_by_paths([image_path])
 
     def remove_cards_by_paths(self, image_paths):
         """批量局部移除卡片并一次性重排，避免频繁重绘卡顿"""
@@ -1432,6 +1520,16 @@ class GalleryInterface(QWidget):
             return
 
         paths_set = set(image_paths)
+        if self._group_sections:
+            # Rebuild the section view from the surviving visible model immediately;
+            # the completed delete later refreshes authoritative counts from storage.
+            for section in self._group_sections:
+                removed = sum(p in paths_set for p in section['paths'])
+                section['paths'] = [p for p in section['paths'] if p not in paths_set]
+                section['count'] = max(0, section['count'] - removed)
+            self._group_for_image_index = [group for path,group in zip(self._all_current_images,self._group_for_image_index)
+                                          if path not in paths_set]
+        self.selected_paths.difference_update(paths_set)
         widgets_to_remove = []
         for widget in getattr(self, '_all_card_widgets', []):
             if getattr(widget, 'image_path', None) in paths_set:
@@ -1489,6 +1587,15 @@ class GalleryInterface(QWidget):
             except RuntimeError:
                 pass
 
+        for header in self._group_headers:
+            header.hide();header.deleteLater()
+        self._group_headers = []
+        self._group_sections = []
+        self._group_for_image_index = []
+        self._group_card_positions = []
+        self._group_card_tops = []
+        for row in range(self.gallery_layout.rowCount()):
+            self.gallery_layout.setRowMinimumHeight(row, 0)
         self._loaded_count = 0
         self._pending_import_images.clear()
 
@@ -1558,12 +1665,57 @@ class GalleryInterface(QWidget):
         # 3. 触发 UI 重绘 (复用现有的懒加载重排逻辑)
         self._is_loading = True
         self.clear_gallery()
+        self._prepare_groups()
         self._is_loading = False
         self._load_next_batch()
+        self._rearrange_gallery(getattr(self,'_current_columns',1))
 
         # 重置空闲定时器
         from fluent_ui.components.emoji_card import ThumbnailCache
         ThumbnailCache().reset_idle_timer()
+
+    def create_group(self):
+        name,ok = QInputDialog.getText(self,"新建小分类","名称")
+        if ok:
+            try:
+                self.groups.create(self.current_category,name)
+                self.on_images_changed()
+            except Exception as exc:
+                self.show_error("小分类未创建",str(exc))
+
+    def _prepare_groups(self):
+        from fluent_ui.components.group_header import GroupHeader
+        valid_category = self.current_category in self.storage.get_all_categories()
+        self.group_toolbar.setVisible(valid_category)
+        if not valid_category:
+            return
+        groups = self.groups.list(self.current_category)
+        if not groups:
+            return
+        filtered = list(dict.fromkeys(self._all_current_images))
+        searching = bool(self.search_keyword.strip())
+        grouped = set()
+        visible = []
+        for group in groups:
+            # Display uses the existing gallery order; hidden state never affects search.
+            members = set(os.path.normcase(p) for p in group['paths'])
+            paths = [p for p in filtered if p in members]
+            grouped.update(paths)
+            group['count'] = len(paths)
+            group['search_expanded'] = searching
+            group['collapsed'] = group['collapsed'] and not searching
+            group['paths'] = [] if group['collapsed'] else paths
+            self._group_sections.append(group)
+        ungrouped = [p for p in filtered if p not in grouped]
+        if ungrouped:
+            self._group_sections.append(dict(id=None,name="未分入小分类",collapsed=False,count=len(ungrouped),paths=ungrouped))
+        for group in self._group_sections:
+            header = GroupHeader(self,group)
+            group['header'] = header
+            self._group_headers.append(header)
+            visible.extend(group['paths'])
+            self._group_for_image_index.extend([group['id']]*len(group['paths']))
+        self._all_current_images = visible
 
     def refresh_gallery(self):
         """兼容旧接口，直接调用统一刷新入口"""
@@ -1599,7 +1751,9 @@ class GalleryInterface(QWidget):
         target_count = columns * visible_rows
 
         # 确保至少加载一屏，且不超过总数
-        self._target_load_count = min(self._loaded_count + target_count, len(self._all_current_images))
+        self._target_load_count = min(
+            max(self._loaded_count, self._visible_group_end(), target_count) if self._group_sections else
+            self._loaded_count + target_count, len(self._all_current_images))
 
         # 开始分帧渲染
         self._render_timer = QTimer(self)
@@ -1612,6 +1766,8 @@ class GalleryInterface(QWidget):
             self._render_timer.stop()
             self._is_loading = False
             self._apply_lazy_loading()
+            if self._group_sections and self._visible_group_end() > self._loaded_count:
+                self._load_next_batch()
             return
 
         # 获取用户设置的单次渲染上限
@@ -1644,6 +1800,9 @@ class GalleryInterface(QWidget):
                 lambda card=card: self.on_hover_ended(card)
             )
 
+            card.group_id = self._group_for_image_index[index] if self._group_sections else None
+            card.drag_context = self.storage.context
+            card.drag_paths = self.drag_paths
             card.set_selectable(self.is_selection_mode)
             # 恢复选中状态
             if image_path in self.selected_paths:
@@ -1656,7 +1815,10 @@ class GalleryInterface(QWidget):
             self._all_card_widgets.append(card)
 
             blocker = QSignalBlocker(card)
-            self.gallery_layout.addWidget(card, row, col)
+            if self._group_sections and index < len(self._group_card_positions):
+                self.gallery_layout.addWidget(card, *self._group_card_positions[index])
+            else:
+                self.gallery_layout.addWidget(card, row, col)
             del blocker
 
             # 仅让首屏附近少量卡片错峰淡入，避免大批量 opacity effect
@@ -1700,20 +1862,29 @@ class GalleryInterface(QWidget):
             self.selected_paths.add(path)
         else:
             self.selected_paths.discard(path)
+        from PySide6.QtCore import QSignalBlocker
+        for card in getattr(self,'_all_card_widgets',[]):
+            if card.image_path != path:
+                continue
+            blocker = QSignalBlocker(card)
+            card.set_selected(card.image_path in self.selected_paths)
+            del blocker
         self.update_selection_count()
 
     def select_all_cards(self):
         # 全选时，直接将当前分类下的所有图片路径加入集合
-        is_all_selected = len(self.selected_paths) == len(self._all_current_images)
+        is_all_selected = bool(self._all_current_images) and set(self._all_current_images).issubset(self.selected_paths)
 
         if is_all_selected:
             self.selected_paths.clear()
         else:
             self.selected_paths = set(self._all_current_images)
 
-        # 更新已渲染的卡片 UI
+        from PySide6.QtCore import QSignalBlocker
         for widget in getattr(self, '_all_card_widgets', []):
-            widget.set_selected(not is_all_selected)
+            blocker = QSignalBlocker(widget)
+            widget.set_selected(widget.image_path in self.selected_paths)
+            del blocker
 
         self.update_selection_count()
 
@@ -1973,45 +2144,25 @@ class GalleryInterface(QWidget):
         mime_data = event.mimeData()
 
         if mime_data.hasFormat("application/x-emojy-reorder"):
-            source_path = bytes(mime_data.data("application/x-emojy-reorder")).decode('utf-8')
-            drop_pos = event.pos()
-            target_path = None
-            insert_after = False
-
-            view_pos = self.grid_container.mapFrom(self, drop_pos)
-            min_dist = float('inf')
-            best_widget = None
-
-            for i in range(self.gallery_layout.count()):
-                item = self.gallery_layout.itemAt(i)
-                if not item: continue
-                widget = item.widget()
-                if isinstance(widget, EmojiCard):
-                    widget_center = widget.geometry().center()
-                    dist = (view_pos - widget_center).manhattanLength()
-                    if dist < min_dist:
-                        min_dist = dist
-                        best_widget = widget
-                        insert_after = (view_pos.x() > widget_center.x())
-
-            if best_widget:
-                target_path = best_widget.image_path
-
-            if source_path and target_path and source_path != target_path:
-                images = self.storage.get_all_images()
-                # 统一使用标准化绝对路径进行比对，防止路径格式不一致导致排序失效
-                norm_source = self.storage._to_abspath(os.path.basename(source_path))
-                norm_target = self.storage._to_abspath(os.path.basename(target_path))
-
-                if norm_source in images and norm_target in images:
-                    images.remove(norm_source)
-                    target_idx = images.index(norm_target)
-                    if insert_after:
-                        target_idx += 1
-                    images.insert(target_idx, norm_source)
-                    self.storage.save_order(images)
-                    self._reorder_widgets(images)
-            event.accept()
+            from fluent_ui.drag_payload import paths_from_mime
+            try:
+                sources = paths_from_mime(mime_data, self.storage.context)
+                if not sources:
+                    event.ignore()
+                    return
+                view_pos = self.grid_container.mapFrom(self, event.position().toPoint())
+                cards = getattr(self, '_all_card_widgets', [])
+                if not cards:
+                    event.ignore()
+                    return
+                target = min(cards, key=lambda w: (view_pos-w.geometry().center()).manhattanLength())
+                after = view_pos.x() > target.geometry().center().x()
+                self.reorder_resources(sources, target.image_path, after)
+                event.setDropAction(Qt.MoveAction)
+                event.accept()
+            except Exception as exc:
+                self.show_error("排序未更改", str(exc))
+                event.ignore()
             return
 
         if not mime_data.hasUrls() and can_import(mime_data):
@@ -2092,20 +2243,21 @@ class GalleryInterface(QWidget):
             elif local_files:
                 self._start_background_import(local_files)
 
+    def reorder_resources(self, sources, target, after=False):
+        images = self.storage.get_all_images()
+        normalized = {self.storage._to_abspath(p) for p in sources}
+        target = self.storage._to_abspath(target)
+        moving = [p for p in images if p in normalized]
+        if not moving or target in normalized or target not in images:
+            return
+        order = [p for p in images if p not in normalized]
+        index = order.index(target) + int(after)
+        order[index:index] = moving
+        self.storage.save_order(order)
+        self.on_images_changed()
+
     def _reorder_widgets(self, new_order_paths):
-        widget_dict = {w.image_path: w for w in getattr(self, '_all_card_widgets', [])}
-
-        sorted_widgets = []
-        for path in new_order_paths:
-            if path in widget_dict: sorted_widgets.append(widget_dict[path])
-
-        for w in getattr(self, '_all_card_widgets', []):
-            if w not in sorted_widgets: sorted_widgets.append(w)
-
-        self._all_card_widgets = sorted_widgets
-
-        columns = getattr(self, '_current_columns', max(1, self.scroll_area.viewport().width() // (self.config.get("thumbnail_size", 120) + 10)))
-        self._rearrange_gallery(columns)
+        self.on_images_changed()
 
     def force_refresh_sidebar_icons(self):
         """外部调用以重新应用图标尺寸"""
@@ -2124,7 +2276,7 @@ class GalleryInterface(QWidget):
 
     def show_context_menu(self, widget, position):
         if self.is_selection_mode and widget.is_selected:
-            menu = self._build_batch_context_menu(self.get_selected_paths())
+            menu = self._build_batch_context_menu(self.get_selected_paths(), getattr(widget, "group_id", None))
         else:
             menu = self._build_single_context_menu(widget)
 
@@ -2197,9 +2349,10 @@ class GalleryInterface(QWidget):
         delete_action.triggered.connect(lambda: QTimer.singleShot(50, lambda: self.on_delete_requested(widget, image_path)))
         menu.addAction(delete_action)
 
+        self._group_context_actions(menu, [image_path], getattr(widget, "group_id", None))
         return menu
 
-    def _build_batch_context_menu(self, paths):
+    def _build_batch_context_menu(self, paths, group_id=None):
         menu = SafeRoundMenu(parent=self)
 
         categories = self.storage.get_all_categories()
@@ -2267,7 +2420,37 @@ class GalleryInterface(QWidget):
         delete_action.triggered.connect(lambda checked=False, p=paths: self._execute_batch_delete(p))
         menu.addAction(delete_action)
 
+        self._group_context_actions(menu, paths, group_id)
         return menu
+
+    def _group_context_actions(self, menu, paths, group_id):
+        if self.current_category not in self.storage.get_all_categories():
+            return
+        groups = self.groups.list(self.current_category)
+        if not groups:
+            return
+        menu.addSeparator()
+        add_menu = SafeRoundMenu(title="添加到小分类…", parent=menu)
+        for group in groups:
+            action = Action(group['name'], parent=add_menu)
+            action.triggered.connect(lambda checked=False, gid=group['id']: self.change_group_members(gid, paths, True))
+            add_menu.addAction(action)
+        menu.addMenu(add_menu)
+        if group_id:
+            action = Action("从这个小分类移出", parent=menu)
+            action.triggered.connect(lambda: self.change_group_members(group_id, paths, False))
+            menu.addAction(action)
+
+    def change_group_members(self, group_id, paths, add):
+        try:
+            if add:
+                self.groups.add(group_id, paths)
+            else:
+                self.groups.remove(group_id, paths)
+            self.storage.force_reload()
+            self.on_images_changed()
+        except Exception as exc:
+            self.show_error("小分类未更改", str(exc))
 
     def _enter_batch_selection_from_menu(self, widget):
         self.set_selection_mode(True)
@@ -2420,8 +2603,9 @@ class GalleryInterface(QWidget):
                 self.show_error("删除已取消", "未完成的表情未被删除")
 
             # 仅在失败或取消时重建视图，以恢复被乐观隐藏但实际仍存在的卡片。
-            if failed or cancelled:
+            if failed or cancelled or self._group_sections:
                 QTimer.singleShot(0, self.on_images_changed)
+            self.window().apply_runtime_icon()
 
             if on_finished_callback:
                 on_finished_callback()

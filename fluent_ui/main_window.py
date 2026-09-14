@@ -97,7 +97,7 @@ class MainWindow(FramelessWindow):
         else:
             self.resize(860, 640)
             
-        self.setMinimumSize(400, 300)
+        self.setMinimumSize(520, 360)
 
         font = self.font()
         if font.pointSize() <= 0:
@@ -236,11 +236,17 @@ class MainWindow(FramelessWindow):
         self.stacked_widget = QStackedWidget(self)
         self.stacked_widget.addWidget(self.gallery_interface)
         
-        self.setting_interface = SettingInterface(self.config, self)
-        self.setting_interface.settings_changed.connect(self.on_settings_changed)
-        self.setting_interface.back_requested.connect(self.show_gallery)
-        self.setting_interface.about_requested.connect(self.show_about)
-        self.stacked_widget.addWidget(self.setting_interface)
+        from fluent_ui.settings_window import SettingsWindow
+        self.settings_window = SettingsWindow(self)
+        # The page remains available for integrations; it is no longer in the gallery stack.
+        self.setting_interface = self.settings_window.page
+        from qfluentwidgets import TransparentToolButton, FluentIcon as FIF
+        self.title_settings = TransparentToolButton(FIF.SETTING, self.titleBar)
+        self.title_settings.setToolTip("设置")
+        self.title_settings.setFixedSize(40,32)
+        self.title_settings.clicked.connect(self.show_settings)
+        self.titleBar.hBoxLayout.insertWidget(self.titleBar.hBoxLayout.count()-3,self.title_settings)
+        self.titleBar.iconLabel.show()
 
         # 关于软件详情页面
         self.about_interface = AboutInterface(self)
@@ -276,13 +282,8 @@ class MainWindow(FramelessWindow):
         self.quick_panel = QuickPanel(self.storage, self.clipboard, self.config)
         
     def show_settings(self):
-        """暴露给外部托盘图标调用的接口，用于切换到设置页"""
-        self.stacked_widget.setCurrentWidget(self.setting_interface)
-        self.showNormal()
-        self.activateWindow()
-        self.raise_()
-        self._reapply_window_flags_after_show()
-        
+        self.settings_window.show_settings()
+
     def show_gallery(self, refresh=True):
         """切回主面板；快捷键唤醒时应使用 refresh=False 的轻量路径。"""
         # 通过标题栏关闭后，按钮可能保留 pressed/hover 状态；
@@ -518,7 +519,7 @@ class MainWindow(FramelessWindow):
             
         elif changed_key == "show_setting_button":
             is_show = self.config.get("show_setting_button", True)
-            self.gallery_interface.btn_setting.setVisible(is_show)
+            self.title_settings.setVisible(is_show)
             
         elif changed_key in ["global_hotkey", "quick_panel_hotkey"]:
             self.bind_global_hotkey()
@@ -534,12 +535,14 @@ class MainWindow(FramelessWindow):
                 setTheme(Theme.AUTO)
                 
             self._update_background()
+            self.settings_window.update_theme()
             
             # 通知色块选择器更新颜色
             if hasattr(self.setting_interface, 'themeColorCard'):
                 self.setting_interface.themeColorCard.update_colors()
             
-            self.gallery_interface.refresh_gallery()
+            for card in self.gallery_interface._all_card_widgets:
+                card.update_style()
             self.gallery_interface.sidebar.update_theme()
             self.quick_panel.update_theme()
             
@@ -558,9 +561,62 @@ class MainWindow(FramelessWindow):
                 parent=self
             )
             
-        else:
-            self.apply_window_flags()
-            self.bind_global_hotkey()
+        elif changed_key in ("sidebar_is_grid_mode","category_grid_icon_size","show_category_names",
+                             "left_multiselect","left_filter","left_search","thumbnail_size"):
+            self.gallery_interface.apply_preferences()
+        elif changed_key == "runtime_icon":
+            self.apply_runtime_icon()
+
+    def apply_preferences(self):
+        from services.i18n import i18n_engine
+        i18n_engine.set_language(self.config.get("language", "zh"))
+        self.gallery_interface.apply_preferences()
+        self.on_settings_changed("appearance_mode")
+        self.apply_window_flags()
+        self.bind_global_hotkey()
+        self.title_settings.setVisible(self.config.get("show_setting_button", True))
+        self.apply_runtime_icon()
+
+    def choose_runtime_icon(self):
+        from pathlib import Path
+        from fluent_ui.library_image_picker import LibraryImagePicker
+        picker = LibraryImagePicker(self.storage, self.settings_window)
+        if picker.exec() and picker.selected_path:
+            self.config.set('runtime_icon', Path(picker.selected_path).name)
+            self.apply_runtime_icon()
+
+    def reset_runtime_icon(self):
+        self.config.set('runtime_icon', '')
+        self.apply_runtime_icon()
+
+    def apply_runtime_icon(self):
+        from PySide6.QtGui import QImageReader, QPixmap
+        from services.library import LibraryError
+        icon = QIcon(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'ico.ico'))
+        name = self.config.get('runtime_icon', '')
+        if name:
+            try:
+                reader = QImageReader(str(self.storage.context.resource(name)))
+                size = reader.size()
+                if size.isValid():
+                    reader.setScaledSize(size.scaled(QSize(256, 256), Qt.KeepAspectRatio))
+                picture = reader.read()
+                if not picture.isNull():
+                    icon = QIcon(QPixmap.fromImage(picture))
+            except (OSError, ValueError, LibraryError):
+                pass
+        self.setWindowIcon(icon)
+        QApplication.instance().setWindowIcon(icon)
+        self.settings_window.setWindowIcon(icon)
+        self.titleBar.iconLabel.show()
+
+    def show_identity_maintenance(self):
+        from fluent_ui.maintenance_dialog import MaintenanceDialog
+        dialog = getattr(self, 'maintenance_dialog', None)
+        if dialog is None or not dialog.isVisible():
+            self.maintenance_dialog = MaintenanceDialog(self)
+        self.maintenance_dialog.show()
+        self.maintenance_dialog.raise_()
 
     def _init_paste_shortcut(self):
         """全局 Ctrl+V 拦截"""

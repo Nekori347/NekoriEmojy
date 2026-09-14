@@ -492,16 +492,21 @@ class EmojiCard(QLabel):
         if not (event.buttons() & Qt.LeftButton) or self._drag_start_pos is None:
             return super().mouseMoveEvent(event)
 
-        # 多选模式下禁用拖拽
-        if getattr(self, 'is_selectable', False):
+        # Dragging any selected card carries the entire current selection.
+        if getattr(self, 'is_selectable', False) and not self.is_selected:
             return super().mouseMoveEvent(event)
 
         if (event.pos() - self._drag_start_pos).manhattanLength() > QApplication.startDragDistance():
             self._is_dragging = True
 
             drag = QDrag(self)
-            mime_data = QMimeData()
-            mime_data.setData("application/x-emojy-reorder", self.image_path.encode('utf-8'))
+            if hasattr(self, 'drag_context'):
+                from fluent_ui.drag_payload import make_payload
+                paths = self.drag_paths(self.image_path)
+                mime_data = make_payload(self.drag_context, paths, self.image_path)
+            else:
+                mime_data = QMimeData()
+                mime_data.setData("application/x-emojy-reorder", self.image_path.encode('utf-8'))
             drag.setMimeData(mime_data)
 
             pixmap = self.grab()
@@ -509,7 +514,7 @@ class EmojiCard(QLabel):
             drag.setHotSpot(QPoint(30, 30))
 
             self.setCursor(QCursor(Qt.ClosedHandCursor))
-            drag.exec(Qt.MoveAction)
+            drag.exec(Qt.CopyAction | Qt.MoveAction, Qt.CopyAction)
             self.setCursor(QCursor(Qt.PointingHandCursor))
 
             self._drag_start_pos = None

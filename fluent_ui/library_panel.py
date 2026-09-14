@@ -70,8 +70,13 @@ class LibraryPanel(QWidget):
             self.buttons.append(button)
             layout.addWidget(button)
 
+    def _owner(self):
+        return getattr(self.window(), "main_window", self.window())
+
     def _ready(self):
-        if (self.job and self.job.isRunning()) or running_window_jobs(self.window()):
+        if getattr(self.config, "preview_dirty", False):
+            raise LibraryBusy("请先保存设置或取消预览，然后操作资源库。")
+        if (self.job and self.job.isRunning()) or running_window_jobs(self._owner()):
             raise LibraryBusy("请等待当前下载、导入或后台任务结束后再操作资源库。")
         if self.session:
             with self.session.maintenance():
@@ -100,7 +105,8 @@ class LibraryPanel(QWidget):
         # Disable the old UI while maintenance copies run; the worker's lease
         # prevents services from mutating the source during the snapshot.
         self.window().setEnabled(False)
-        self._paused_timers = [timer for timer in self.window().findChildren(QTimer) if timer.isActive()]
+        self._owner().setEnabled(False)
+        self._paused_timers = [timer for timer in self._owner().findChildren(QTimer) if timer.isActive()]
         for timer in self._paused_timers:
             timer.stop()
         self.job = LibraryJob(operation, self)
@@ -111,6 +117,7 @@ class LibraryPanel(QWidget):
 
     def _completed(self):
         self.window().setEnabled(True)
+        self._owner().setEnabled(True)
         for timer in self._paused_timers:
             timer.start()
         value, error = self.pending

@@ -1,0 +1,28 @@
+{
+  "initial_cards": 36,
+  "before_jump": {
+    "maximum": 43285,
+    "predicted_last_y": 43758,
+    "last_cell_y": 43758,
+    "columns": 6
+  },
+  "cards_after_jump_to_end": 2000,
+  "after_jump": {
+    "maximum": 43285,
+    "value": 43285,
+    "predicted_last_y": 43758,
+    "last_cell_y": 43758,
+    "columns": 6
+  },
+  "last_group_visible": true,
+  "fold_500_member_group_ms": 298.1,
+  "folded_first_group": true,
+  "cards_after_fold": 36,
+  "narrow_columns": 3,
+  "narrow_widths": {
+    "window": 520,
+    "viewport": 443
+  },
+  "qt_errors": [],
+  "passed": true
+}
