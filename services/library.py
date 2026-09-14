@@ -16,7 +16,7 @@ import threading
 import uuid
 
 FORMAT_VERSION = 1
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 DATABASES = ("library", "features", "metadata", "categories", "order", "recent")
 REQUIRED_TABLES = {"library": ("library_identity", "preferences", "schema_migrations"),
                    "features": ("image_features",), "metadata": ("image_metadata",),
@@ -157,7 +157,12 @@ def _schema_three(conn, library_id):
     create_schema(conn)
 
 
-MIGRATIONS = {1: _schema_one, 2: _schema_two, 3: _schema_three}
+def _schema_four(conn, library_id):
+    from services.category_groups import create_schema
+    create_schema(conn)
+
+
+MIGRATIONS = {1: _schema_one, 2: _schema_two, 3: _schema_three, 4: _schema_four}
 
 
 def _migrate(context, current, target=SCHEMA_VERSION):
@@ -237,6 +242,8 @@ def inspect_library(path, application_root=None):
                     needed = {"resource_identity"} if name == "features" else {"import_journal", "import_sources", "delete_journal"} if name == "library" else set()
                     if not needed.issubset(tables):
                         raise LibraryError("资源库索引或恢复记录缺失，请保留库并检查备份。")
+                if versions[-1] >= 4 and name == "categories" and not {"category_groups", "group_images"}.issubset(tables):
+                    raise LibraryError("资源库小分类数据表缺失，请保留库并检查备份。")
                 if name == "library" and conn.execute("SELECT id FROM library_identity").fetchone() != (identity,):
                     raise LibraryError("库标识与数据库不一致。")
         if len(set(versions)) != 1 or versions[0] < 1:

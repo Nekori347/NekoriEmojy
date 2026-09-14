@@ -460,6 +460,7 @@ class SettingInterface(QWidget):
             from fluent_ui.library_panel import LibraryPanel
             self.libraryPanel = LibraryPanel(self.config, self.scrollWidget)
             self.expandLayout.addWidget(self.libraryPanel)
+        self._add_nekori_preferences()
         self.expandLayout.addWidget(self.windowGroup)
         self.expandLayout.addWidget(self.themeGroup)
         self.expandLayout.addWidget(self.advancedGroup)
@@ -472,6 +473,51 @@ class SettingInterface(QWidget):
 
         # 绑定语言切换信号
         i18n_engine.language_changed.connect(self.update_texts)
+
+    def _add_nekori_preferences(self):
+        from qfluentwidgets import ConfigItem, BoolValidator, RangeConfigItem, RangeValidator
+        self.layoutGroup = SettingCardGroup("分类与布局", self.scrollWidget)
+        self.nekoriCards = {}
+        for key, title, content in (
+            ("sidebar_is_grid_mode", "分类网格", "上图标、下名称，随左栏宽度排列"),
+            ("show_category_names", "显示分类名称", "可随时恢复显示"),
+            ("left_multiselect", "多选按钮放在左侧", "独立调整多选入口的位置"),
+            ("left_filter", "筛选按钮放在左侧", "独立调整筛选入口的位置"),
+            ("left_search", "搜索框放在左侧", "独立调整搜索框的位置"),
+            ("start_with_windows", "开机自启", "登录 Windows 后启动 NekoriEmojy"),
+        ):
+            item = ConfigItem("Nekori", key, self.config.get(key), BoolValidator())
+            item.value = self.config.get(key)
+            card = SwitchSettingCard(FIF.SETTING, title, content, configItem=item, parent=self.layoutGroup)
+            card.setChecked(item.value)
+            card.checkedChanged.connect(lambda value, key=key: self._save_config(key, value, True))
+            self.layoutGroup.addSettingCard(card)
+            self.nekoriCards[key] = card
+        item = RangeConfigItem("Nekori", "CategoryTile", 64, RangeValidator(24,160))
+        item.value = self.config.get("category_grid_icon_size",64)
+        card = SpinBoxRangeSettingCard(item, FIF.FOLDER, "分类网格图标大小", "项目随图标大小和可用宽度排列", self.layoutGroup)
+        card.setValue(item.value)
+        card.valueChanged.connect(lambda value: self._save_config("category_grid_icon_size", value, True))
+        self.nekoriCards["category_grid_icon_size"] = card
+        self.layoutGroup.addSettingCard(card)
+        self.expandLayout.addWidget(self.layoutGroup)
+        # Low-frequency exchange remains available from settings/data management.
+        self.dataGroup = SettingCardGroup("数据管理",self.scrollWidget)
+        for title, callback_name in (("资源包导入 / 导出", "show_exchange"),
+                                     ("从图库选择运行时图标", "choose_runtime_icon"),
+                                     ("恢复默认运行时图标", "reset_runtime_icon"),
+                                     ("检查身份索引与重复资源", "show_identity_maintenance")):
+            card = SettingCard(FIF.FOLDER,title,None,self.dataGroup)
+            button = PushButton("打开",card)
+            def invoke(checked=False, name=callback_name):
+                owner = getattr(self.window(), "main_window", self.window())
+                callback = getattr(owner,name,None)
+                if callback: callback()
+            button.clicked.connect(invoke)
+            card.hBoxLayout.addWidget(button)
+            card.hBoxLayout.addSpacing(16)
+            self.dataGroup.addSettingCard(card)
+        self.expandLayout.addWidget(self.dataGroup)
 
     def update_texts(self, lang):
         """动态刷新界面文本"""
@@ -597,5 +643,4 @@ class SettingInterface(QWidget):
     def _save_config(self, key, value, emit_signal=False):
         if self.config.get(key) != value:
             self.config.set(key, value)
-            if emit_signal:
-                self.settings_changed.emit(key)
+            self.settings_changed.emit(key)

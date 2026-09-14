@@ -40,6 +40,12 @@ from PySide6.QtCore import Qt
 def main():
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
 
+    if sys.platform == 'win32':
+        import ctypes
+        identify = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
+        identify.argtypes = [ctypes.c_wchar_p]
+        identify.restype = ctypes.c_long
+        identify('Nekori347.NekoriEmojy')
     app = QApplication(sys.argv)
     
     from PySide6.QtCore import QSharedMemory
@@ -145,6 +151,8 @@ def _run_library_session(app, requested=None):
     else:
         pass
     
+    window.apply_runtime_icon()
+    window.title_settings.setVisible(config_service.get("show_setting_button", True))
     tray_icon.setToolTip("NekoriEmojy")
     
     tray_menu = RoundMenu()

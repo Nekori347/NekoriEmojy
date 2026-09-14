@@ -1,0 +1,79 @@
+{
+  "platform": "offscreen",
+  "synthetic_images": 64,
+  "checks": [
+    "flat section headers incl empty and ungrouped",
+    "collapsed membership hidden",
+    "settings is independent and modeless",
+    "settings open preserves category and selection",
+    "preview does not persist",
+    "close reverts preview",
+    "save commits current preview",
+    "close after save restores saved baseline",
+    "existing category list supports grid",
+    "narrow search remains within window",
+    "shared asset appears in both groups",
+    "selection synced across occurrences",
+    "select all counts unique assets",
+    "select all toggles off with shared assets",
+    "drag any selection includes hidden selected members",
+    "category drag target highlighted",
+    "drop adds all and clears highlight",
+    "drop preserves original memberships",
+    "drop into small group adds all",
+    "small group removal preserves parent and file",
+    "multi-item reorder keeps whole selection",
+    "search temporarily expands groups",
+    "clearing search restores stored fold",
+    "runtime icon changes window",
+    "missing runtime icon falls back",
+    "source assets unchanged",
+    "runtime picker selects library image",
+    "maintenance completes without blocking library state",
+    "no Qt slot exceptions"
+  ],
+  "layout_combinations": [
+    [
+      false,
+      false,
+      false
+    ],
+    [
+      false,
+      false,
+      true
+    ],
+    [
+      false,
+      true,
+      false
+    ],
+    [
+      false,
+      true,
+      true
+    ],
+    [
+      true,
+      false,
+      false
+    ],
+    [
+      true,
+      false,
+      true
+    ],
+    [
+      true,
+      true,
+      false
+    ],
+    [
+      true,
+      true,
+      true
+    ]
+  ],
+  "qt_errors": [],
+  "passed": true
+}

@@ -118,7 +118,8 @@ class Deduplicator:
 
         return stats
 
-    def find_duplicate_groups(self, threshold: int = 5, hash_type: str = "phash") -> List[List[str]]:
+    def find_duplicate_groups(self, threshold: int = 5, hash_type: str = "phash", *, image_paths=None,
+                              progress_callback=None, cancel_callback=None) -> List[List[str]]:
         """
         全库重复图片分组查找 (使用并查集算法进行图聚类):
         :param threshold: 汉明距离阈值 (默认 <= 5 视为相似)
@@ -129,7 +130,10 @@ class Deduplicator:
         valid_items = []
 
         # 筛选有效哈希项
+        allowed = set(image_paths) if image_paths is not None else None
         for feat in all_features:
+            if allowed is not None and feat['image_path'] not in allowed:
+                continue
             h_val = feat.get(hash_type)
             if h_val and len(h_val) == 64:
                 valid_items.append((feat["image_path"], h_val))
@@ -139,6 +143,10 @@ class Deduplicator:
 
         # 两两计算汉明距离
         for i in range(n):
+            if cancel_callback and cancel_callback():
+                break
+            if progress_callback:
+                progress_callback(i + 1, n)
             path1, hash1 = valid_items[i]
             for j in range(i + 1, n):
                 path2, hash2 = valid_items[j]

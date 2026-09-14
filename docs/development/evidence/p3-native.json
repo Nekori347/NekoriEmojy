@@ -1,0 +1,11 @@
+{
+  "platform": "windows",
+  "scope": "native Qt window and WM_GETICON; final EXE and actual login startup not tested",
+  "checks": [
+    "native small/big window icons updated",
+    "independent settings rendered in light and dark themes",
+    "missing library image falls back to native default icon"
+  ],
+  "qt_errors": [],
+  "passed": true
+}

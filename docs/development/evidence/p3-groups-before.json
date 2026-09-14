@@ -1,0 +1,13 @@
+{
+  "synthetic_png_count": 2000,
+  "groups": 4,
+  "group_size": 500,
+  "ordinary_initial_cards": 42,
+  "group_initial_cards": 2000,
+  "sync_switch_ms": 1276.86,
+  "group_initial_complete_ms": 3761.9,
+  "max_10ms_heartbeat_gap_ms": 1276.89,
+  "qt_errors": [],
+  "platform": "offscreen",
+  "build": "source"
+}

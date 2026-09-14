@@ -225,7 +225,11 @@ class StorageService:
             for index, (name, paths) in enumerate(categories_data.items()):
                 conn.execute("""INSERT INTO categories(name, sort_order) VALUES (?, ?)
                     ON CONFLICT(name) DO UPDATE SET sort_order=excluded.sort_order""", (name, index))
-                conn.execute("DELETE FROM category_images WHERE category_name=?", (name,))
+                members = {self._to_filename(path) for path in paths}
+                previous = {row[0] for row in conn.execute("SELECT image_path FROM category_images WHERE category_name=?", (name,))}
+                # Retained memberships must not fire removal triggers or erase subgroups.
+                conn.executemany("DELETE FROM category_images WHERE category_name=? AND image_path=?",
+                                 [(name, path) for path in previous - members])
                 conn.executemany("INSERT OR IGNORE INTO category_images VALUES (?, ?)",
                                  [(name, self._to_filename(path)) for path in paths])
         self._categories_dirty = True
