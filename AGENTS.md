@@ -2,6 +2,8 @@
 
 These instructions apply to all Codex work in this repository.
 
+Read [AI_WORKFLOW.md](AI_WORKFLOW.md) for the complementary implementation/review workflow; it does not override these instructions.
+
 ## 1. Core Priorities
 
 When priorities conflict, use this order:
