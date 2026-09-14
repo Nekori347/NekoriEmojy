@@ -13,6 +13,30 @@ These rules are intended to improve engineering quality while reducing unnecessa
 
 ---
 
+## Activation Status
+
+Updated by explicit user instruction on 2026-09-14. This section defines when the workflow below applies and takes precedence over its general stage-review and handoff guidance.
+
+### Current NekoriEmojy version (the P0–P6 release now in development)
+
+- OpenAI Codex is the sole development and review executor throughout the remaining implementation stages.
+- The regular Codex / DeepSeek dual-model stage workflow is **not yet active** for this version.
+- Do not pause P3, P4, or any other intermediate stage to wait for DeepSeek Review.
+- Do not proactively generate intermediate DeepSeek review or stage-handoff packages. Ordinary development records, test evidence, commits, and pull requests remain appropriate.
+- DeepSeek is planned for **one Final Review only**: after all major features, testing, and fixes are complete, and before final acceptance / merge / release, prepare one complete Final Review handoff for a second-engineer pre-release review.
+- Preserve the already completed and verified P1–P3 work. This activation change does not require redoing, re-reviewing, or rolling it back. Continue the current P4 work.
+- Any earlier P3 review materials are historical artifacts; they do not create an active intermediate review gate.
+
+### Starting with the next version
+
+The regular dual-model stage collaboration and review workflow defined below becomes active starting with the **next NekoriEmojy version**, not partway through the current version.
+
+### Effective immediately
+
+**Reasoning Level Guidance remains active now**, including the Medium / High / Highest recommendations at meaningful stage boundaries in sections 11–15. The user continues to control the reasoning level manually.
+
+---
+
 ## 1. OpenAI Codex Responsibilities
 
 Use OpenAI Codex as the primary implementation agent for:
