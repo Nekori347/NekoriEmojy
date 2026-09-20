@@ -33,7 +33,15 @@ class UiaProbe
                 }
                 return 0;
             }
-            var target = elements[int.Parse(args[2])];
+            AutomationElement target;
+            if (args[2].StartsWith("lastid="))
+                target = elements.FindLast(e => e.Current.AutomationId == args[2].Substring(7) && !e.Current.IsOffscreen);
+            else if (args[2].StartsWith("id="))
+                target = elements.Find(e => e.Current.AutomationId == args[2].Substring(3) && !e.Current.IsOffscreen);
+            else if (args[2].StartsWith("name="))
+                target = elements.Find(e => e.Current.Name == args[2].Substring(5) && !e.Current.IsOffscreen);
+            else target = elements[int.Parse(args[2])];
+            if (target == null) throw new ArgumentException("Visible test control not found");
             if (args[1] == "value") ((ValuePattern)target.GetCurrentPattern(ValuePattern.Pattern)).SetValue(args[3]);
             else if (args[1] == "invoke") ((InvokePattern)target.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
             else if (args[1] == "select") ((SelectionItemPattern)target.GetCurrentPattern(SelectionItemPattern.Pattern)).Select();
