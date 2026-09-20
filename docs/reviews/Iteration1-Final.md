@@ -7,7 +7,8 @@
 
 NekoriEmojy 0.1.0-rc1 第一可用版候选。起点是公开上游 SuzuEmojy v1.11.6 / `c84e5b2c201fe5103e721fca062283cadf97ca0d`。
 精确候选源提交、包体及校验和见交接包 `SOURCE_COMMIT.txt`、`package-report.json` 和程序包 `BUILD_INFO.json`。
-完整源码随 source ZIP 提供；`changes.patch` 是基线至候选提交的文本差异，`changed-files.txt` 为文件清单；不要求重新梳理全部 Git 历史。
+候选源码固定为 `f7e820899dc4ee44eae8996ebbf111855daf03dc`。完整源码位于交接包 `candidate-source/`，内容来自对应 source ZIP；`changes.patch` 是基线至候选提交的文本差异，`changed-files.txt` 为文件清单；不要求重新梳理全部 Git 历史。
+候选冻结后仅补验证与文档，精确记录提交见 `RECORDS_COMMIT.txt`，补充文件见 `current-records/` 和 `verification-changes.patch`，不代表改换二进制。先读交接包 `START_HERE.md`，再读本说明。
 
 用户生效范围见 `docs/spec/2026-09-20-iteration1.md`：只围绕独立资源库、已确认的平铺小分类、只读 Suzu 迁入及旧资源包过渡。保留已验证 P1–P3，不无故重做、回滚或重写原正常模块。
 **OCR、隐性 Tag、模型管理、安装器/自动更新等均延期。不得据完整长期交接要求本轮把它们补齐。**
@@ -28,7 +29,9 @@ NekoriEmojy 0.1.0-rc1 第一可用版候选。起点是公开上游 SuzuEmojy v1
 - 65 项回归通过（4 条原有 Pillow 弃用提示），包含失败回滚、会话、库复制、迁入冲突、普通导入崩溃恢复、exchange 普通异常回滚、设置/小分类等。
 - 21 项跨版本过渡验证：用固定原 Suzu 服务源码实际生成/消费合成 data/ZIP，源文件 SHA-256 不变，3 个 PNG/GIF、3 类/5 关系及可转信息保留，资源包往返与重复导入验证。
 - 16 项实际 Nuitka EXE 检查：启动参数、迁入图库展示、折叠/展开、Tag 搜索、新建小分类、inbox 复制/去重、正常退出、移动程序后重启、6 DB 完整性和业务表一致、便携目录 DLL 来源。
+- 7 项 GalleryInterface 接口检查：无 Tag、未分类、动图/静图筛选与全选/取消，比较具体图片集合；仅源码 Qt offscreen 验证，不是原生弹出菜单点击。
 - 发布目录隔离规则拒绝用户库、DB、配置、缓存；最终包报告另列。P1/P2/P3 既有证据保留作为支持，不视为所有真实场景都已通过。
+- 两个 ZIP 的 SHA-256、CRC、路径及源码提交验证通过；程序 ZIP 的 140 文件与实际测试的发布目录逐字节一致，无 OCR 依赖。[包体报告](../development/evidence/i1-package.json) / [归档检查](../development/evidence/i1-archive-verification.json)
 
 ## 已知边界及建议审核重点
 

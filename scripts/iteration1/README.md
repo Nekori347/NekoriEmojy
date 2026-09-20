@@ -3,6 +3,7 @@
 本目录是开发工具，不进入便携程序运行依赖。测试只使用新建隔离目录/合成图片；不要把用户正在使用的库传给原生交互探针。
 
 - `transition_probe.py --work <不存在的目录>`：从固定 Git 基线提取原 Suzu 服务源码，借助 `legacy_side.py` 子进程验证源只读迁入与 exchange 双向过渡。需在 P0 锁定环境运行。
+- `filter_selection_probe.py --work <不存在的目录> --report <JSON路径>`：生成 3 个 PNG 和 1 个动图，以 Qt offscreen 直接核对图库筛选与多选返回的图片集合；不运行后台任务，不代替原生弹出菜单点击。
 - `tests/test_release_launcher.py`：真实编译 C# 启动器与接收器，核对包含中文、空格、引号和反斜杠的 argv。
 - `uia_probe.cs`：用系统 .NET Framework C# 编译器编译，引用 WPF 中 UIAutomationClient / UIAutomationTypes / WindowsBase；仅访问指定 PID 的控件。使用 id/name 定位，动态窗口会改变数字索引。
 - `native_driver.py`：launch / dump / action / click 辅助实际 EXE 验证，需与目标程序在同一 Windows 桌面。launch 提供独立 bootstrap 并禁用测试网络；dump 用 PrintWindow 捕获指定窗口，不截图其他应用。后台窗口弹出菜单及前台激活可能受 Windows 限制；不能据此宣称真实点击已通过。

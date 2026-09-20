@@ -1,0 +1,34 @@
+{
+  "scope": "Source GalleryInterface actions, Qt offscreen; not a physical frozen popup-menu click.",
+  "data": "Four generated resources in a new isolated library; no real user library accessed.",
+  "checks": [
+    {
+      "check": "all generated resources",
+      "unique_resources": 4
+    },
+    {
+      "check": "no_tag",
+      "unique_resources": 3
+    },
+    {
+      "check": "unclassified",
+      "unique_resources": 1
+    },
+    {
+      "check": "is_gif",
+      "unique_resources": 1
+    },
+    {
+      "check": "is_static",
+      "unique_resources": 3
+    },
+    {
+      "check": "multi select all",
+      "unique_resources": 4
+    },
+    {
+      "check": "multi select all toggles off",
+      "unique_resources": 0
+    }
+  ]
+}
