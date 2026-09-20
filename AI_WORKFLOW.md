@@ -15,16 +15,20 @@ These rules are intended to improve engineering quality while reducing unnecessa
 
 ## Activation Status
 
-Updated by explicit user instruction on 2026-09-14. This section defines when the workflow below applies and takes precedence over its general stage-review and handoff guidance.
+Updated by explicit user instructions on 2026-09-14 and 2026-09-20. This section defines when the workflow below applies and takes precedence over its general stage-review and handoff guidance.
 
-### Current NekoriEmojy version (the P0–P6 release now in development)
+### Current NekoriEmojy version (Iteration 1: first usable version)
 
 - OpenAI Codex is the sole development and review executor throughout the remaining implementation stages.
 - The regular Codex / DeepSeek dual-model stage workflow is **not yet active** for this version.
 - Do not pause P3, P4, or any other intermediate stage to wait for DeepSeek Review.
 - Do not proactively generate intermediate DeepSeek review or stage-handoff packages. Ordinary development records, test evidence, commits, and pull requests remain appropriate.
 - DeepSeek is planned for **one Final Review only**: after all major features, testing, and fixes are complete, and before final acceptance / merge / release, prepare one complete Final Review handoff for a second-engineer pre-release review.
-- Preserve the already completed and verified P1–P3 work. This activation change does not require redoing, re-reviewing, or rolling it back. Continue the current P4 work.
+- Preserve the already completed and verified P1–P3 work. Neither this activation change nor the narrowed iteration scope requires redoing, re-reviewing, or rolling it back.
+- The full handoff remains the factual / architectural / long-term roadmap reference, not an instruction to finish P0–P6 in one release. Follow [Iteration 1 scope](docs/spec/2026-09-20-iteration1.md).
+- Stop P4 OCR work now. Do not implement OCR, implicit tags, manual OCR correction, or model management in Iteration 1. Evaluate those again only after the first usable version is stable.
+- Focus on independent libraries, the confirmed flat small categories, and safe read-only SuzuEmojy migration / exchange compatibility. Stop scope expansion when the first-use acceptance criteria pass.
+- Additional low-cost roadmap features require a concrete suggestion and user confirmation before implementation. Previously authorized and verified P1–P3 capabilities remain available.
 - Any earlier P3 review materials are historical artifacts; they do not create an active intermediate review gate.
 
 ### Starting with the next version
