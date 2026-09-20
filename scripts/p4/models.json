@@ -1,0 +1,117 @@
+{
+  "ort-v5": {
+    "engine": "onnxruntime",
+    "version": "PP-OCRv5",
+    "kind": "mobile",
+    "files": {
+      "det": {
+        "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv5/det/ch_PP-OCRv5_det_mobile.onnx",
+        "sha256": "4d97c44a20d30a81aad087d6a396b08f786c4635742afc391f6621f5c6ae78ae",
+        "file": "ch_PP-OCRv5_det_mobile.onnx",
+        "bytes": 4819576
+      },
+      "cls": {
+        "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv4/cls/ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+        "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
+        "file": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+        "bytes": 585532
+      },
+      "rec": {
+        "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv5/rec/ch_PP-OCRv5_rec_mobile.onnx",
+        "sha256": "5825fc7ebf84ae7a412be049820b4d86d77620f204a041697b0494669b1742c5",
+        "file": "ch_PP-OCRv5_rec_mobile.onnx",
+        "bytes": 16631306
+      }
+    }
+  },
+  "ort-v6": {
+    "engine": "onnxruntime",
+    "version": "PP-OCRv6",
+    "kind": "small",
+    "files": {
+      "det": {
+        "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv6/det/PP-OCRv6_det_small.onnx",
+        "sha256": "090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f",
+        "file": "PP-OCRv6_det_small.onnx",
+        "bytes": 9929594
+      },
+      "cls": {
+        "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv4/cls/ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+        "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
+        "file": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+        "bytes": 585532
+      },
+      "rec": {
+        "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv6/rec/PP-OCRv6_rec_small.onnx",
+        "sha256": "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
+        "file": "PP-OCRv6_rec_small.onnx",
+        "bytes": 21234383
+      }
+    }
+  },
+  "mnn-v6": {
+    "engine": "mnn",
+    "version": "PP-OCRv6",
+    "kind": "small",
+    "files": {
+      "det": {
+        "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/mnn/PP-OCRv6/det/PP-OCRv6_det_small.mnn",
+        "sha256": "a41bcf051c24b67c46172005915f8b8f6a0272cb30b11bf9f16cca4231d21ee1",
+        "file": "PP-OCRv6_det_small.mnn",
+        "bytes": 9845608
+      },
+      "cls": {
+        "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/mnn/PP-OCRv4/cls/ch_ppocr_mobile_v2.0_cls_mobile.mnn",
+        "sha256": "6cb3cc2410929e6ca526e223a1a3e8eb7dcfeac46ed8d64a93e061a6a0eaad75",
+        "file": "ch_ppocr_mobile_v2.0_cls_mobile.mnn",
+        "bytes": 531024
+      },
+      "rec": {
+        "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/mnn/PP-OCRv6/rec/PP-OCRv6_rec_small.mnn",
+        "sha256": "3ed704bdc5495002225237444384437617777bd962fa048d5d09d1444b98564b",
+        "file": "PP-OCRv6_rec_small.mnn",
+        "bytes": 21184180
+      },
+      "dict": {
+        "url": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/paddle/PP-OCRv6/rec/PP-OCRv6_rec_small/ppocrv6_dict.txt",
+        "file": "ppocrv6_dict.txt",
+        "sha256": "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d",
+        "bytes": 74947
+      }
+    }
+  },
+  "tesseract-fast": {
+    "engine": "tesserocr",
+    "version": "5.5.3",
+    "wrapper": "2.11.0",
+    "kind": "fast",
+    "psm": "SPARSE_TEXT",
+    "languages": "chi_sim+chi_tra+eng+jpn",
+    "files": {
+      "chi_sim": {
+        "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/chi_sim.traineddata",
+        "file": "chi_sim.traineddata",
+        "bytes": 2469156,
+        "sha256": "a5fcb6f0db1e1d6d8522f39db4e848f05984669172e584e8d76b6b3141e1f730"
+      },
+      "chi_tra": {
+        "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/chi_tra.traineddata",
+        "file": "chi_tra.traineddata",
+        "bytes": 2366642,
+        "sha256": "529c5b5797d64b126065cd55f2bb4c7fd7b15790798091b1ff259941a829330b"
+      },
+      "eng": {
+        "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/eng.traineddata",
+        "file": "eng.traineddata",
+        "bytes": 4113088,
+        "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
+      },
+      "jpn": {
+        "url": "https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/87416418657359cb625c412a48b6e1d6d41c29bd/jpn.traineddata",
+        "file": "jpn.traineddata",
+        "bytes": 2471260,
+        "sha256": "1f5de9236d2e85f5fdf4b3c500f2d4926f8d9449f28f5394472d9e8d83b91b4d"
+      }
+    }
+  }
+}
