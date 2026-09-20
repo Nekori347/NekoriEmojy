@@ -66,7 +66,7 @@ class ExchangeExportService:
         self.features_db_path = str(self.context.db("features"))
         self.metadata_db_path = str(self.context.db("metadata"))
         self.categories_db_path = str(self.context.db("categories"))
-        self.app_version = "NekoriEmojy-P1-dev"
+        self.app_version = "NekoriEmojy-0.1.0-rc1"
 
     def export_zip(
         self,

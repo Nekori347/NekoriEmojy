@@ -2,6 +2,18 @@ import os
 import subprocess
 import sys
 import shutil
+import tempfile
+from pathlib import Path
+
+
+def remove_build_directory(path):
+    """Only delete generated directories beneath this checkout, never a junction target."""
+    root = Path(__file__).resolve().parent
+    candidate = root / path
+    if candidate.is_symlink() or candidate.is_junction() or not candidate.resolve().is_relative_to(root):
+        raise RuntimeError(f"拒绝清理仓库外的构建目录: {candidate}")
+    if candidate.exists():
+        shutil.rmtree(candidate)
 
 
 def find_csc():
@@ -61,6 +73,7 @@ def build_launcher_stub(release_dir):
 
 
 def main():
+    os.chdir(Path(__file__).resolve().parent)
     print("====================================")
     print("Building NekoriEmojy with Nuitka")
     print("====================================")
@@ -69,13 +82,15 @@ def main():
     for path in ("dist/main.dist", "dist/main.build"):
         if os.path.exists(path):
             print(f"Removing stale build output: {path}")
-            shutil.rmtree(path)
+            remove_build_directory(path)
 
     # Nuitka command
     cmd = [
         sys.executable, "-m", "nuitka",
         "--standalone",
-        "--windows-disable-console",
+        "--windows-console-mode=disable",
+        "--zig",
+        "--jobs=4",
         "--enable-plugin=pyside6",
         "--windows-icon-from-ico=ico.ico",
         "--include-data-file=ico.ico=ico.ico",
@@ -144,12 +159,18 @@ def main():
     env["CFLAGS"] = "-march=x86_64_v3"
     env["CCFLAGS"] = "-march=x86_64_v3"
 
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
-    
-    for line in process.stdout:
-        print(line, end="")
-        
-    process.wait()
+    env["PYTHONIOENCODING"] = "utf-8"
+    # Zig 0.16 may reuse a stale #embed object when only Nuitka's constants blob
+    # changes. A fresh local cache per invocation prevents mixed build payloads.
+    # Keep the global compiler/download caches shared.
+    Path("dist").mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="zig-local-", dir=Path("dist").resolve()) as cache:
+        env["ZIG_LOCAL_CACHE_DIR"] = cache
+        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   text=True, encoding="utf-8", errors="replace", env=env)
+        for line in process.stdout:
+            print(line, end="", flush=True)
+        process.wait()
     
     if process.returncode == 0:
         print("\n====================================")
@@ -160,7 +181,7 @@ def main():
         
         # 1. 清理旧的 release 文件夹
         if os.path.exists(release_dir):
-            shutil.rmtree(release_dir)
+            remove_build_directory(release_dir)
             
         os.makedirs(release_dir)
         
@@ -206,7 +227,7 @@ def main():
             if os.path.isfile(stale_path):
                 os.remove(stale_path)
         if os.path.isdir("build"):
-            shutil.rmtree("build")
+            remove_build_directory("build")
         
         print("\n====================================")
         print("Running AVX-512 verification...")

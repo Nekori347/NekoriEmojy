@@ -1,0 +1,20 @@
+[
+  {
+    "case": "a",
+    "expected": "ONE",
+    "actual": "ONE",
+    "private_local_cache": false
+  },
+  {
+    "case": "b",
+    "expected": "TWO",
+    "actual": "ONE",
+    "private_local_cache": false
+  },
+  {
+    "case": "c",
+    "expected": "NEW",
+    "actual": "NEW",
+    "private_local_cache": true
+  }
+]
