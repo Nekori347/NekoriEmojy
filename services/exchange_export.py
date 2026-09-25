@@ -138,6 +138,17 @@ class ExchangeExportService:
                 }
                 continue
 
+            # The legacy key omits PNG dimensions and is not proof of equality.
+            # Only byte-identical copies may share its single compatibility asset.
+            # Refuse other cases (including encoding/metadata-only differences)
+            # before writing a ZIP, rather than silently discard either payload.
+            if existing["_payload"] != result.payload:
+                raise ValueError(
+                    f"兼容导出已拒绝：sync_key 冲突 {result.sync_key}；"
+                    f"文件 {existing['display_name']!r} 与 {result.display_name!r} 的字节内容不同。"
+                    "旧兼容格式无法在同一身份下保留两份不同文件，未生成或替换资源包。"
+                )
+
             existing["category_refs"].update(refs)
             existing["keywords"] = self._merge_keyword_lists(existing["keywords"], meta_keywords)
             existing["quality_score"] = max(float(existing["quality_score"]), float(meta_quality or 0.0))
