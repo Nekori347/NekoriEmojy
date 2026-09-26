@@ -1,0 +1,49 @@
+{
+  "baseline": "c84e5b2c201fe5103e721fca062283cadf97ca0d",
+  "checks": [
+    "source files unchanged byte for byte",
+    "migration no skipped or failed records",
+    "images retained byte for byte",
+    "manual image order retained",
+    "categories and multiple memberships retained",
+    "manual category order retained",
+    "ordinary tags retained as complete text",
+    "recent order retained",
+    "settings retained",
+    "groups do not duplicate images",
+    "copy and reopen keep order",
+    "copy and reopen keep collapsed small group",
+    "copy and reopen keep group membership",
+    "exchange includes all baseline resources and relationships",
+    "original Suzu importer accepts Nekori archive",
+    "original importer keeps nonempty categories and relations",
+    "Nekori tags survive original Suzu importer",
+    "Nekori accepts original Suzu archive",
+    "old resource pack repeated import is idempotent",
+    "external original images unchanged",
+    "source unchanged after all downstream operations"
+  ],
+  "migration_counts": {
+    "images": 3,
+    "categories": 3,
+    "relations": 5,
+    "order": 3,
+    "metadata": 1,
+    "settings": 5,
+    "skipped": 0,
+    "failed": 0
+  },
+  "exchange_counts": {
+    "resources": 3,
+    "categories": 3,
+    "relations": 5,
+    "assets": 3
+  },
+  "source_read_only": true,
+  "limits": [
+    "Synthetic source only; not a real user library.",
+    "Exchange v1 carries images, ordinary tags and large category relations, not manual order, recent, settings or small groups.",
+    "Original baseline Suzu importer drops empty categories.",
+    "Original baseline exporter may split keywords into characters; direct read-only migration preserves original text."
+  ]
+}

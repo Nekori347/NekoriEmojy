@@ -1,0 +1,25 @@
+{
+  "source_commit": "f7e820899dc4ee44eae8996ebbf111855daf03dc",
+  "checks": [
+    {
+      "archive": "NekoriEmojy-0.1.0-rc1-windows-x64.zip",
+      "bytes": 76614049,
+      "sha256": "a8f1888b6a76f9c4bef3868c2eb59e0d9bfd00d7e2681bceb5aba23d5bc4e300",
+      "entries": 140,
+      "crc": "passed",
+      "safe_paths": true
+    },
+    {
+      "archive": "NekoriEmojy-0.1.0-rc1-source.zip",
+      "bytes": 34844321,
+      "sha256": "6565466da5cd74978ae3948b808bacf1a7355c1c1abc13f1f0512aa56bae4d99",
+      "entries": 186,
+      "crc": "passed",
+      "safe_paths": true
+    }
+  ],
+  "runtime_files_match_verified_release": 140,
+  "release_policy": "passed",
+  "ocr_dependencies_included": false,
+  "source_zip_git_commit_comment_matches": true
+}

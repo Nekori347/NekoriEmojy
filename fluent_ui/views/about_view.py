@@ -247,8 +247,8 @@ class AboutInterface(QWidget):
     """关于软件与开发者个人介绍详情页 (Fluent Design)。"""
 
     AUTHOR_URL = "https://github.com/IxinorTyan"
-    PROJECT_URL = "https://github.com/IxinorTyan/SuzuEmojy"
-    RELEASES_URL = "https://github.com/IxinorTyan/SuzuEmojy/releases"
+    PROJECT_URL = "https://github.com/Nekori347/NekoriEmojy"
+    RELEASES_URL = "https://github.com/Nekori347/NekoriEmojy/releases"
     QQ_GROUP_NUM = "834586488"
 
     back_requested = Signal()
@@ -320,7 +320,7 @@ class AboutInterface(QWidget):
         self.heroTextLayout.setContentsMargins(0, 0, 0, 0)
         self.heroTextLayout.setSpacing(6)
 
-        self.appNameLabel = TitleLabel("SuzuEmojy", self.heroCard)
+        self.appNameLabel = TitleLabel("NekoriEmojy", self.heroCard)
         self.appSloganLabel = BodyLabel(t("轻量、快速、随心所欲的 Windows 本地表情包管理利器"), self.heroCard)
 
         # 胶囊徽章栏
@@ -328,7 +328,7 @@ class AboutInterface(QWidget):
         self.badgesLayout.setContentsMargins(0, 0, 0, 0)
         self.badgesLayout.setSpacing(8)
 
-        self.badgeVersion = PillBadge("v1.2.0", is_accent=True, parent=self.heroCard)
+        self.badgeVersion = PillBadge("0.1.0-rc1", is_accent=True, parent=self.heroCard)
         self.badgeLicense = PillBadge("GPL-3.0 License", parent=self.heroCard)
         self.badgePlatform = PillBadge("Windows 10 / 11", parent=self.heroCard)
         self.badgeTech = PillBadge("PySide6 · Fluent UI", parent=self.heroCard)
@@ -367,7 +367,7 @@ class AboutInterface(QWidget):
         self.scrollLayout.addWidget(self.heroCard)
 
         # ==================== 卡片 2: 开发者名片 (个人介绍) ====================
-        self.authorGroup = SettingCardGroup(t("关于作者与个人介绍"), self.scrollWidget)
+        self.authorGroup = SettingCardGroup(t("上游作者与个人介绍"), self.scrollWidget)
 
         self.authorCard = CardWidget(self.authorGroup)
         self.authorCardLayout = QVBoxLayout(self.authorCard)
@@ -677,7 +677,7 @@ class AboutInterface(QWidget):
         self.badgeRole.update_style()
 
         # 开发者名片
-        self.authorGroup.titleLabel.setText(t("关于作者与个人介绍"))
+        self.authorGroup.titleLabel.setText(t("上游作者与个人介绍"))
         self.authorBioLabel.setText(
             t("常年多账号切换导致表情包互不相通，四处翻找极为繁琐，于是从零写下了 SuzuEmojy。\n"
               "致力于打造极致顺手、轻量快速的本地斗图与表情管理体验。希望这款小工具能陪伴你的每一次日常聊天与斗图！✨")

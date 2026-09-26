@@ -1,0 +1,41 @@
+{
+  "platform": "Windows 11 x64, native Qt, Nuitka standalone",
+  "checks": [
+    "root launcher accepts independent library path",
+    "migrated categories and 3 original assets render",
+    "collapsed group hides 2 assets",
+    "ordinary tag query returns 1 card",
+    "missing keyword returns 0 cards",
+    "clearing search restores collapsed group",
+    "create named small group through actual dialog persists",
+    "expand existing group shows 3 cards and saves fold state",
+    "native inbox import copies new image; source remains",
+    "duplicate inbox image does not add managed copy",
+    "Qt normal termination exits 0 and logs clean shutdown",
+    "all 6 databases pass integrity_check",
+    "moving entire program directory and relaunching retains 4 assets",
+    "all business tables except preferences identical across restart and program move",
+    "Python and Qt DLLs loaded from moved release bin (8.3 paths resolved)",
+    "second normal termination exits 0"
+  ],
+  "runtime_dlls": [
+    "bin\\python312.dll",
+    "bin\\shiboken6\\Shiboken.pyd",
+    "bin\\shiboken6.abi3.dll",
+    "bin\\python3.dll",
+    "bin\\pyside6.abi3.dll",
+    "bin\\qt6core.dll",
+    "bin\\qt6widgets.dll",
+    "bin\\qt6gui.dll",
+    "bin\\qt6xml.dll",
+    "bin\\qt6svg.dll",
+    "bin\\qt6svgwidgets.dll"
+  ],
+  "limits": [
+    "Only generated data; no real user library.",
+    "Qt termination delivered to owned tray window via WM_CLOSE; not a physical tray-menu click.",
+    "UI Automation stable control IDs used; a stale-index probe was corrected, not a product search defect.",
+    "Native filter-popup automation was inconclusive; Windows foreground activation was denied during the background automation attempt; actual filter action remains a manual acceptance item.",
+    "Physical browser drag/drop, real chat send, clean-machine startup and high DPI remain manual acceptance items."
+  ]
+}

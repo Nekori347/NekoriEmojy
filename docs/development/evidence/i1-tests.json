@@ -1,0 +1,10 @@
+{
+  "tests": 65,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "seconds": 29.539,
+  "environment": "Python 3.12 baseline venv; Windows; Qt offscreen; external requests blocked",
+  "warnings": "4 existing Pillow getdata deprecation warnings",
+  "prior_run": "One create_library stage.rename got WinError 5 during concurrent build. Focused rerun passed; final full suite passed. Cause not proven; no retry workaround added."
+}

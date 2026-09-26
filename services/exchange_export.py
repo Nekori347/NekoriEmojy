@@ -4,12 +4,14 @@ import hashlib
 import json
 import os
 import sqlite3
+import tempfile
 import unicodedata
 import uuid
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from io import BytesIO
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Callable
 
 from PIL import Image
@@ -66,7 +68,7 @@ class ExchangeExportService:
         self.features_db_path = str(self.context.db("features"))
         self.metadata_db_path = str(self.context.db("metadata"))
         self.categories_db_path = str(self.context.db("categories"))
-        self.app_version = "NekoriEmojy-P1-dev"
+        self.app_version = "NekoriEmojy-0.1.0-rc1"
 
     def export_zip(
         self,
@@ -74,7 +76,8 @@ class ExchangeExportService:
         selected_categories: Optional[List[str]] = None,
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> Dict[str, Any]:
-        os.makedirs(os.path.dirname(os.path.abspath(zip_path)), exist_ok=True)
+        target = self._export_target(zip_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
 
         categories, warnings = self._load_categories_readonly()
         categories = self._filter_categories(categories, selected_categories)
@@ -134,6 +137,17 @@ class ExchangeExportService:
                     "_payload": result.payload,
                 }
                 continue
+
+            # The legacy key omits PNG dimensions and is not proof of equality.
+            # Only byte-identical copies may share its single compatibility asset.
+            # Refuse other cases (including encoding/metadata-only differences)
+            # before writing a ZIP, rather than silently discard either payload.
+            if existing["_payload"] != result.payload:
+                raise ValueError(
+                    f"兼容导出已拒绝：sync_key 冲突 {result.sync_key}；"
+                    f"文件 {existing['display_name']!r} 与 {result.display_name!r} 的字节内容不同。"
+                    "旧兼容格式无法在同一身份下保留两份不同文件，未生成或替换资源包。"
+                )
 
             existing["category_refs"].update(refs)
             existing["keywords"] = self._merge_keyword_lists(existing["keywords"], meta_keywords)
@@ -196,24 +210,61 @@ class ExchangeExportService:
             "resources": resources,
         }
 
-        with zipfile.ZipFile(
-            zip_path,
-            mode="w",
-            compression=zipfile.ZIP_DEFLATED,
-            allowZip64=True,
-        ) as zf:
-            zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
-            zf.writestr("catalog.json", json.dumps(catalog, ensure_ascii=False, indent=2))
-            total_resources = len(resources)
-            for idx, item in enumerate(resources):
-                if progress_callback:
-                    current_step = total_files + int((idx / total_resources) * total_files) if total_resources > 0 else total_files
-                    progress_callback(current_step, total_files * 2, f"正在打包表情: {item['display_name']}")
-                zf.writestr(item["asset_path"], resource_map[item["sync_key"]]["_payload"])
-            if progress_callback:
+        # The same-directory temporary keeps publication on one filesystem.
+        # A killed process can leave an identifiable .nekori-export-*.tmp,
+        # but never a partially written final backup.
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w+b", prefix=".nekori-export-", suffix=".tmp",
+                dir=target.parent, delete=False,
+            ) as stream:
+                temporary = Path(stream.name)
+                with zipfile.ZipFile(
+                    stream, mode="w", compression=zipfile.ZIP_DEFLATED, allowZip64=True,
+                ) as zf:
+                    zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+                    zf.writestr("catalog.json", json.dumps(catalog, ensure_ascii=False, indent=2))
+                    total_resources = len(resources)
+                    for idx, item in enumerate(resources):
+                        if progress_callback:
+                            current_step = total_files + int((idx / total_resources) * total_files) if total_resources > 0 else total_files
+                            progress_callback(current_step, total_files * 2, f"正在打包表情: {item['display_name']}")
+                        zf.writestr(item["asset_path"], resource_map[item["sync_key"]]["_payload"])
+                stream.flush()
+                os.fsync(stream.fileno())
+                stream.seek(0)
+                with zipfile.ZipFile(stream, mode="r") as zf:
+                    bad_member = zf.testzip()
+                    if bad_member is not None:
+                        raise zipfile.BadZipFile(f"导出 ZIP 校验失败: {bad_member}")
+            self._export_target(target)
+            os.replace(temporary, target)
+            temporary = None
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+        if progress_callback:
+            try:
                 progress_callback(total_files * 2, total_files * 2, "打包完成")
+            except Exception:
+                pass  # Notification failure cannot undo a published archive.
 
         return manifest
+
+    def _export_target(self, zip_path) -> Path:
+        from services.library import LibraryError
+
+        # Resolve aliases before creating a directory or temporary file.
+        # Protect the entire current library, including recovery material;
+        # also reject destinations in other libraries identified by their marker.
+        target = Path(zip_path).resolve()
+        if target.is_relative_to(self.context.root.resolve()) or any(
+            (parent / "nekori-library.json").is_file() for parent in target.parents
+        ):
+            raise LibraryError("请将资源包导出到资源库目录之外。")
+        return target
 
     def _inspect_and_pack_asset(self, source_path: str) -> ExportSkip | ExportAsset:
         display_name = os.path.basename(source_path)

@@ -1,0 +1,10 @@
+{
+  "source_commit": "f7e820899dc4ee44eae8996ebbf111855daf03dc",
+  "files": 140,
+  "unpacked_bytes": 208393518,
+  "zip_bytes": 76614049,
+  "zip_sha256": "a8f1888b6a76f9c4bef3868c2eb59e0d9bfd00d7e2681bceb5aba23d5bc4e300",
+  "source_zip_sha256": "6565466da5cd74978ae3948b808bacf1a7355c1c1abc13f1f0512aa56bae4d99",
+  "release_policy": "passed",
+  "ocr_included": false
+}

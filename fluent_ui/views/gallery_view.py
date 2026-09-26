@@ -18,6 +18,7 @@ from fluent_ui.components.emoji_card import EmojiCard
 from fluent_ui.components.hover_preview import HoverPreviewPopup
 from fluent_ui.components.hover_preview_controller import HoverPreviewController
 from fluent_ui.components.safe_round_menu import SafeRoundMenu
+from fluent_ui.views.exchange_view import COMPATIBILITY_EXPORT_NOTICE
 
 user32 = ctypes.windll.user32
 
@@ -2704,11 +2705,11 @@ class GalleryInterface(QWidget):
 
         menu.addSeparator()
 
-        action_export_all = Action("导出全部资源包", parent=menu)
+        action_export_all = Action("导出全部 Suzu 兼容资源（非完整备份）", parent=menu)
         action_export_all.triggered.connect(lambda: QTimer.singleShot(50, self._export_all_exchange_package))
         menu.addAction(action_export_all)
 
-        action_export_selected = Action("导出选中的收藏夹资源包", parent=menu)
+        action_export_selected = Action("导出选中分类的 Suzu 兼容资源（非完整备份）", parent=menu)
         action_export_selected.triggered.connect(
             lambda: QTimer.singleShot(50, self._export_selected_categories_exchange_package)
         )
@@ -2863,10 +2864,10 @@ class GalleryInterface(QWidget):
 
         if selected_categories:
             default_name = "suzu_exchange_selected_export.zip"
-            dialog_title = "导出选中的收藏夹资源包"
+            dialog_title = "导出选中分类的 Suzu 兼容资源（非完整备份）"
         else:
             default_name = "suzu_exchange_export.zip"
-            dialog_title = "导出全部资源包"
+            dialog_title = "导出全部 Suzu 兼容资源（非完整备份）"
 
         zip_path, _ = QFileDialog.getSaveFileName(
             self,
@@ -2881,13 +2882,13 @@ class GalleryInterface(QWidget):
             zip_path += ".zip"
 
         self._exchange_export_info_bar = InfoBar.info(
-            title="正在导出资源包",
-            content="正在初始化导出 data...",
+            title="正在导出 Suzu 兼容资源包（非完整备份）",
+            content="正在准备兼容数据...",
             orient=Qt.Horizontal,
             isClosable=False,
             position=InfoBarPosition.TOP_RIGHT,
             duration=-1,
-            parent=self
+            parent=self.window()
         )
 
         self.exchange_export_thread = ExchangeExportThread(
@@ -2911,12 +2912,32 @@ class GalleryInterface(QWidget):
             self._exchange_export_info_bar = None
 
         if error_msg:
-            self.show_error("导出失败", error_msg)
+            InfoBar.error(
+                "Suzu 兼容导出失败", error_msg, orient=Qt.Vertical,
+                duration=-1, position=InfoBarPosition.TOP_RIGHT, parent=self.window(),
+            )
         else:
             count = int(manifest.get("counts", {}).get("resources", 0))
-            skipped = len(manifest.get("skipped", []))
+            skipped = manifest.get("skipped", [])
+            warnings = manifest.get("warnings", [])
             category_count = int(manifest.get("counts", {}).get("categories", 0))
-            self.show_success(
-                "导出成功",
-                f"已导出 {count} 个资源、{category_count} 个收藏夹到\n{zip_path}\n跳过 {skipped} 项"
+            details = [
+                f"已导出 {count} 个资源、{category_count} 个大分类到\n{zip_path}",
+                COMPATIBILITY_EXPORT_NOTICE,
+            ]
+            for warning in warnings[:3]:
+                if isinstance(warning, dict) and warning.get("type") == "category_name_collision":
+                    details.append(f"分类名称合并：{'、'.join(warning['merged_from'])} → {warning['normalized']}")
+                else:
+                    details.append(f"警告：{warning}")
+            for item in skipped[:3]:
+                details.append(f"未导出 {item['name']}：{item['reason']}")
+            if warnings or skipped:
+                details.append(f"共 {len(warnings)} 项警告、{len(skipped)} 项跳过；完整明细位于资源包内 manifest.json。")
+            notify = InfoBar.warning if warnings or skipped else InfoBar.success
+            notify(
+                "兼容资源包已生成（有警告或跳过）" if warnings or skipped else "兼容资源包已生成（非完整备份）",
+                "\n".join(details), orient=Qt.Vertical,
+                duration=-1 if warnings or skipped else 8000,
+                position=InfoBarPosition.TOP_RIGHT, parent=self.window(),
             )

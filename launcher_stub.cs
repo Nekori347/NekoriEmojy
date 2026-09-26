@@ -1,12 +1,13 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Windows.Forms;
 
 internal static class LauncherStub
 {
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
         string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
         string targetPath = Path.Combine(baseDirectory, "bin", "NekoriEmojy.exe");
@@ -27,6 +28,7 @@ internal static class LauncherStub
             Process.Start(new ProcessStartInfo
             {
                 FileName = targetPath,
+                Arguments = string.Join(" ", Array.ConvertAll(args, QuoteArgument)),
                 WorkingDirectory = baseDirectory,
                 UseShellExecute = false,
                 CreateNoWindow = true
@@ -40,5 +42,27 @@ internal static class LauncherStub
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }
+    }
+
+    // ProcessStartInfo on .NET Framework accepts one command line. Preserve
+    // empty arguments, quotes and trailing backslashes under Windows argv rules.
+    private static string QuoteArgument(string value)
+    {
+        StringBuilder quoted = new StringBuilder("\"");
+        int slashes = 0;
+        foreach (char ch in value)
+        {
+            if (ch == '\\')
+            {
+                slashes++;
+                continue;
+            }
+            quoted.Append('\\', ch == '"' ? slashes * 2 + 1 : slashes);
+            quoted.Append(ch);
+            slashes = 0;
+        }
+        quoted.Append('\\', slashes * 2);
+        quoted.Append('"');
+        return quoted.ToString();
     }
 }
