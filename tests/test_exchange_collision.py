@@ -172,3 +172,18 @@ def test_collision_outside_selected_categories_does_not_block_export(tmp_path, s
         item, = json.loads(archive.read("catalog.json"))["resources"]
         assert item["display_name"] == f"{selected}.png"
     assert (state(context.root), state(originals)) == before
+
+
+def test_three_resources_with_one_key_refuse_after_identical_copies(tmp_path):
+    context, originals = seed_library(tmp_path, [png(), png(), png((3, 4))])
+    before = state(context.root), state(originals)
+    target = tmp_path / "three-resources.zip"
+    with zipfile.ZipFile(target, "w") as archive:
+        archive.writestr("previous.txt", b"previous backup")
+    previous = target.read_bytes()
+    with pytest.raises(ValueError, match="sync_key 冲突") as error:
+        ExchangeExportService(context).export_zip(target)
+    assert "0.png" in str(error.value) and "2.png" in str(error.value)
+    assert target.read_bytes() == previous
+    assert (state(context.root), state(originals)) == before
+    assert list(tmp_path.glob(".nekori-export-*.tmp")) == []

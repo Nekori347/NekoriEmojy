@@ -4,10 +4,19 @@ from PySide6.QtGui import QMouseEvent
 from qfluentwidgets import (
     SettingCard, SettingCardGroup, ScrollArea, ExpandLayout,
     FluentIcon as FIF, TransparentToolButton, TitleLabel,
-    PushButton
+    PushButton, BodyLabel
 )
 from services.i18n import t, i18n_engine
 from fluent_ui.views.setting_view import disable_wheel_scroll_adjustment
+
+
+COMPATIBILITY_EXPORT_NOTICE = (
+    "Suzu v1.11.6 兼容交换包不是完整备份；Native Full 尚未实现。\n"
+    "仅携带受支持的静态 PNG / GIF、普通关键词、大分类与图片关联及部分基础信息。\n"
+    "不保留分类节点及其成员/折叠、分类图标、手工图片排序、原生身份与版本、"
+    "其他标签与元数据、设置、最近记录及迁移/恢复信息。\n"
+    "旧 Suzu 导入器还会忽略空分类。请保留原资源库，不要用此包替代完整备份。"
+)
 
 
 class ActionSettingCard(SettingCard):
@@ -73,6 +82,11 @@ class ExchangeInterface(QWidget):
 
         self.mainLayout.addWidget(self.topBar)
 
+        self.compatibilityNotice = BodyLabel(t(COMPATIBILITY_EXPORT_NOTICE), self)
+        self.compatibilityNotice.setWordWrap(True)
+        self.compatibilityNotice.setContentsMargins(36, 0, 36, 12)
+        self.mainLayout.addWidget(self.compatibilityNotice)
+
         # 独立滚动区域
         self.scrollArea = ScrollArea(self)
         self.scrollWidget = QWidget()
@@ -85,7 +99,7 @@ class ExchangeInterface(QWidget):
         self.scrollWidget.setStyleSheet("QWidget { background-color: transparent; }")
         
         # =================== 1. 表情资源包卡片组 ===================
-        self.resourceGroup = SettingCardGroup(t("表情资源包"), self.scrollWidget)
+        self.resourceGroup = SettingCardGroup(t("Suzu 兼容资源包（非完整备份）"), self.scrollWidget)
 
         # 1.1 导入资源包
         self.importCard = ActionSettingCard(
@@ -100,8 +114,8 @@ class ExchangeInterface(QWidget):
         # 1.2 导出全部表情包
         self.exportAllCard = ActionSettingCard(
             FIF.SAVE,
-            t("导出全部资源包"),
-            t("将本地表情库的所有分类及表情完整导出为一个资源包"),
+            t("导出全部兼容资源"),
+            t("导出可兼容的数据；不包含完整资源库组织信息"),
             btn_text=t("导出全部"),
             parent=self.resourceGroup
         )
@@ -110,8 +124,8 @@ class ExchangeInterface(QWidget):
         # 1.3 导出选中分类
         self.exportSelectedCard = ActionSettingCard(
             FIF.TAG,
-            t("导出指定分类"),
-            t("自由勾选需要导出的表情分类，单独打包生成资源包"),
+            t("导出指定分类的兼容资源"),
+            t("按大分类选择兼容数据；不包含分类节点、图标或手工图片排序"),
             btn_text=t("挑选导出..."),
             parent=self.resourceGroup
         )
@@ -166,17 +180,18 @@ class ExchangeInterface(QWidget):
         self.titleLabel.setText(t("导入导出"))
         self.btnBack.setToolTip(t("返回主面板"))
 
-        self.resourceGroup.titleLabel.setText(t("表情资源包"))
+        self.compatibilityNotice.setText(t(COMPATIBILITY_EXPORT_NOTICE))
+        self.resourceGroup.titleLabel.setText(t("Suzu 兼容资源包（非完整备份）"))
         self.importCard.setTitle(t("导入资源包"))
         self.importCard.setContent(t("导入外部表情包文件（.zip），自动识别表情分类并去重"))
         self.importCard.button.setText(t("导入..."))
 
-        self.exportAllCard.setTitle(t("导出全部资源包"))
-        self.exportAllCard.setContent(t("将本地表情库的所有分类及表情完整导出为一个资源包"))
+        self.exportAllCard.setTitle(t("导出全部兼容资源"))
+        self.exportAllCard.setContent(t("导出可兼容的数据；不包含完整资源库组织信息"))
         self.exportAllCard.button.setText(t("导出全部"))
 
-        self.exportSelectedCard.setTitle(t("导出指定分类"))
-        self.exportSelectedCard.setContent(t("自由勾选需要导出的表情分类，单独打包生成资源包"))
+        self.exportSelectedCard.setTitle(t("导出指定分类的兼容资源"))
+        self.exportSelectedCard.setContent(t("按大分类选择兼容数据；不包含分类节点、图标或手工图片排序"))
         self.exportSelectedCard.button.setText(t("挑选导出..."))
 
         self.thirdPartyGroup.titleLabel.setText(t("第三方导入"))
