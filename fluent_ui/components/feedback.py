@@ -87,7 +87,7 @@ class FeedbackHost(QObject):
         self.command_line = line
         self.title_label = FeedbackTitle(self.strip)
         self.title_label.setWordWrap(True)
-        self.count_label = QLabel(self.strip)
+        self.count_label = FeedbackTitle(self.strip)
         self.count_label.setFont(visual.font('data'))
         line.addWidget(self.title_label, 1)
         line.addWidget(self.count_label)
@@ -155,13 +155,15 @@ class FeedbackHost(QObject):
         outer.removeWidget(self.progress)
         self.command_line.insertWidget(1,self.progress)
         self.command_line.setStretch(0,0)
-        self.command_line.addStretch(1)
+        self.command_line.setStretch(1,1)
         self.command_line.setSpacing(8)
         self.strip.setFixedHeight(24)
         self.title_label.setMinimumWidth(0)
-        self.title_label.setMaximumWidth(180)
+        self.title_label.setMaximumWidth(240)
         self.title_label.setSizePolicy(QSizePolicy.Preferred,QSizePolicy.Preferred)
-        self.progress.setFixedWidth(160)
+        self.progress.setMinimumWidth(160)
+        self.count_label.setMaximumWidth(260)
+        self.count_label.setMinimumWidth(0)
         self.title_label.setWordWrap(False)
         self.title_label.setFont(visual.font('secondary'))
         self.close_button.setFixedSize(20,20);self.action_button.setFixedHeight(22)
@@ -234,7 +236,8 @@ class FeedbackHost(QObject):
         self.content_label.setText(short_content)
         self.content_label.setVisible(bool(content) and not hasattr(self,'_caption_window'))
         self.strip.setToolTip(title+('\n'+content if content else ''))
-        self.count_label.setText(f'+{len(self.notices)-1}' if len(self.notices) > 1 else '')
+        summary=content.splitlines()[0] if content else ''
+        self.count_label.setText(summary+(f' · +{len(self.notices)-1}' if len(self.notices)>1 else ''))
         self.count_label.setToolTip('\n'.join(n[0]+': '+n[1] for n in self.notices))
         self._action = action or (self.show_details if len(self.notices) > 1 or short_content != content else None)
         self.action_button.setVisible(self._action is not None)
@@ -284,14 +287,14 @@ class FeedbackHost(QObject):
             self.notice(title, content, error=outcome == 'error')
         else:
             self.title_label.setText(title)
-            self.count_label.clear()
+            self.count_label.setText(content.splitlines()[0] if content else '')
             self.content_label.setText(content)
             self.progress.hide()
             self.action_button.hide()
             self.content_label.setVisible(bool(content) and not hasattr(self,'_caption_window'))
             self.strip.setToolTip(title+('\n'+content if content else ''))
             self.reposition()
-            self.finish_timer.start(600)
+            self.finish_timer.start(3500)
 
     def _restore_notice(self):
         if self.task_active:
@@ -333,17 +336,19 @@ class FeedbackHost(QObject):
     def reposition(self):
         caption=getattr(self,'_caption_window',None)
         if caption:
-            x=96 if hasattr(caption,'titleBar') else 8
-            width=max(100,min(500,caption.width()-x-112))
+            inset=112 if hasattr(caption,'titleBar') else 8
+            available=max(100,caption.width()-inset*2)
+            self.strip.layout().activate()
+            width=min(860,available) if self.task_active else min(available,self.strip.layout().sizeHint().width())
             self.strip.setFixedWidth(width);self.strip.adjustSize()
-            self.strip.move(x,max(5,(36-self.strip.height())//2));self.strip.raise_()
+            self.strip.move((caption.width()-width)//2,max(5,(36-self.strip.height())//2));self.strip.raise_()
         if not self.toasts:
             return
         area=caption or self.overlay_parent
         width = max(40, min(320, area.width()-24))
         self.toast_layer.setFixedWidth(width)
         self.toast_layer.adjustSize()
-        self.toast_layer.move(96 if caption else max(0, self.overlay_parent.width()-width-12),38 if caption else 12)
+        self.toast_layer.move((caption.width()-width)//2 if caption else max(0, self.overlay_parent.width()-width-12),38 if caption else 12)
         # Reserve the bottom lane for BackToTop / fixed preview. Tiny viewports
         # temporarily hide overlays; they never cover controls outside the pane.
         fits = self.toast_layer.height() <= max(0, self.overlay_parent.height()-72)

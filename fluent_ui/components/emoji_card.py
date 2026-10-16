@@ -286,7 +286,7 @@ class EmojiCard(QLabel):
         # file identity, and a full path tooltip on top of it was pure noise.
         # A missing file still needs to say so, without repeating the path.
         if not exists:
-            bind_text(self, t('资源文件缺失'), 'setToolTip')
+            bind_text(self, t('表情文件缺失'), 'setToolTip')
         self.update_style()
         self.update_size(self.current_size, load_image=load_image)
 
@@ -328,8 +328,11 @@ class EmojiCard(QLabel):
             p.drawLine(q.topLeft(),q.bottomRight());p.drawLine(q.topRight(),q.bottomLeft())
             p.setFont(visual.font('data'));p.drawText(image,Qt.AlignBottom|Qt.AlignHCenter,'MISSING')
         if self.is_selected or self._hovered:
-            p.setBrush(Qt.NoBrush);p.setPen(QPen(QColor(c['accent'] if self.is_selected else c['text_secondary']),1))
+            p.setBrush(Qt.NoBrush);p.setPen(QPen(QColor(c['accent']),1 if self.is_selected else 2))
             p.drawRoundedRect(r.adjusted(1,1,-1,-1),9,9)
+            if self.is_selected:
+                p.setPen(QPen(QColor(c['accent']),2))
+                p.drawLine(image.topLeft(),image.topRight())
 
     def needs_reload(self, target_size):
         target_img_size = max(10, target_size - 8)

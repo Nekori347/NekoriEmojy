@@ -148,7 +148,7 @@ class QuickPanel(QWidget):
             if card.image_path == path:
                 card.setProperty('state', status)
                 from services.i18n import t
-                card.setToolTip(t('资源文件缺失') if status == 'missing' else '')
+                card.setToolTip(t('表情文件缺失') if status == 'missing' else '')
                 card.update_style()
 
     def showEvent(self,event):
@@ -441,7 +441,7 @@ class QuickPanel(QWidget):
             if result == SendResult.COPIED_ONLY:
                 local.notice(t('已复制，但未找到可发送窗口'))
             else:
-                local.notice(t('复制失败'), t('无法将图片写入剪贴板'), error=True)
+                local.notice(t('复制失败'), t('无法将表情写入剪贴板'), error=True)
 
     def _on_card_hover_started(self, card, path):
         self.preview_controller.set_delay(self.config.get("preview_delay", 500))

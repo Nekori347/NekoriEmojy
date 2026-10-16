@@ -79,7 +79,7 @@ class ExchangeExportService:
         package_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         if package_id is not None and (not isinstance(package_id, str) or not package_id.strip()):
-            raise ValueError("资源包 ID 不能为空")
+            raise ValueError("表情合集 ID 不能为空")
         export_scope = export_scope or ("all" if selected_categories is None else "categories")
         if export_scope not in ("all", "categories"):
             raise ValueError("无效的导出范围")

@@ -688,7 +688,7 @@ class TagPanel(QWidget):
     # -- tag operations ------------------------------------------------
     def create_tag(self):
         name, ok = dialogs.prompt_text(self.window(), t('新建标签'), t('标签名'), '',
-                                       hint=t('标签属于整个资源库，不是当前分类的子项。'),
+                                       hint=t('标签属于整个表情库，不是当前分类的子项。'),
                                        code='TAG/NEW')
         if not ok:
             return
@@ -721,7 +721,7 @@ class TagPanel(QWidget):
             question = t('删除选中的 {value_0} 个标签？').format(value_0=len(names))
         if not dialogs.confirm(self.window(), t('删除标签'), question, ok_text=t('删除'),
                                danger=True, code='TAG/DELETE',
-                               hint=t('只删除标签本身以及它与资源的关联，不会删除任何资源文件。')):
+                               hint=t('只删除标签本身以及它与表情的关联，不会删除任何表情文件。')):
             return
         self.model.delete(names)
         self.tags_changed.emit()

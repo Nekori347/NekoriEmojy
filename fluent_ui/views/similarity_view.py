@@ -137,14 +137,14 @@ def description(feature, categories):
 
 class GroupPreview(dialogs.NekoriDialog):
     def __init__(self, group, index, categories, parent):
-        super().__init__(parent,t('相似图片预览'))
+        super().__init__(parent,t('相似表情预览'))
         self.owner = parent
         self.categories = categories
         self.entries = [(g, i, feature) for g, items in enumerate(parent.groups)
                         for i, feature in enumerate(items)]
         self.index = next(n for n, (_, _, feature) in enumerate(self.entries)
                           if feature.path == group[index].path)
-        self.setWindowTitle(t('相似图片预览'))
+        self.setWindowTitle(t('相似表情预览'))
         self.layout = self.body
         self.picture = None
         self.details = BodyLabel(self)
@@ -212,7 +212,7 @@ class SimilarityDialog(QDialog):
     def __init__(self, gallery):
         super().__init__(gallery)
         self.gallery, self.storage = gallery, gallery.storage
-        self.setWindowTitle(t('相似图片'))
+        self.setWindowTitle(t('相似表情'))
         self.setWindowModality(Qt.WindowModal)
         self.resize(960, 720)
         self.setMinimumSize(660, 480)
@@ -275,7 +275,7 @@ class SimilarityDialog(QDialog):
         selected = self.scope.currentData()
         self.scope.blockSignals(True)
         self.scope.clear()
-        self.scope.addItem(t('全部资源'), userData=None)
+        self.scope.addItem(t('全部表情'), userData=None)
         for name in self.storage.get_all_categories():
             if name != '全部表情':
                 self.scope.addItem(name, userData=name)
@@ -349,8 +349,8 @@ class SimilarityDialog(QDialog):
             self.groups = worker.groups
             self.failures = worker.failures or self.failures
             self.entries = [(g, i) for g, group in enumerate(self.groups) for i in range(len(group))]
-            self.status.setText(t('扫描完成：') + f'{len(self.groups)} ' + t('组疑似相似图片')
-                                + f' · {len(self.entries)} ' + t('张图片')
+            self.status.setText(t('扫描完成：') + f'{len(self.groups)} ' + t('组疑似相似表情')
+                                + f' · {len(self.entries)} ' + t('张表情')
                                 + (f' · {len(self.failures)} ' + t('个文件无法读取，已跳过') if self.failures else ''))
             self.status.setToolTip('\n'.join(f'{os.path.basename(p)}: {error}' for p, error in self.failures[:20]))
             self.scan_button.setText(t('重新扫描'))
@@ -412,7 +412,7 @@ class SimilarityDialog(QDialog):
             grid.addWidget(card, column // columns, column % columns, Qt.AlignTop)
             column += 1
         if not page_entries:
-            layout.addWidget(BodyLabel(t('暂无相似图片'), container))
+            layout.addWidget(BodyLabel(t('暂无相似表情'), container))
         old = self.scroll.takeWidget()
         if old:
             old.deleteLater()
@@ -468,8 +468,8 @@ class SimilarityDialog(QDialog):
     def delete_selected(self):
         if not self.selected or self.worker or self.deleting:
             return
-        answer = (QMessageBox.Yes if dialogs.confirm(self, t('确认删除'), t('将把所选资源移入 Windows 回收站，并移除索引及分类关系。')
-            + f'\n{t("已选择")} {len(self.selected)} {t("张图片")}\n'
+        answer = (QMessageBox.Yes if dialogs.confirm(self, t('确认删除'), t('将把所选表情移入 Windows 回收站，并移除索引及分类关系。')
+            + f'\n{t("已选择")} {len(self.selected)} {t("张表情")}\n'
             + t('疑似相似不代表内容相同，请确认已逐张比较。')) else QMessageBox.No)
         if answer != QMessageBox.Yes:
             return
@@ -479,12 +479,12 @@ class SimilarityDialog(QDialog):
         for picture in self.pictures:
             picture.stop()
         self.set_busy(True)
-        self.status.setText(t('正在删除所选图片…'))
+        self.status.setText(t('正在删除所选表情…'))
         self.feedback_host.task(self.status.text(), total=len(paths))
         try:
             self.delete_worker = ExchangeWorker(
                 lambda report: self.storage.delete_images_batch(
-                    paths, progress_callback=lambda n, total: report(n, total, t('正在删除所选图片…'))),
+                    paths, progress_callback=lambda n, total: report(n, total, t('正在删除所选表情…'))),
                 self)
             self.delete_worker.progress.connect(self.deletion_progress)
             self.delete_worker.finished.connect(self.deletion_finished)

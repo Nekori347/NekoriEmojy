@@ -246,7 +246,7 @@ def test_caption_task_is_transparent_and_single_line(surface,dark):
     image=painted(host.strip)
     assert image.pixelColor(0,0).alpha()==0 and image.pixelColor(2,23).alpha()==0
     host.finish('导入完成','100 项');settle(surface.app)
-    assert host.progress.isHidden() and host.count_label.text()=='' and host.strip.height()==24
+    assert host.progress.isHidden() and host.count_label.text()=='100 项' and host.strip.height()==24
     caption.close();caption.deleteLater();setTheme(Theme.LIGHT);visual.theme.refresh();settle(surface.app)
 
 

@@ -26,6 +26,7 @@ from fluent_ui.components.node_card import NodeCard, NODE_MIME, RESOURCE_MIME
 from fluent_ui.components.library_tree import LibraryTree, ALL_RESOURCES
 from fluent_ui.components.hover_preview import HoverPreviewPopup
 from fluent_ui.components.hover_preview_controller import HoverPreviewController
+from fluent_ui.components.keycap_label import KeycapLabel
 from fluent_ui.components import dialogs
 from fluent_ui.components.drop_contract import (
     APPLY_TAG, APPLY_TAG_TO_SUBTREE, APPEND, COPY, EdgeAutoScroller, DropFeedback, DropTarget, IMPORT,
@@ -77,7 +78,7 @@ class DownloadThread(QThread):
                         is_image = True
 
                 if not is_image:
-                    self.finished.emit(False, "", t("该链接不是有效的图片资源"), self.url)
+                    self.finished.emit(False, "", t("该链接不是有效的表情"), self.url)
                     return
 
                 content = response.read()
@@ -267,7 +268,7 @@ class CategorySidebar(Surface):
         if count is not None:
             self.root_count.setText(str(count))
         self.btn_root.setChecked(self.gallery_view.current_node == ROOT)
-        bind_text(self.btn_root, t('资源库全部资源 · {value_0} 项').format(value_0=self.root_count.text()), 'setToolTip')
+        bind_text(self.btn_root, t('表情库全部表情 · {value_0} 项').format(value_0=self.root_count.text()), 'setToolTip')
         self.btn_root.setAccessibleName(self.btn_root.toolTip())
 
     def set_display_sort(self, mode):
@@ -381,7 +382,7 @@ class CategorySidebar(Surface):
         action_emoji = translated(Action, "使用 Emoji 图标", parent=menu)
         action_emoji.triggered.connect(lambda: self._set_emoji_icon(node_id))
         menu.addAction(action_emoji)
-        action_image = translated(Action, "使用本地图片…", parent=menu)
+        action_image = translated(Action, "使用本地表情…", parent=menu)
         action_image.triggered.connect(lambda: self._set_image_icon(node_id))
         menu.addAction(action_image)
         menu.addSeparator()
@@ -399,7 +400,7 @@ class CategorySidebar(Surface):
 
     def _set_image_icon(self, node_id):
         path, _ = QFileDialog.getOpenFileName(
-            self.window(), t("选择分类图标"), "", t("图片 (*.png *.jpg *.jpeg *.gif *.webp *.bmp)"))
+            self.window(), t("选择分类图标"), "", t("表情 (*.png *.jpg *.jpeg *.gif *.webp *.bmp)"))
         if not path:
             return
         self.storage.set_node_icon(node_id, path)
@@ -439,7 +440,7 @@ class CategorySidebar(Surface):
             self.window(), t("删除分类"),
             t('删除分类“{value_0}”？').format(value_0=node['name']),
             ok_text=t("删除"), danger=True, code="NODE/DELETE",
-            hint=(t('只删除分类关系，资源文件保留在资源库中。\n其 {value_0} 个直接子分类会提升到上一级。\n直接属于它的 {value_1} 个资源会从该分类移出。').format(value_0=stats['children'], value_1=stats['resources'])))
+            hint=(t('只删除分类关系，表情文件保留在表情库中。\n其 {value_0} 个直接子分类会提升到上一级。\n直接属于它的 {value_1} 个表情会从该分类移出。').format(value_0=stats['children'], value_1=stats['resources'])))
         if not confirmed:
             return
         self.storage.delete_node(node_id)
@@ -501,7 +502,7 @@ class CategorySidebar(Surface):
         menu.addAction(action_import)
 
         menu.addSeparator()
-        action_export = translated(Action, "导出此分类为资源包…", parent=menu)
+        action_export = translated(Action, "导出此分类为表情合集…", parent=menu)
         action_export.triggered.connect(lambda: self.export_node(node_id))
         menu.addAction(action_export)
 
@@ -569,7 +570,7 @@ class GalleryInterface(QWidget):
             self._initial_anchor = self._decode_anchor(self._location_anchors.get(self.current_node))
             self._live_anchor = self._initial_anchor
         self._activate_inline_scope()
-        self.current_category = "全部资源"
+        self.current_category = "全部表情"
         self.search_keyword = ""
         self.filter_state = FilterState()
         self.active_tags = set()
@@ -670,7 +671,7 @@ class GalleryInterface(QWidget):
 
 
     def _pick_import_files(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, t("导入资源"), "", t("图片 (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.tiff *.tgs *.webm)"))
+        paths, _ = QFileDialog.getOpenFileNames(self, t("导入表情"), "", t("表情 (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.tiff *.tgs *.webm)"))
         if paths:
             self.import_paths_to(paths, self.content_scope_node())
 
@@ -712,7 +713,7 @@ class GalleryInterface(QWidget):
         self.scroll_area.setWidget(self.grid_container)
         self.scroll_area.viewport().setAcceptDrops(True)
 
-        self.placeholder = QLabel("", self.grid_container)
+        self.placeholder = KeycapLabel("", self.grid_container)
         self.placeholder.setAlignment(Qt.AlignCenter)
         self.placeholder.setProperty("role", "data")
         self.placeholder.hide()
@@ -779,7 +780,7 @@ class GalleryInterface(QWidget):
         paste.triggered.connect(lambda: self.paste_into(placement))
         menu.addAction(paste)
 
-        node = translated(Action, '在此新建分类节点' if placement.exact else '在当前分类新建节点',
+        node = translated(Action, '在此新建分类' if placement.exact else '在当前分类新建分类',
                           parent=menu)
         node.setIcon(FIF.ADD)
         node.triggered.connect(lambda: self.create_node_here(placement))
@@ -916,7 +917,7 @@ class GalleryInterface(QWidget):
     # Library selection
     # ==================================================================
     def _choose_library(self):
-        directory = QFileDialog.getExistingDirectory(self, t("选择或重新连接资源库"), self.storage.library_root)
+        directory = QFileDialog.getExistingDirectory(self, t("选择或重新连接表情库"), self.storage.library_root)
         if not directory:
             return
         try:
@@ -927,7 +928,7 @@ class GalleryInterface(QWidget):
             return
         self.config.set("library_path", directory)
         self.feedback_host.notice(
-            t("资源库已保存"),
+            t("表情库已保存"),
             t('下次启动将连接：\n{value_0}\n\n请退出托盘中的 Nekori 后重新启动以完成切换。').format(value_0=directory))
 
     # ==================================================================
@@ -1019,7 +1020,7 @@ class GalleryInterface(QWidget):
 
     def set_category(self, category_name):
         """Legacy entry point; accepts a node id, a breadcrumb label or a name."""
-        if category_name in (None, "全部表情", "全部资源"):
+        if category_name in (None, "全部资源", "全部表情"):
             self.set_node(ALL_RESOURCES)
             return
         labels = self.storage.category_labels()
@@ -1072,7 +1073,7 @@ class GalleryInterface(QWidget):
                 continue
             parent = ROOT if content_node == ROOT else (content_node if content_node in parents else parents[0])
             names = [node_paths[p] for p in parents if p in node_paths]
-            source_label = ' · '.join(names) if names else t('全部资源')
+            source_label = ' · '.join(names) if names else t('全部表情')
             result.append(dict(original, _parent=parent, _depth=0, _source_label=source_label, _unclassified_source=not parents))
         return self._apply_content_sort(result)
 
@@ -1157,7 +1158,7 @@ class GalleryInterface(QWidget):
             self._initial_anchor = self._decode_anchor(self._location_anchors.get(self.current_node))
             self._live_anchor = self._initial_anchor
         self._activate_inline_scope()
-        self.current_category = '全部资源' if self.current_node == ROOT else self.storage.node(self.current_node)['name']
+        self.current_category = '全部表情' if self.current_node == ROOT else self.storage.node(self.current_node)['name']
         self.sidebar.tree.select_node(self.current_node)
         if hasattr(self, 'preview_controller'):
             self.preview_controller.cancel()
@@ -1260,11 +1261,11 @@ class GalleryInterface(QWidget):
             self.placeholder.hide()
             return
         if self._display_mode == "search":
-            text = t("没有匹配的资源")
+            text = t("没有匹配的表情")
         elif self.current_node == ALL_RESOURCES:
-            text = t("资源库还是空的\n把图片、文件夹或截图拖进来，或按 Ctrl+V 粘贴")
+            text = t("表情库还是空的\n把表情、文件夹或截图拖进来，或按 Ctrl+V 粘贴")
         else:
-            text = t("该分类还没有内容\n把资源拖到左侧分类或此区域即可加入")
+            text = t("该分类还没有内容\n把表情拖到左侧分类或此区域即可加入")
         self.placeholder.setText(text)
         self.placeholder.resize(self.scroll_area.viewport().size())
         self.placeholder.show()
@@ -1283,7 +1284,7 @@ class GalleryInterface(QWidget):
 
     def _rebuild_context_strip(self):
         self._clear_layout(self.chip_layout)
-        path = ([dict(id=ROOT, name=t('全部资源'))] if self.current_node == ROOT
+        path = ([dict(id=ROOT, name=t('全部表情'))] if self.current_node == ROOT
                 else [n for n in self.storage.node_path(self.current_node) if n['id'] != ROOT])
         return_node = self.storage.index.node(self.return_child_hint) if self.return_child_hint else None
         if return_node and self.current_node not in {n['id'] for n in self.storage.node_path(self.return_child_hint)[:-1]}:
@@ -1294,10 +1295,10 @@ class GalleryInterface(QWidget):
         location_entries = self.entry_model.entries_of(self.current_node)
         resources = sum(e['kind'] == 'resource' for e in location_entries)
         children = 0 if self.current_node == ROOT else sum(e['kind'] == 'node' for e in location_entries)
-        self.location_rail.set_counts(t('{value_0} 项资源').format(value_0=resources) + '\n' +
+        self.location_rail.set_counts(t('{value_0} 项表情').format(value_0=resources) + '\n' +
                                    t('{value_0} 个子分类').format(value_0=children))
         for field, label in (('no_tag', '无标签'), ('unclassified', '未分类'),
-                             ('is_gif', '动图'), ('is_static', '静态图片'), ('missing', 'Missing 资源')):
+                             ('is_gif', '动图'), ('is_static', '静态表情'), ('missing', '已失效的表情')):
             if getattr(self.filter_state, field):
                 self.chip_layout.addWidget(self._make_chip(t(label), lambda f=field: self._update_filter(f, False), self.chip_container, active=True))
         self.context_strip.setVisible(self.filter_state.is_active())
@@ -1348,7 +1349,7 @@ class GalleryInterface(QWidget):
         if not paths:
             return
         self.show_success(t('标签已更新'),
-                          t('已为 {value_0} 项资源添加标签「{value_1}」').format(
+                          t('已为 {value_0} 项表情添加标签「{value_1}」').format(
                               value_0=len(paths), value_1=tag))
 
     def apply_tags(self, resource_ids, tag_ids):
@@ -1371,10 +1372,10 @@ class GalleryInterface(QWidget):
             return
         # Scope/count is deliberately resolved only at commit, never dragMove.
         records = self.storage.resources_in_subtree(node_id)
-        question = t('将 {tags} 个标签添加到「{category}」中的 {resources} 个资源？').format(
+        question = t('将 {tags} 个标签添加到「{category}」中的 {resources} 个表情？').format(
             tags=len(tags), category=node['name'], resources=len(records))
         if not dialogs.confirm(self.window(), t('添加标签到分类'), question,
-                               hint=t('已存在的标签关系会跳过，不会修改或删除任何资源文件。')):
+                               hint=t('已存在的标签关系会跳过，不会修改或删除任何表情文件。')):
             return
         paths = [self.storage.index.absolute_path(record) for record in records]
         self.storage.apply_tags(paths, tags, 'add')
@@ -1398,7 +1399,7 @@ class GalleryInterface(QWidget):
         self.content_pane.update()
         children = self.storage.child_nodes(self.current_node) if self.current_node != ROOT else []
         self._tab_nodes = [self.current_node]+[node['id'] for node in children]
-        title = t('全部资源') if self.current_node == ROOT else self.storage.node(self.current_node)['name']
+        title = t('全部表情') if self.current_node == ROOT else self.storage.node(self.current_node)['name']
         self.category_tabs.set_tabs([title]+[node['name'] for node in children], self._tab_nodes.index(self.content_scope_node()))
 
     def _on_category_tab(self, index):
@@ -1475,6 +1476,35 @@ class GalleryInterface(QWidget):
             return
         super().keyPressEvent(event)
 
+    def install_navigation_shortcuts(self):
+        self._view_shortcuts={}
+        for key in (Qt.Key_PageUp,Qt.Key_PageDown,Qt.Key_Return,Qt.Key_Enter):
+            shortcut=QShortcut(QKeySequence(key),self)
+            shortcut.setContext(Qt.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(lambda k=key:self._view_key(k))
+            self._view_shortcuts[key]=shortcut
+        QApplication.instance().focusChanged.connect(self._sync_view_shortcuts)
+        self._sync_view_shortcuts()
+
+    def _sync_view_shortcuts(self,*_):
+        from PySide6.QtWidgets import QLineEdit,QTextEdit,QPlainTextEdit,QAbstractSpinBox,QAbstractButton
+        focus=QApplication.focusWidget()
+        editing=isinstance(focus,(QLineEdit,QTextEdit,QPlainTextEdit,QAbstractSpinBox))
+        in_content=focus is self or (focus is not None and self.scroll_area.isAncestorOf(focus))
+        can_send=(in_content and self.mode=='normal' and self.config.get('gallery_click_action','select')=='select'
+                  and len(self.selected_keys)==1 and len(self.get_selected_paths())==1)
+        for key,shortcut in self._view_shortcuts.items():
+            shortcut.setEnabled(not editing and (key not in (Qt.Key_Return,Qt.Key_Enter)
+                                or (can_send and not isinstance(focus,QAbstractButton))))
+
+    def _view_key(self,key):
+        bar=self.scroll_area.verticalScrollBar()
+        if key==Qt.Key_PageUp:bar.setValue(bar.minimum())
+        elif key==Qt.Key_PageDown:bar.setValue(bar.maximum())
+        elif self.mode=='normal' and self.config.get('gallery_click_action','select')=='select' and len(self.selected_keys)==1:
+            paths=self.get_selected_paths()
+            if len(paths)==1:self.use_resource(paths[0])
+
     def consume_escape(self):
         if self.mode == 'manage' or self.selected_keys or self.tag_panel.flow.selected():
             self.finish_selection()
@@ -1487,6 +1517,7 @@ class GalleryInterface(QWidget):
         self.set_mode("manage" if enabled else "normal")
 
     def _sync_command_bar(self):
+        if hasattr(self,'_view_shortcuts'):self._sync_view_shortcuts()
         self._selection_parents = {key: parent for key, parent in self._selection_parents.items()
                                    if key in self.selected_keys}
         resources = [e for e in self._selected_entries() if e['kind'] == 'resource']
@@ -1781,6 +1812,13 @@ class GalleryInterface(QWidget):
         self.refresh_content_incremental(reason='node_order')
 
     def on_image_clicked(self, image_path, modifiers=Qt.NoModifier):
+        self.setFocus(Qt.MouseFocusReason)
+        if (self.mode != 'manage' and not self.selected_keys
+                and modifiers == Qt.NoModifier
+                and self.config.get('gallery_click_action', 'select') == 'send'):
+            self._selection_parents.pop(image_path,None)
+            self.use_resource(image_path)
+            return
         if modifiers & Qt.ShiftModifier and self._shift_anchor:
             self._extend_shift_selection(image_path)
         elif self.mode == 'manage' or modifiers & Qt.ControlModifier:
@@ -1792,12 +1830,6 @@ class GalleryInterface(QWidget):
             self._shift_anchor = image_path
             self._shift_touched.clear()
         self._last_clicked_key = image_path
-        # Suzu's single-click-to-send is opt-in here: the default stays the safe
-        # select-only behaviour, and the setting restores the fast path.
-        if (self.mode != 'manage'
-                and modifiers == Qt.NoModifier
-                and str(self.config.get('gallery_click_action', 'select')) == 'send'):
-            self.use_resource(image_path)
 
     def _send_to_clipboard(self, image_path):
         self.send_target_service.send(image_path, self.clipboard, self.storage,
@@ -1807,15 +1839,15 @@ class GalleryInterface(QWidget):
         self.last_send_result = result
         self.send_finished.emit(result)
         if result == SendResult.COPY_FAILED:
-            self.show_error(t("复制失败"), t("无法将图片写入剪贴板"))
+            self.show_error(t("复制失败"), t("无法将表情写入剪贴板"))
         elif result == SendResult.SENT and self.config.get('hide_main_after_paste', False):
             self.hide_after_paste_requested.emit()
         elif result == SendResult.COPIED_ONLY:
             self.feedback_host.notice(t('已复制，但未找到可发送窗口'))
 
     def _handle_missing_click(self, image_path):
-        if dialogs.confirm(self.window(), t("资源已失效"),
-                           t('该资源在磁盘上的位置已失效：\n{value_0}\n\n索引记录、分类关系、排序和 Tag 均已保留。').format(value_0=image_path),
+        if dialogs.confirm(self.window(), t("表情已失效"),
+                           t('该表情在磁盘上的位置已失效：\n{value_0}\n\n索引记录、分类关系、排序和标签 均已保留。').format(value_0=image_path),
                            ok_text=t("重新绑定文件…"), code="MISSING"):
             self.rebind_resource(image_path)
 
@@ -1911,7 +1943,7 @@ class GalleryInterface(QWidget):
     def _batch_assign(self, copy):
         entries = [e for e in self._selected_entries() if e["kind"] == "resource"]
         if not entries:
-            self.show_error(t("无法执行"), t("请先选择资源"))
+            self.show_error(t("无法执行"), t("请先选择表情"))
             return
         node_id = self.choose_target_node(
             t("复制到分类") if copy else t("移动到分类"), copy,
@@ -1924,8 +1956,8 @@ class GalleryInterface(QWidget):
         paths = self.get_selected_paths()
         if not ActionPolicy.enabled('remove_from_category', self._action_context(paths)):
             return
-        if not dialogs.confirm(self.window(), t('移出分类'), t('移出选中资源的当前分类关系？'),
-            ok_text=t('移出'), hint=t('只删除分类关系，资源文件仍保留在资源库中。')):
+        if not dialogs.confirm(self.window(), t('移出分类'), t('移出选中表情的当前分类关系？'),
+            ok_text=t('移出'), hint=t('只删除分类关系，表情文件仍保留在表情库中。')):
             return
         if not ActionPolicy.enabled('remove_from_category', self._action_context(paths)):
             return
@@ -1938,7 +1970,7 @@ class GalleryInterface(QWidget):
         entries = self._selected_entries()
         paths = [e["path"] for e in entries if e["kind"] == "resource"]
         if not ActionPolicy.enabled('tag_edit', self._action_context(paths)):
-            self.show_error(t("无法执行"), t("请先选择资源"))
+            self.show_error(t("无法执行"), t("请先选择表情"))
             return
         dialog = dialogs.TagEditorDialog(self.window(), self.storage, paths)
         if dialog.exec():
@@ -1948,7 +1980,7 @@ class GalleryInterface(QWidget):
     def _batch_delete(self):
         entries = [e for e in self._selected_entries() if e["kind"] == "resource"]
         if not entries:
-            self.show_error(t("无法执行"), t("请选择要删除的资源"))
+            self.show_error(t("无法执行"), t("请选择要删除的表情"))
             return
         paths = [e["path"] for e in entries]
         context = self._action_context(paths, revalidate=True)
@@ -1957,9 +1989,9 @@ class GalleryInterface(QWidget):
         missing_only = not context.existing
         hint = ('只删除索引记录，磁盘文件不会被改动。' if missing_only else
                 '文件会进入 Windows 系统回收站，索引记录同时移除。' if len(context.existing) == len(paths) else
-                '现有文件进入 Windows 回收站；失效资源只移除索引记录。')
+                '现有文件进入 Windows 回收站；失效表情只移除索引记录。')
         if not dialogs.confirm(self.window(), t(ActionPolicy.delete_label(context)),
-                               t('删除选中的 {value_0} 个资源？').format(value_0=len(paths)),
+                               t('删除选中的 {value_0} 个表情？').format(value_0=len(paths)),
                                ok_text=t('移除记录' if missing_only else '删除'), danger=True, code="DELETE",
                                hint=t(hint)):
             return
@@ -2043,7 +2075,7 @@ class GalleryInterface(QWidget):
     def _filter_by_tag(self):
         tags = self.storage.all_tags()
         if not tags:
-            self.show_error(t("没有标签"), t("资源库中还没有任何 Tag"))
+            self.show_error(t("没有标签"), t("表情库中还没有任何标签"))
             return
         choices = [(tag, f"{tag}  ({count})") for tag, count in tags.items()]
         tag, ok = dialogs.choose_item(self.window(), t("按标签筛选"), t("选择一个标签"), choices, code="TAG/FILTER")
@@ -2054,7 +2086,7 @@ class GalleryInterface(QWidget):
     def _execute_batch_export(self):
         paths = self.get_selected_paths()
         if not ActionPolicy.enabled('export', self._action_context(paths, revalidate=True)):
-            self.show_error(t("无法导出"), t("请先选择资源"))
+            self.show_error(t("无法导出"), t("请先选择表情"))
             return
         import shutil
         directory = QFileDialog.getExistingDirectory(self, t("选择导出目标文件夹"), "")
@@ -2239,13 +2271,13 @@ class GalleryInterface(QWidget):
     def _set_application_icon(self, path):
         if not ActionPolicy.enabled('set_icon', self._action_context([path], revalidate=True)):
             return
-        if not dialogs.confirm(self.window(), t('设置软件图标'), t('将此图片设为 NekoriEmojy 软件图标？'), ok_text=t('确认')):
+        if not dialogs.confirm(self.window(), t('设置软件图标'), t('将此表情设为 NekoriEmojy 软件图标？'), ok_text=t('确认')):
             return
         if not ActionPolicy.enabled('set_icon', self._action_context([path], revalidate=True)):
             return
         from services.app_icon import ApplicationIconService
         try:
-            ApplicationIconService(self.config).set_from_image(path)
+            ApplicationIconService(self.config).set_from_image(path,frame=int(self.storage.resource_metadata(path).get("thumb_frame",0) or 0))
         except Exception as exc:
             self.show_error(t("设置软件图标失败"), str(exc))
             return
@@ -2263,7 +2295,7 @@ class GalleryInterface(QWidget):
     def rebind_resource(self, path):
         record = self.storage.resource_of(path)
         if not record:
-            self.show_error(t("重新绑定失败"), t("资源记录不存在"))
+            self.show_error(t("重新绑定失败"), t("表情记录不存在"))
             return
         chosen, _ = QFileDialog.getOpenFileName(self.window(), t("重新绑定文件"), "", t("所有文件 (*.*)"))
         if not chosen:
@@ -2276,7 +2308,7 @@ class GalleryInterface(QWidget):
             return
         self.renderer.loader.invalidate([path, target])
         self.refresh_content_incremental(reason='rebind', paths=[target])
-        self.show_success(t("重新绑定成功"), t("分类、排序、Tag 与已有元数据均已保留"))
+        self.show_success(t("重新绑定成功"), t("分类、排序、标签与已有元数据均已保留"))
 
     def _ensure_inside_library(self, path):
         """Rebinding accepts library files; outside files are imported first."""
@@ -2287,7 +2319,7 @@ class GalleryInterface(QWidget):
             pass
         result = self.storage.import_paths([path])
         if not result.paths:
-            raise RuntimeError("无法把该文件导入资源库")
+            raise RuntimeError("无法把该文件导入表情库")
         return result.paths[0]
 
     def forget_resource(self, path):
@@ -2296,7 +2328,7 @@ class GalleryInterface(QWidget):
         record = self.storage.resource_of(path)
         if not record:
             return
-        if not dialogs.confirm(self.window(), t("删除资源记录"), t("删除这条资源记录？"),
+        if not dialogs.confirm(self.window(), t("删除表情记录"), t("删除这条表情记录？"),
                                ok_text=t("删除记录"), danger=True, code="FORGET",
                                hint=t("只删除索引记录，磁盘文件不会被改动。")):
             return
@@ -2398,7 +2430,7 @@ class GalleryInterface(QWidget):
         if data_type == 'file':
             data=[p for p in data if p.lower().endswith(self.storage.SUPPORTED_FORMATS) or os.path.isdir(p)]
             if not data:
-                self.feedback_host.toast(t('剪贴板中没有可导入的图片'));return
+                self.feedback_host.toast(t('剪贴板中没有可导入的表情'));return
             self.import_paths_to(data, parent, position=position)
         elif data_type == 'image':
             from services.resource_import import ImportTarget
@@ -2407,18 +2439,18 @@ class GalleryInterface(QWidget):
             if saved_path:
                 self.sidebar.refresh_list(self.current_node)
                 self.refresh_content_incremental(reason='clipboard_import', parents={ROOT, parent})
-                self.show_success(t("导入完成"), t("该图片已存在，已跳过保存") if is_duplicate else t("已保存到资源库"))
+                self.show_success(t("导入完成"), t("该表情已存在，已跳过保存") if is_duplicate else t("已保存到表情库"))
         elif data_type == 'network_url':
             # A download finishes later, so an index captured now could point
             # into a stream that changed meanwhile; it appends by design.
-            self.task_status.show(t("正在下载"), t("正在从网络获取图片，请稍候…"))
+            self.task_status.show(t("正在下载"), t("正在从网络获取表情，请稍候…"))
             thread = DownloadThread(data, self)
             self.download_threads.append(thread)
             thread.finished.connect(lambda ok, path, error, url, target=parent:
                                     self._on_download_finished(ok, path, error, url, target))
             thread.start()
         else:
-            self.feedback_host.toast(t('剪贴板中没有可导入的图片'))
+            self.feedback_host.toast(t('剪贴板中没有可导入的表情'))
 
     def _on_download_finished(self, success, temp_filepath, error_msg, url, target_node=None):
         for thread in self.download_threads[:]:
@@ -2426,7 +2458,7 @@ class GalleryInterface(QWidget):
                 self.download_threads.remove(thread)
                 thread.deleteLater()
         if not success:
-            self.task_status.fail(t("下载失败"), t('无法获取网络图片: {value_0}').format(value_0=error_msg))
+            self.task_status.fail(t("下载失败"), t('无法获取网络表情: {value_0}').format(value_0=error_msg))
             return
         self._start_background_import([temp_filepath], delete_after=True,
                                       target_category=target_node or self.content_scope_node())
@@ -2440,13 +2472,13 @@ class GalleryInterface(QWidget):
         if self.import_thread is not None and self.import_thread.isRunning():
             self.show_error(t("导入中"), t("请等待当前导入任务完成"))
             return
-        path, _ = QFileDialog.getOpenFileName(self.window(), t("导入资源包"), "", t("资源包 (*.zip)"))
+        path, _ = QFileDialog.getOpenFileName(self.window(), t("导入表情合集"), "", t("表情合集 (*.zip)"))
         if not path:
             return
         service = ExchangeImportService(storage=self.storage)
         try:
             saved, skipped = run_exchange_task(
-                self.window(), "正在导入资源包", lambda progress: service.import_zip(path, progress))
+                self.window(), "正在导入表情合集", lambda progress: service.import_zip(path, progress))
             self.storage.force_reload()
             self.sidebar.refresh_list(self.current_node)
             self.on_images_changed()
@@ -2492,16 +2524,16 @@ class GalleryInterface(QWidget):
         from services.exchange_export import ExchangeExportService
         from fluent_ui.components.exchange_task_dialog import run_exchange_task
         path, _ = QFileDialog.getSaveFileName(
-            owner, t("导出资源包"), "SuzuEmojy.zip", t("资源包 (*.zip)"))
+            owner, t("导出表情合集"), "SuzuEmojy.zip", t("表情合集 (*.zip)"))
         if not path:
             return
         if not path.lower().endswith(".zip"):
             path += ".zip"
         try:
             service = ExchangeExportService(storage=self.storage)
-            manifest = run_exchange_task(owner, "正在导出资源包", lambda progress:
+            manifest = run_exchange_task(owner, "正在导出表情合集", lambda progress:
                 service.export_zip(path, selected_categories, progress))
-            message = t('资源包已保存到\n{value_0}').format(value_0=path)
+            message = t('表情合集已保存到\n{value_0}').format(value_0=path)
             if manifest.get("skipped"):
                 message += "\n" + t("跳过 {count} 个不支持的文件").format(count=len(manifest['skipped']))
             feedback_for(owner).notice(t("导出完成"), message) if manifest.get("skipped") else feedback_for(owner).toast(t("导出完成"), message)
@@ -2723,7 +2755,7 @@ class GalleryInterface(QWidget):
         for url in mime.urls():
             if not url.isLocalFile():
                 if url.scheme() in ("http", "https"):
-                    self.task_status.show(t("正在下载"), t("正在从网络获取图片，请稍候…"))
+                    self.task_status.show(t("正在下载"), t("正在从网络获取表情，请稍候…"))
                     thread = DownloadThread(url.toString(), self)
                     self.download_threads.append(thread)
                     thread.finished.connect(lambda ok, path, error, url,
@@ -2760,7 +2792,7 @@ class GalleryInterface(QWidget):
         """Open the containing folder with this file selected."""
         import subprocess
         if not ActionPolicy.enabled('show_in_explorer', self._action_context([path], revalidate=True)):
-            self.show_error(t('无法定位文件'), t('资源文件已不存在，可尝试重新绑定。'))
+            self.show_error(t('无法定位文件'), t('表情文件已不存在，可尝试重新绑定。'))
             return
         try:
             subprocess.Popen(['explorer', f'/select,{os.path.normpath(path)}'])
@@ -2895,7 +2927,7 @@ class GalleryInterface(QWidget):
     def _show_tools_menu(self):
         menu = RoundMenu(parent=self)
         for icon, label, callback in (
-            (FIF.SEARCH, '相似图片', self.similarity_requested.emit),
+            (FIF.SEARCH, '相似表情', self.similarity_requested.emit),
             (FIF.APPLICATION, 'QQ 导入', self.qq_requested.emit),
             (FIF.DOWNLOAD, 'Telegram 导入', self.tg_requested.emit),
             (FIF.INFO, '关于', self.about_requested.emit),
@@ -2968,7 +3000,7 @@ class GalleryInterface(QWidget):
         label = {ResourceSort.MANUAL: '自定义顺序', ResourceSort.RECENT_ADDED: '最近添加',
                  ResourceSort.OLDEST_ADDED: '最早添加'}[ResourceSort(self.content_sort)]
         self.btn_content_sort.setIcon({ResourceSort.MANUAL:FIF.SORT,ResourceSort.RECENT_ADDED:FIF.SORT_DESC,ResourceSort.OLDEST_ADDED:FIF.SORT_ASC}[ResourceSort(self.content_sort)])
-        bind_text(self.btn_content_sort, t('资源显示排序') + ' · ' + t(label), 'setToolTip')
+        bind_text(self.btn_content_sort, t('表情显示排序') + ' · ' + t(label), 'setToolTip')
         self.btn_content_sort.setAccessibleName(self.btn_content_sort.toolTip())
         for mode, action in getattr(self, 'resource_sort_actions', {}).items():
             action.setChecked(mode == self.content_sort)
@@ -3067,7 +3099,7 @@ class GalleryInterface(QWidget):
         def show_menu():
             menu = RoundMenu(parent=self)
             self._drop_action_menu = menu
-            title = self.storage.node(target)['name'] if target != ROOT else t('全部资源')
+            title = self.storage.node(target)['name'] if target != ROOT else t('全部表情')
             if target != ROOT:
                 if any(parent != ROOT for parent in sources.values()):
                     move = Action(t('移动到「{name}」').format(name=title), parent=menu)
@@ -3080,7 +3112,7 @@ class GalleryInterface(QWidget):
                 add.triggered.connect(lambda: self._apply_drop_action(paths, target, True, sources, position))
                 menu.addAction(add)
             else:
-                info = translated(Action, '全部资源已包含这些资源', parent=menu)
+                info = translated(Action, '全部表情已包含这些表情', parent=menu)
                 info.setEnabled(False)
                 menu.addAction(info)
             cancel = translated(Action, '取消', parent=menu)

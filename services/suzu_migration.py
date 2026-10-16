@@ -136,7 +136,7 @@ class SuzuMigrationService:
     def preview_data(self, directory):
         data_dir, images = self._locate(Path(directory).resolve())
         if images is None or not images.is_dir():
-            raise SuzuMigrationError('Suzu 图片目录已不可用，请刷新运行实例')
+            raise SuzuMigrationError('Suzu 表情目录已不可用，请刷新运行实例')
         target = self.index.root.resolve()
         source = data_dir.resolve()
         if target == source or target.is_relative_to(source) or source.is_relative_to(target):
@@ -182,7 +182,7 @@ class SuzuMigrationService:
             raise SuzuMigrationError(f"目录不存在：{root}")
         data_dir, images_dir = self._locate(root)
         if images_dir is None or not images_dir.is_dir():
-            raise SuzuMigrationError("没有在该目录中找到 Suzu 的 images 图片目录")
+            raise SuzuMigrationError("没有在该目录中找到 Suzu 的 images 表情目录")
 
         target = self.index.root.resolve()
         source = data_dir.resolve()

@@ -5,7 +5,7 @@ The fixed contour master is sampled from a continuous virtual height field.
 """
 import time
 from pathlib import Path
-from PySide6.QtCore import Qt, QRectF, QTimer, QSize, QVariantAnimation
+from PySide6.QtCore import Qt, QRectF, QTimer, QSize, QVariantAnimation, QEvent
 from PySide6.QtGui import QColor, QPainter, QPen, QLinearGradient, QPainterPath, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import QSlider, QStyle, QStyleOptionSlider, QProgressBar, QToolButton, QWidget, QLabel
@@ -111,6 +111,9 @@ class SoftframeSlider(QSlider):
     """Native slider input/hit testing, fine track and short capsule drawing."""
     def __init__(self, orientation=Qt.Horizontal, parent=None):
         super().__init__(orientation,parent)
+        self._handle_hover=False
+        self.setAttribute(Qt.WA_Hover)
+        self.setFocusPolicy(Qt.TabFocus)
         self.setMinimumSize(60,28)
         self.setStyleSheet('QSlider {background:transparent;} QSlider::groove:horizontal {background:transparent; height:2px; margin:0 4px;} QSlider::handle:horizontal {background:transparent; border:none; width:28px; margin:-8px 0;} QSlider::groove:vertical {background:transparent; width:2px; margin:4px 0;} QSlider::handle:vertical {background:transparent; border:none; height:24px; margin:0 -8px;}')
         visual.theme.changed.connect(self.update)
@@ -130,11 +133,23 @@ class SoftframeSlider(QSlider):
         else:
             p.drawLine(self.width()//2,7,self.width()//2,self.height()-7)
             pill=QRectF(self.width()/2-4,center.y()-12,8,24)
-        p.setBrush(QColor(c['thumb']));p.setPen(QPen(QColor(c['border']),.8))
+        active=self._handle_hover or self.isSliderDown()
+        p.setBrush(QColor(c['thumb']));p.setPen(QPen(QColor(c['accent'] if active else c['border']),1 if active else .8))
         p.drawRoundedRect(pill,5,5)
+        if active:
+            tint=QColor(c['accent']);tint.setAlpha(24)
+            p.setBrush(tint);p.setPen(Qt.NoPen);p.drawRoundedRect(pill,5,5)
         if self.hasFocus():
             p.setBrush(Qt.NoBrush);p.setPen(QPen(QColor(c['accent']),1))
             p.drawRoundedRect(pill.adjusted(-2,-2,2,2),5,5)
+
+    def event(self,event):
+        if event.type() in (QEvent.HoverEnter,QEvent.HoverMove,QEvent.HoverLeave):
+            option=QStyleOptionSlider();self.initStyleOption(option)
+            handle=self.style().subControlRect(QStyle.CC_Slider,option,QStyle.SC_SliderHandle,self)
+            hovered=event.type()!=QEvent.HoverLeave and handle.contains(event.position().toPoint())
+            if hovered!=self._handle_hover:self._handle_hover=hovered;self.update()
+        return super().event(event)
 
     def wheelEvent(self,event):
         event.ignore()

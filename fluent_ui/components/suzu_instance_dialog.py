@@ -13,7 +13,7 @@ class SuzuInstanceDialog(NekoriDialog):
         self.service = service
         self.selected_data_dir = None
         self.setMinimumSize(640, 420)
-        self.add_hint(t('先启动要迁移的 Suzu，再从下方选择实例。迁移会复制数据到当前 Nekori 资源库。'))
+        self.add_hint(t('先启动要迁移的 Suzu，再从下方选择实例。迁移会复制数据到当前 Nekori 表情库。'))
         self.instances = QListWidget(self)
         self.instances.setMinimumHeight(130)
         self.instances.currentItemChanged.connect(self._preview)
@@ -23,7 +23,7 @@ class SuzuInstanceDialog(NekoriDialog):
         self.preview.setTextFormat(Qt.PlainText)
         self.preview.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.add_widget(self.preview)
-        self.add_hint(t('保留图片、分类、分类图标、Tag 和实际保存的顺序；缺失源文件会报告为跳过。原 Suzu 数据保持原样。'))
+        self.add_hint(t('保留表情、分类、分类图标、标签 和实际保存的顺序；缺失源文件会报告为跳过。原 Suzu 数据保持原样。'))
         self.add_button(t('取消'), on_click=self.reject)
         self.refresh_button = self.add_button(t('刷新实例'), on_click=self.refresh)
         self.import_button = self.add_button(t('导入 Nekori'), role='primary', on_click=self.accept, enabled=False)
@@ -46,7 +46,7 @@ class SuzuInstanceDialog(NekoriDialog):
         if found:
             self.instances.setCurrentRow(0)
         else:
-            bind_text(self.preview, t('未找到运行中的 SuzuEmojy。请启动 Suzu 后刷新，或返回使用 Suzu ZIP 资源包迁移。'), 'setText')
+            bind_text(self.preview, t('未找到运行中的 SuzuEmojy。请启动 Suzu 后刷新，或返回使用 Suzu ZIP 表情合集迁移。'), 'setText')
 
     def _preview(self, item, previous=None):
         self.selected_data_dir = None
@@ -63,6 +63,6 @@ class SuzuInstanceDialog(NekoriDialog):
             self.preview.setText(str(error))
             return
         categories = '、'.join(preview['categories'][:12]) or t('无')
-        bind_text(self.preview, t('数据来源：{value_0}\n\n{value_1} 项图片 · {value_2} 个分类 · {value_3} 项含 Tag · {value_4} 个分类图标\n{value_5} 项保存了顺序 · {value_6} 个源文件缺失\n分类：{value_7}').format(value_0=preview['data_dir'], value_1=preview['resources'], value_2=preview['nodes'], value_3=preview['tags'], value_4=preview['icons'], value_5=preview['ordered'], value_6=len(preview['missing']), value_7=categories), 'setText')
+        bind_text(self.preview, t('数据来源：{value_0}\n\n{value_1} 项表情 · {value_2} 个分类 · {value_3} 项含 Tag · {value_4} 个分类图标\n{value_5} 项保存了顺序 · {value_6} 个源文件缺失\n分类：{value_7}').format(value_0=preview['data_dir'], value_1=preview['resources'], value_2=preview['nodes'], value_3=preview['tags'], value_4=preview['icons'], value_5=preview['ordered'], value_6=len(preview['missing']), value_7=categories), 'setText')
         self.selected_data_dir = instance['data_dir']
         self.import_button.setEnabled(True)

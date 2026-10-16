@@ -20,12 +20,15 @@ class MenuDelegate(QStyledItemDelegate):
         action=index.data(Qt.UserRole)
         text=action.text() if isinstance(action,QAction) else action.title() if hasattr(action,'title') else str(index.data(Qt.DisplayRole) or '').lstrip()
         shortcut=action.shortcut().toString() if isinstance(action,QAction) else ''
-        reserve=p.fontMetrics().horizontalAdvance(shortcut)+20 if shortcut else 0
+        reserve=p.fontMetrics().horizontalAdvance(shortcut)+36 if shortcut else 0
         rect=r.adjusted(30,0,-14-reserve,0)
         if isinstance(action,QAction) and action.isChecked():
             Icon.ACCEPT.render(p,QRectF(r.left()+10,r.center().y()-7,14,14),fill=c['text'])
         elif isinstance(icon,QIcon):icon.paint(p,int(r.left()+10),int(r.center().y()-7),14,14)
         p.drawText(rect,Qt.AlignVCenter|Qt.AlignLeft,p.fontMetrics().elidedText(text,Qt.ElideRight,int(rect.width())))
         if isinstance(action,QAction) and not action.shortcut().isEmpty():
-            p.setFont(visual.font('data'));p.setPen(QColor(c['muted']));p.drawText(r.adjusted(30,0,-14,0),Qt.AlignRight|Qt.AlignVCenter,shortcut)
+            from PySide6.QtGui import QFontMetrics
+            from fluent_ui.components.keycap_label import paint_keycap
+            font=visual.font('data');width=QFontMetrics(font).horizontalAdvance(shortcut)+12
+            paint_keycap(p,QRectF(r.right()-14-width,r.center().y()-11,width,22),shortcut,font)
         p.restore()

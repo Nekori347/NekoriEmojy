@@ -13,12 +13,13 @@ class CompactNumberBox(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._minimum, self._maximum, self._step, self._value = 0, 100, 1, 0
-        self.setFixedSize(92, 32)
+        self.setFixedSize(66, 32)
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 0, 6, 0)
+        layout.setContentsMargins(4, 0, 4, 0)
         layout.setSpacing(0)
+        layout.addSpacing(16)
         self.editor = QLineEdit('0', self)
-        self.editor.setAlignment(Qt.AlignRight)
+        self.editor.setAlignment(Qt.AlignCenter)
         self.editor.setFont(visual.font('data'))
         self.editor.setProperty('typography', 'data')
         self.editor.setValidator(QIntValidator(0, 100, self))
@@ -33,7 +34,7 @@ class CompactNumberBox(QWidget):
         self.up_button = TransparentToolButton(FIF.UP, self)
         self.down_button = TransparentToolButton(FIF.DOWN, self)
         for button, delta in ((self.up_button, 1), (self.down_button, -1)):
-            button.setFixedSize(18, 12)
+            button.setFixedSize(16, 12)
             button.setIconSize(QSize(8, 8))
             button.setFocusPolicy(Qt.NoFocus)
             button.setAutoRepeat(True)
@@ -65,6 +66,8 @@ class CompactNumberBox(QWidget):
     def setRange(self, minimum, maximum):
         self._minimum, self._maximum = int(minimum), int(maximum)
         self.editor.validator().setRange(self._minimum, self._maximum)
+        digits=max(self.editor.fontMetrics().horizontalAdvance(str(v)) for v in (self._minimum,self._maximum))
+        self.setFixedWidth(max(62,digits+44))
         self.setValue(self._value)
 
     def setSingleStep(self, step):

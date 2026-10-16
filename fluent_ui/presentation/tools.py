@@ -54,7 +54,7 @@ class ImportBench(QWidget):
         left.addWidget(view.configScrollArea,1)
         if self.is_tg:
             self.field(form,view.urlLabel,view.urlInputEdit,view.helpButton)
-            view.urlInputEdit.setPlaceholderText(t('输入贴纸包链接或名称'))
+            view.urlInputEdit.setPlaceholderText(t('输入表情合集链接或名称'))
             form.addWidget(view.parseButton)
             self.network_button=PushButton(t('连接设置'),self.inputs);self.network_button.clicked.connect(self.open_network)
             form.addWidget(self.network_button)
@@ -73,7 +73,7 @@ class ImportBench(QWidget):
         if hasattr(view,'previewTitleLabel'):
             view.previewTitleLabel.setParent(self.results);view.previewTitleLabel.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred);toolbar.addWidget(view.previewTitleLabel,1)
         else:
-            label=QLabel(self.results);bind_text(label,'资源预览');toolbar.addWidget(label,1)
+            label=QLabel(self.results);bind_text(label,'表情预览');toolbar.addWidget(label,1)
         for name,icon,text,callback in (
             ('selectAllButton',Icon.ACCEPT,'全选已加载',view.selectAllLoaded),
             ('clearSelectionButton',Icon.CANCEL,'清空选择',view.clearSelection)) + (

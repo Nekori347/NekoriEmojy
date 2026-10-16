@@ -94,15 +94,15 @@ def main(surface,monkeypatch):
     QApplication.sendPostedEvents(None,QEvent.DeferredDelete)
 
 
-def test_esc_independent_immediate_persist_and_internal_priority(surface,main):
+def test_esc_staged_preferences_and_internal_priority(surface,main):
     s,w=surface,main;g=w.gallery_interface;q=w.quick_panel;c=w.setting_interface
     c._select_page(2)
     assert not s.config.get('esc_hide_main') and not s.config.get('esc_hide_quick')
     c._rows['esc_hide_main'][0].switch.setChecked(True)
-    assert s.config.get('esc_hide_main') and not s.config.get('esc_hide_quick')
+    assert not s.config.get('esc_hide_main') and 'esc_hide_main' in c.pending
+    c.discard();assert not s.config.get('esc_hide_main')
+    c._rows['esc_hide_main'][0].switch.setChecked(True);c.save()
     assert ConfigService(s.tmp/'app').get('esc_hide_main')
-    assert 'esc_hide_main' not in c.pending
-    c.discard();assert s.config.get('esc_hide_main')
     g.set_mode('manage')
     g.filter_flyout.toggle(g.filter_state);settle(s.app)
     QTest.keyClick(g.filter_flyout.checkboxes['no_tag'],Qt.Key_Escape)
@@ -117,10 +117,10 @@ def test_esc_independent_immediate_persist_and_internal_priority(surface,main):
     w.show();q._activation_guard=True;q.show();settle(s.app)
     QTest.keyClick(q.search_box,Qt.Key_Escape)
     assert q.isVisible() and w.isVisible()
-    c._rows['esc_hide_quick'][0].switch.setChecked(True)
+    c._rows['esc_hide_quick'][0].switch.setChecked(True);c.save()
     QTest.keyClick(q.search_box,Qt.Key_Escape)
     assert not q.isVisible() and w.isVisible()
-    c._rows['esc_hide_main'][0].switch.setChecked(False)
+    c._rows['esc_hide_main'][0].switch.setChecked(False);c.save()
     QTest.keyClick(g.search_box,Qt.Key_Escape)
     assert w.isVisible() and ConfigService(s.tmp/'app').get('esc_hide_quick')
     OUT.mkdir(exist_ok=True);w.settings_window.show();settle(s.app)

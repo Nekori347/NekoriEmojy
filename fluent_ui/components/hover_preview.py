@@ -191,7 +191,7 @@ class HoverPreviewPopup(QWidget):
         self.category_label.setText(f"{t('分类')}: {category_str}")
         self.keyword_label.setText(f"{t('标签')}: {keyword_str}")
         ocr=str(info.get('ocr_text') or '').strip()
-        self.ocr_label.setText(t('图片文字')+': '+ocr)
+        self.ocr_label.setText(t('表情文字')+': '+ocr)
         self.ocr_label.setVisible(bool(ocr))
         for label in (self.category_label,self.keyword_label,self.ocr_label):
             label.setWordWrap(True)

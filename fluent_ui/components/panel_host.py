@@ -107,6 +107,7 @@ class ResizeHandle(QSplitterHandle):
         self.setMouseTracking(True)
         self._ear_press = None
         self._dragging = False
+        self._ear_hover = False
         self.setCursor(Qt.SplitHCursor if orientation == Qt.Horizontal else Qt.SplitVCursor)
 
     @property
@@ -115,7 +116,7 @@ class ResizeHandle(QSplitterHandle):
 
     def ear_rect(self, hit=False):
         m = visual.COMPACT_CONTROLS
-        length = m.ear_hit_length if hit else m.ear_length
+        length = max(60,m.ear_hit_length) if hit else m.ear_length
         r = QRect(0, 0, self.width(), length) if self.orientation() == Qt.Horizontal else QRect(0, 0, length, self.height())
         r.moveCenter(self.rect().center())
         return r.intersected(self.rect())
@@ -137,6 +138,8 @@ class ResizeHandle(QSplitterHandle):
     def mouseMoveEvent(self, event):
         if not self.isEnabled():
             return
+        self._ear_hover=bool(self.dock_host and self.ear_rect(True).contains(event.position().toPoint()))
+        self.update()
         if self._ear_press is not None:
             if (event.position()-self._ear_press.position()).manhattanLength() < QApplication.startDragDistance():
                 return
@@ -157,6 +160,10 @@ class ResizeHandle(QSplitterHandle):
         self._dragging = False
         super().mouseReleaseEvent(event)
 
+    def leaveEvent(self,event):
+        self._ear_hover=False;self.update()
+        super().leaveEvent(event)
+
     def keyPressEvent(self, event):
         if self.dock_host and event.key() in (Qt.Key_Space, Qt.Key_Return):
             self.dock_host.set_expanded(False)
@@ -166,7 +173,10 @@ class ResizeHandle(QSplitterHandle):
         super().keyPressEvent(event)
 
     def event(self, event):
-        if event.type() in (QEvent.HoverEnter, QEvent.HoverLeave):
+        if event.type() in (QEvent.HoverEnter,QEvent.HoverMove,QEvent.HoverLeave):
+            self._ear_hover=bool(self.dock_host and event.type()!=QEvent.HoverLeave and self.ear_rect(True).contains(event.position().toPoint()))
+            if self.dock_host and not self._dragging:
+                self.setCursor(Qt.PointingHandCursor if self._ear_hover else Qt.SplitHCursor if self.orientation()==Qt.Horizontal else Qt.SplitVCursor)
             self.update()
         return super().event(event)
 
@@ -182,6 +192,7 @@ class ResizeHandle(QSplitterHandle):
             else:
                 painter.drawLine(0,self.height()//2,self.width(),self.height()//2)
             return
+        active=self.isEnabled() and not self._dragging and (self._ear_hover or self.hasFocus())
         painter.setPen(QPen(QColor(visual.accent() if active else visual.colors()['border']),
                            2 if self.isEnabled() else visual.LINE_WIDTH))
         middle=self.rect().center()
@@ -194,7 +205,7 @@ class ResizeHandle(QSplitterHandle):
         if self.dock_host and self.isEnabled():
             c = visual.colors()
             # The command is discoverable at rest. Hover only emphasizes it.
-            paint_dock_chevron(painter, self.chevron_points(), active or self.hasFocus())
+            paint_dock_chevron(painter, self.chevron_points(), active)
 
 
 class PanelSplitter(QSplitter):

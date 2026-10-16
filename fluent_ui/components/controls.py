@@ -56,7 +56,7 @@ class ButtonPaint:
 
     def leaveEvent(self, event):
         super().leaveEvent(event)
-        self._animate_hover(0.0)
+        self._hover_animation.stop();self._set_hover(0.0)
 
     def _animate_hover(self, target):
         self._hover_animation.stop()
@@ -89,8 +89,11 @@ class ButtonPaint:
         fill = c['accent'] if primary and enabled else c['selected'] if selected else c['control']
         r = QRectF(self.rect()).adjusted(.5, .5, -.5, -.5)
         p.setOpacity(1 if enabled else .45)
-        p.setPen(Qt.NoPen if self.ghost else QPen(QColor(c['border_soft']), 1))
-        p.setBrush(Qt.NoBrush if (self.ghost and not selected) or not enabled else QColor(fill))
+        floating=bool(self.property('floating'))
+        surface=QColor(c['surface_overlay']);surface.setAlpha(190)
+        border=QColor(c['border_soft']);border.setAlpha(140)
+        p.setPen(QPen(border,1) if floating else Qt.NoPen if self.ghost else QPen(QColor(c['border_soft']), 1))
+        p.setBrush(surface if floating else Qt.NoBrush if (self.ghost and not selected) or not enabled else QColor(fill))
         p.drawRoundedRect(r, visual.CONTROL_RADIUS, visual.CONTROL_RADIUS)
         if enabled and (self._hover or self.isDown()):
             p.setPen(Qt.NoPen)

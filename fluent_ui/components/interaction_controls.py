@@ -140,7 +140,7 @@ class FilterCheckboxFlyout(QFrame):
     clear_requested = Signal()
 
     FIELDS = (('no_tag', '无标签'), ('unclassified', '未分类'),
-              ('is_gif', '动图'), ('is_static', '静态图片'), ('missing', 'Missing 资源'))
+              ('is_gif', '动图'), ('is_static', '静态表情'), ('missing', '已失效的表情'))
 
     def __init__(self, trigger):
         super().__init__(trigger, Qt.Popup)

@@ -403,7 +403,7 @@ class QQScanInterface(QWidget):
         self.savePathLabel = BodyLabel(t("保存路径:"), self.configFormWidget)
         self.savePathLabel.setFixedWidth(70)
         self.savePathEdit = LineEdit(self.configFormWidget)
-        self.savePathEdit.setPlaceholderText(t("请选择表情包保存路径..."))
+        self.savePathEdit.setPlaceholderText(t("请选择表情合集保存路径..."))
         if self.savePath:
             self.savePathEdit.setText(self.savePath)
         self.selectDirButton = PushButton(t("浏览..."), self.configFormWidget)
@@ -442,7 +442,7 @@ class QQScanInterface(QWidget):
         form_layout.addLayout(row4)
 
         # 行 5: 扫描表情包预览 (主按钮)
-        self.scanButton = PrimaryPushButton(FIF.SEARCH, t("扫描表情包预览"), self.configFormWidget)
+        self.scanButton = PrimaryPushButton(FIF.SEARCH, t("扫描表情合集预览"), self.configFormWidget)
         self.scanButton.setFixedHeight(36)
         self.scanButton.clicked.connect(self.scanEmojis)
         form_layout.addWidget(self.scanButton)
@@ -588,8 +588,8 @@ class QQScanInterface(QWidget):
         self.previewListWidget.itemSelectionChanged.connect(self.onItemSelectionChanged)
 
         # 初始化定位与加载
-        self.log(t("💬 QQNT表情包批量提取工具启动成功"))
-        self.log(t("💡建议在使用前提前打开要提取表情包的账户，随便选择一个聊天窗口，将表情全部加载出来，这样提取的表情包更齐全。"))
+        self.log(t("💬 QQNT表情合集批量提取工具启动成功"))
+        self.log(t("💡建议在使用前提前打开要提取表情合集的账户，随便选择一个聊天窗口，将表情全部加载出来，这样提取的表情合集更齐全。"))
         self.populateUserComboBox()
         self._sync_result_actions()
         disable_wheel_scroll_adjustment(self)
@@ -742,7 +742,7 @@ class QQScanInterface(QWidget):
             "marketface": t("商店表情 (marketface)"),
             "BaseEmojiSyastems": t("系统表情[已支持APNG动图转GIF导出] (BaseEmojiSyastems)"),
             "emoji-related": t("候选表情[打字时系统推荐] (emoji-related)"),
-            "pic": t("收藏的图片 [注意：包含聊天接收的图片，和收藏图片混杂在一起，暂无法避免] (Pic)")
+            "pic": t("收藏的表情 [注意：包含聊天接收的表情，和收藏表情混杂在一起，暂无法避免] (Pic)")
         }
         return mapping.get(folder_name, _tf("{folder} (其他分类)", folder=folder_name))
 
@@ -757,13 +757,13 @@ class QQScanInterface(QWidget):
         self.readPathEdit.setPlaceholderText(t("自动定位中，或手动选择..."))
         self.selectReadDirButton.setText(t("定位目录"))
         self.readPathLabel.setText(t("数据路径:"))
-        self.savePathEdit.setPlaceholderText(t("请选择表情包保存路径..."))
+        self.savePathEdit.setPlaceholderText(t("请选择表情合集保存路径..."))
         self.selectDirButton.setText(t("浏览..."))
         self.savePathLabel.setText(t("保存路径:"))
         self.helpButton.setToolTip(t("使用帮助"))
         self.userLabel.setText(t("选择账号:"))
         self.emojiFolderLabel.setText(t("选择分类:"))
-        self.scanButton.setText(t("扫描表情包预览"))
+        self.scanButton.setText(t("扫描表情合集预览"))
         self.exportSelectedButton.setText(t("导出选中"))
         self.exportAllButton.setText(t("导出全部"))
         self.importSelectedButton.setText(t("入库选中"))
@@ -787,7 +787,7 @@ class QQScanInterface(QWidget):
                 )
 
     def selectSavePath(self):
-        directory = QFileDialog.getExistingDirectory(self, t("💬 请选择表情包保存路径"))
+        directory = QFileDialog.getExistingDirectory(self, t("💬 请选择表情合集保存路径"))
         if directory:
             self.savePathEdit.setText(directory)
             self.savePath = directory
@@ -1078,7 +1078,7 @@ class QQScanInterface(QWidget):
             if marketface_data is not None:
                 format_display = "GIF"
             elif actual_ext and actual_ext.lower() == 'png' and QQExtractor.is_apng_file(file_path_str):
-                format_display = t("APNG (动态图片)")
+                format_display = t("APNG (动态表情)")
 
             info_text = _tf(
                 "<b>文件名:</b><br/>{name}<br/><br/>"
@@ -1122,7 +1122,7 @@ class QQScanInterface(QWidget):
                     scaled_pixmap = pixmap.scaled(self.detailPreviewLabel.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     self.detailPreviewLabel.setPixmap(scaled_pixmap)
                 else:
-                    self.detailPreviewLabel.setText(t("图片加载失败"))
+                    self.detailPreviewLabel.setText(t("表情加载失败"))
         except Exception as e:
             self.detailPreviewLabel.setText(_tf("预览失败: {error}", error=e))
 
@@ -1165,9 +1165,9 @@ class QQScanInterface(QWidget):
         self.previewListWidget.clear()
         self.emoji_file_paths = []
         self.loaded_emoji_count = 0
-        self.log(_tf("💬 开始智能扫描分类 [{folder}] 表情包路径...", folder=selected_folder))
+        self.log(_tf("💬 开始智能扫描分类 [{folder}] 表情合集路径...", folder=selected_folder))
 
-        self.tooltip.show(t("正在扫描表情包..."), _tf("正在扫描分类 [{folder}]...", folder=selected_folder), cancellable=False)
+        self.tooltip.show(t("正在扫描表情合集..."), _tf("正在扫描分类 [{folder}]...", folder=selected_folder), cancellable=False)
         QCoreApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
 
         self._set_busy(True)
@@ -1192,12 +1192,12 @@ class QQScanInterface(QWidget):
         total_valid = len(self.emoji_file_paths)
 
         if total_valid == 0:
-            self.log(t("❌ 未筛选出任何有效的表情包图片"))
-            self.tooltip.finish(t("扫描完成"), t("未筛选出任何有效的表情包图片"))
+            self.log(t("❌ 未筛选出任何有效的表情合集表情"))
+            self.tooltip.finish(t("扫描完成"), t("未筛选出任何有效的表情合集表情"))
             return
 
-        self.log(_tf("✅ 扫描并筛选完毕，共发现 {count} 个有效表情图片。", count=total_valid))
-        self.tooltip.finish(t("扫描完成"), _tf("共发现 {count} 个有效表情图片", count=total_valid))
+        self.log(_tf("✅ 扫描并筛选完毕，共发现 {count} 个有效表情。", count=total_valid))
+        self.tooltip.finish(t("扫描完成"), _tf("共发现 {count} 个有效表情", count=total_valid))
 
         # 扫描成功后自动折叠收起配置卡片，将最大视野留给预览网格
         self.collapse_config()
@@ -1357,9 +1357,9 @@ class QQScanInterface(QWidget):
                 self.emoji_file_paths = QQExtractor.scan_emojis(target_path, selected_folder)
 
         if len(self.emoji_file_paths) == 0:
-            message = t("❌ 该表情分类下未发现任何有效的图片文件，无法导出！")
+            message = t("❌ 该表情分类下未发现任何有效的表情文件，无法导出！")
             self.log(message)
-            notify(self, t("提示"), t("该分类下未发现任何有效的表情图片文件！"))
+            notify(self, t("提示"), t("该分类下未发现任何有效的表情文件！"))
             return
 
         reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导出全部"), _tf(
@@ -1384,10 +1384,10 @@ class QQScanInterface(QWidget):
 
         main_win = self.window()
         if not hasattr(main_win, 'storage') or not main_win.storage:
-            message = t("❌ 导入失败，无法获取表情包资源库存储服务！")
+            message = t("❌ 导入失败，无法获取表情合集表情库存储服务！")
             self.log(message)
-            self.tooltip.fail(t("导入失败"), t("无法获取表情包资源库存储服务！"))
-            notify(self, t("错误"), t("无法获取表情包资源库存储服务！"))
+            self.tooltip.fail(t("导入失败"), t("无法获取表情合集表情库存储服务！"))
+            notify(self, t("错误"), t("无法获取表情合集表情库存储服务！"))
             return
 
         storage = main_win.storage
@@ -1402,7 +1402,7 @@ class QQScanInterface(QWidget):
             _tf("准备入库 {total} 个表情到分类 [{category}]...", total=total_files, category=category_name), total=total_files
         )
         self.log(_tf(
-            "💬 开始导入表情到资源库，分类: [{category}]...",
+            "💬 开始导入表情到表情库，分类: [{category}]...",
             category=category_name
         ))
 
@@ -1493,7 +1493,7 @@ class QQScanInterface(QWidget):
             return
 
         reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导入选中"), _tf(
-                "确定将当前选中的 {count} 个表情导入到资源库？（会经过自动清洗和去重过滤）",
+                "确定将当前选中的 {count} 个表情导入到表情库？（会经过自动清洗和去重过滤）",
                 count=len(selected_items)
             )) else QMessageBox.No)
         if reply == QMessageBox.No:
@@ -1525,13 +1525,13 @@ class QQScanInterface(QWidget):
                 self.emoji_file_paths = QQExtractor.scan_emojis(target_path, selected_folder)
 
         if len(self.emoji_file_paths) == 0:
-            message = t("❌ 该表情分类下未发现任何有效的图片文件，无法导入！")
+            message = t("❌ 该表情分类下未发现任何有效的表情文件，无法导入！")
             self.log(message)
-            notify(self, t("提示"), t("该分类下未发现任何有效的表情图片文件！"))
+            notify(self, t("提示"), t("该分类下未发现任何有效的表情文件！"))
             return
 
         reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导入全部"), _tf(
-                "当前不管界面是否完全加载，将直接导入扫描到的该分类下所有 {count} 个表情到资源库？（自动清洗和去重）",
+                "当前不管界面是否完全加载，将直接导入扫描到的该分类下所有 {count} 个表情到表情库？（自动清洗和去重）",
                 count=len(self.emoji_file_paths)
             )) else QMessageBox.No)
         if reply == QMessageBox.No:
@@ -1549,10 +1549,10 @@ class QQScanInterface(QWidget):
     def showHelp(self):
         help_text = t(
             "使用帮助：\n\n"
-            "1. 使用时请确保已登录过QQ并加载过全部表情包\n"
+            "1. 使用时请确保已登录过QQ并加载过全部表情合集\n"
             "2. 提取的时候会自动创建以QQ号开头的文件夹\n"
-            "3. 选择一个账号后，点击'扫描表情包预览'获取表情包，然后选择表情，最后'导出选中'或'导出全部'。\n"
-            "4. 导出的表情包比账号内实际的表情包要多属正常现象，因为QQ会缓存一些表情包\n\n"
+            "3. 选择一个账号后，点击'扫描表情合集预览'获取表情合集，然后选择表情，最后'导出选中'或'导出全部'。\n"
+            "4. 导出的表情合集比账号内实际的表情合集要多属正常现象，因为QQ会缓存一些表情合集\n\n"
             "  注意：如果没有找到任何用户，请确保QQ已经在本地登录过。并确保路径正确\n"
             "  可以尝试手动指定聊天数据文件夹的所在位置"
         )

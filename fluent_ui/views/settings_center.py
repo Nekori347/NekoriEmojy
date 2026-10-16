@@ -9,7 +9,7 @@ from services.i18n import t, bind_text, translated
 import json
 import os
 
-from PySide6.QtCore import Qt, Signal, QTimer, QPoint
+from PySide6.QtCore import Qt, Signal, QTimer, QPoint, QSize
 from PySide6.QtWidgets import (
     QFileDialog, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
     QScrollArea, QVBoxLayout, QWidget, QStackedWidget,
@@ -108,9 +108,9 @@ class SettingsCenter(QWidget):
     def _icon_pages(self):
         return [
             ('常规', [('启动与窗口', self._page_startup), ('托盘', self._page_tray), ('语言', self._page_language), ('配置与重置', self._page_settings_file)]),
-            ('外观', [('主题', self._page_theme), ('图库', self._page_gallery_display), ('快速面板', self._page_quick_panel), ('程序图标', self._page_app_icon)]),
+            ('外观', [('主题', self._page_theme), ('表情库', self._page_gallery_display), ('快速面板', self._page_quick_panel), ('软件图标', self._page_app_icon)]),
             ('交互', [('快捷键', self._page_hotkeys), ('发送', self._page_send), ('悬停预览', self._page_hover_preview)]),
-            ('数据与资源库', [('资源库', self._page_library), ('资源包', self._page_packages), ('Suzu 迁移', self._page_migration)]),
+            ('表情与数据', [('表情库', self._page_library), ('表情合集', self._page_packages), ('Suzu 迁移', self._page_migration)]),
             ('关于', [('软件信息', self._page_about)]),
         ]
 
@@ -197,7 +197,7 @@ class SettingsCenter(QWidget):
         menu.exec(self.btn_tools.mapToGlobal(self.btn_tools.rect().bottomLeft()))
 
     def _section(self, title):
-        labels = {"STARTUP": "启动", "WINDOW": "窗口", "LANGUAGE": "语言", "TRAY": "托盘", "CURRENT LIBRARY": "当前资源库", "MAINTENANCE": "维护", "APPEARANCE": "外观", "THEME": "主题", "GALLERY": "图库", "PREVIEW": "悬停预览", "HOVER PREVIEW": "悬停预览", "QUICK PANEL": "快速面板", "GLOBAL HOTKEYS": "全局快捷键", "SENDING": "发送", "APPLICATION ICON": "应用图标", "NEKORI PACKAGE": "Nekori 资源包", "SUZU SHARE PACKAGE": "Suzu 分享包", "SUZU MIGRATION": "Suzu 单向迁移", "SETTINGS FILE": "设置文件", "APPLICATION": "软件信息"}
+        labels = {"STARTUP": "启动", "WINDOW": "窗口", "LANGUAGE": "语言", "TRAY": "托盘", "CURRENT LIBRARY": "当前表情库", "MAINTENANCE": "维护", "APPEARANCE": "外观", "THEME": "主题", "GALLERY": "表情库", "SIDEBAR": "分类栏", "PREVIEW": "悬停预览", "HOVER PREVIEW": "悬停预览", "QUICK PANEL": "快速面板", "GLOBAL HOTKEYS": "全局快捷键", "SENDING": "发送", "APPLICATION ICON": "软件图标", "NEKORI PACKAGE": "Nekori 表情合集", "SUZU SHARE PACKAGE": "Suzu 分享包", "SUZU MIGRATION": "Suzu 单向迁移", "SETTINGS FILE": "设置文件", "APPLICATION": "软件信息"}
         section = SettingSection(labels.get(title, title), self.body_widget)
         self.body_layout.addWidget(section)
         self._sections.append(section)
@@ -246,11 +246,11 @@ class SettingsCenter(QWidget):
                    ("open_settings", "打开设置"), ("none", "无操作")]
         for key, title, hint, default in (
             ("tray_left_click", "左键单击",
-             "左键单击托盘图标时执行的动作；目标正在显示就收起，不看是否处于激活状态。", "toggle_main"),
+             "单击托盘图标时执行此操作。", "toggle_main"),
             ("tray_left_double_click", "左键双击",
-             "左键双击托盘图标时执行的动作；与单击共用同一套动作，只是触发方式不同。", "toggle_main"),
+             "双击托盘图标时执行此操作。", "toggle_main"),
             ("tray_middle_click", "中键单击",
-             "中键单击托盘图标时执行的动作；不参与单击 / 双击判定，按下即执行。", "none"),
+             "按下鼠标中键时执行此操作。", "none"),
         ):
             row = ChoiceRow(title, hint, key, self.config.get(key, default), options, self)
             section.add_row(self._track(row, key, default))
@@ -281,24 +281,24 @@ class SettingsCenter(QWidget):
 
     def _page_library(self):
         section = self._section("CURRENT LIBRARY")
-        self.library_info = FullPathRow("当前资源库", "图片和分类保存在以下目录；可选中文字复制完整路径。", self._library_path(), self)
+        self.library_info = FullPathRow("当前表情库", "表情和分类保存在以下目录；可选中文字复制完整路径。", self._library_path(), self)
         self._all_rows['library_path']=(self.library_info,'')
         section.add_row(self.library_info)
         section.add_row(ActionRow(
-            "选择 / 重新连接资源库",
-            "保存后需要重启程序才会切换到新的资源库。",
+            "选择 / 重新连接表情库",
+            "保存后需要重启程序才会切换到新的表情库。",
             [("选择文件夹…", self._choose_library, True)], self))
 
         section = self._section("MAINTENANCE")
         section.add_row(ActionRow(
-            "检查资源状态", "重新扫描资源库，把路径失效的资源标记为 Missing；不会删除任何记录。",
+            "检查表情状态", "检查表情文件是否仍然存在。\n找不到的表情会标记为已失效，不会删除记录。",
             [("立即检查", self._check_library, False)], self))
         section.add_row(ActionRow(
-            "在文件管理器中打开", "直接查看资源库中的真实图片文件。",
-            [("打开资源库目录", self._open_library, False)], self))
+            "在文件管理器中打开", "直接查看表情库中的真实表情文件。",
+            [("打开表情库目录", self._open_library, False)], self))
 
     def _choose_library(self):
-        directory = QFileDialog.getExistingDirectory(self, t("选择或重新连接资源库"), self._library_path())
+        directory = QFileDialog.getExistingDirectory(self, t("选择或重新连接表情库"), self._library_path())
         if not directory:
             return
         try:
@@ -309,7 +309,7 @@ class SettingsCenter(QWidget):
             return
         self._stage("library_path", directory)
         self.library_info.set_value(directory)
-        self.library_info.set_hint(t('保存并重启后，将使用下面的资源库。'))
+        self.library_info.set_hint(t('保存并重启后，将使用下面的表情库。'))
 
     def _check_library(self):
         if not self.storage:
@@ -317,7 +317,7 @@ class SettingsCenter(QWidget):
         self.storage.cleanup_dead_links()
         self.settings_changed.emit("library_rescan")
         missing = sum(1 for r in self.storage.index.resources() if r["status"] == "missing")
-        self.show_success(t("检查完成"), t('当前 Missing 资源：{value_0} 项').format(value_0=missing))
+        self.show_success(t("检查完成"), t('已失效的表情：{value_0} 项').format(value_0=missing))
 
     def _open_library(self):
         from PySide6.QtGui import QDesktopServices
@@ -336,13 +336,13 @@ class SettingsCenter(QWidget):
     def _page_gallery_display(self):
         section = self._section("GALLERY")
         section.add_row(self._track(
-            RangeRow("缩略图大小", "图库中单张缩略图的像素尺寸；也可以在图库中按住 Ctrl 滚轮调整。",
+            RangeRow("缩略图大小", "调整表情缩略图大小。\n也可按住 Ctrl 并滚动滚轮调整。",
                      "thumbnail_size", self.config.get("thumbnail_size", 120), 60, 300, 10, self),
             "thumbnail_size", 120))
 
         section = self._section("SIDEBAR")
         mode = self._track(ModeRow(
-            "侧边栏表现模式", "也可以通过侧边栏顶部的视图切换按钮快速切换。", "sidebar_mode",
+            "分类显示方式", "也可以通过侧边栏顶部的视图切换按钮快速切换。", "sidebar_mode",
             self.config.get('sidebar_mode', 'tree'), [('tree', '分类树'), ('categorized_icons', '分类图标')], self),
             'sidebar_mode', 'tree')
         section.add_row(mode)
@@ -375,7 +375,7 @@ class SettingsCenter(QWidget):
                      self.config.get("quick_panel_height", 480), 150, 1000, 10, self),
             "quick_panel_height", 480))
         section.add_row(self._track(
-            RangeRow("最近使用上限", "快速面板中保留的最近使用资源数量。", "recent_limit",
+            RangeRow("最近使用上限", "快速面板中保留的最近使用表情数量。", "recent_limit",
                      self.config.get("recent_limit", 30), 1, 999, 1, self, count_only=True),
             "recent_limit", 30))
 
@@ -383,13 +383,13 @@ class SettingsCenter(QWidget):
     def _page_app_icon(self):
         section = self._section("APPLICATION ICON")
         self.icon_preview = QLabel(self)
-        self.icon_preview.setFixedSize(56, 56)
+        self.icon_preview.setFixedSize(72, 72)
         self.icon_preview.setAlignment(Qt.AlignCenter)
         self.icon_preview.setStyleSheet(
             f"border: 1px solid {visual.colors()['border']};")
         self._refresh_icon_preview()
         from fluent_ui.components.setting_rows import SettingRow
-        row = SettingRow("当前程序图标", "主窗口、任务栏和托盘共用此图标。动图使用第一帧。", self)
+        row = SettingRow("当前软件图标", "用于主窗口、任务栏和托盘。\n动图使用已选的缩略图帧；未选择时使用第一帧。", self)
         row.add_control(self.icon_preview)
         section.add_row(row)
         from fluent_ui.components.interaction_controls import DropDownButton
@@ -399,7 +399,7 @@ class SettingsCenter(QWidget):
         bind_text(self.icon_change, '更改', 'setText')
         menu = SafeRoundMenu(parent=self.icon_change)
         for text, callback in [('从本地文件选择…', self._pick_app_icon_file),
-                               ('从图库资源选择…', self._pick_app_icon_resource), ('恢复默认', self._reset_app_icon)]:
+                               ('从表情库选择…', self._pick_app_icon_resource), ('恢复默认', self._reset_app_icon)]:
             action = translated(Action, text, parent=menu)
             action.triggered.connect(callback)
             menu.addAction(action)
@@ -412,7 +412,7 @@ class SettingsCenter(QWidget):
         path = ApplicationIconService(self.config).current_path()
         if os.path.exists(path):
             self.icon_preview.setPixmap(
-                QPixmap(path).scaled(88, 88, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                QPixmap(path).scaled(self.icon_preview.size()-QSize(12,12), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     def _apply_icon_change(self):
         self._refresh_icon_preview()
@@ -420,7 +420,7 @@ class SettingsCenter(QWidget):
 
     def _pick_app_icon_file(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, t("选择程序图标"), "", t("图片 (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.ico)"))
+            self, t("选择程序图标"), "", t("表情 (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.ico)"))
         if not path:
             return
         self._set_icon(path)
@@ -430,18 +430,19 @@ class SettingsCenter(QWidget):
             return
         images = self.storage.get_all_images()
         if not images:
-            self.show_error(t("图库为空"), t("请先导入资源"))
+            self.show_error(t("表情库为空"), t("请先导入表情"))
             return
         choices = [(p, os.path.basename(p)) for p in images[:400]]
         from fluent_ui.components.dialogs import choose_item
-        path, ok = choose_item(self.window(), "选择程序图标", "选择图库资源", choices, code="ICON")
+        path, ok = choose_item(self.window(), "选择程序图标", "选择表情", choices, code="ICON")
         if ok:
             self._set_icon(path)
 
     def _set_icon(self, path):
         from services.app_icon import ApplicationIconService
         try:
-            ApplicationIconService(self.config).set_from_image(path)
+            frame=int(self.storage.resource_metadata(path).get('thumb_frame',0) or 0) if self.storage else 0
+            ApplicationIconService(self.config).set_from_image(path,frame=frame)
         except Exception as exc:
             self.show_error(t("设置图标失败"), str(exc))
             return
@@ -455,7 +456,7 @@ class SettingsCenter(QWidget):
         if not dialogs.confirm(self.window(), t("恢复默认图标"),
                                t("恢复为程序自带的软件图标？"),
                                ok_text=t("恢复默认"), danger=True, code="APPICON/RESET",
-                               hint=t("当前使用的自定义图标会被替换，原资源文件不受影响。")):
+                               hint=t("当前使用的自定义图标会被替换，原表情文件不受影响。")):
             return
         ApplicationIconService(self.config).reset()
         self._apply_icon_change()
@@ -473,22 +474,16 @@ class SettingsCenter(QWidget):
             "quick_panel_hotkey", "alt+2"))
         section = self._section('Esc 隐藏面板')
         for key, title in (('esc_hide_main', '主面板'), ('esc_hide_quick', '快速面板')):
-            row = SwitchRow(title, '内部交互优先处理 Esc；空闲时隐藏面板，程序继续驻留。立即保存。',
+            row = SwitchRow(title, '按 Esc 隐藏面板，程序会继续在托盘运行。',
                             key, self.config.get(key, False), self)
-            section.add_row(self._track(row, key, False,
-                lambda r=row, k=key: self._commit_immediate(k, r.value())))
-
-    def _commit_immediate(self, key, value):
-        self.config.set(key, value)
-        self.sync_external_preference(key, value)
-        self.settings_changed.emit(key)
+            section.add_row(self._track(row, key, False))
 
     def _page_send(self):
         section = self._section("SENDING")
-        section.add_row(self._track(ModeRow('主图库单击资源',
-            '选择：单击只选中；快速发送：单击即复制图片并尝试粘贴回原窗口（快速面板始终是单击发送）。',
+        section.add_row(self._track(ModeRow('主面板单击表情',
+            '选择表情：单击选中，按 Enter 发送。\n快速发送：单击即可发送。\n也可将表情拖到聊天窗口发送。\n快速面板始终为单击发送。',
             'gallery_click_action', self.config.get('gallery_click_action', 'select'),
-            [('select', '选择资源'), ('send', '快速发送')], self), 'gallery_click_action', 'select'))
+            [('select', '选择表情'), ('send', '快速发送')], self), 'gallery_click_action', 'select'))
         section.add_row(self._track(
             SwitchRow("发送时将静态图转为 GIF",
                       "复制静态图时转为单帧 GIF，避免在聊天软件中显示为超大原图。",
@@ -498,30 +493,30 @@ class SettingsCenter(QWidget):
     def _page_packages(self):
         section = self._section("NEKORI PACKAGE")
         section.add_row(ActionRow(
-            "导出 Nekori 原生资源包",
-            "保存当前实际存在的整理结果：资源、分类树、分类图标、节点顺序、分类内混排顺序与 Tag。",
+            "导出 Nekori 原生表情合集",
+            "保存全部表情，以及分类、图标、标签与排列顺序。",
             [("导出…", self.export_nekori_package, True)], self))
         section.add_row(ActionRow(
-            "导入 Nekori 原生资源包",
-            "把资源包中的资源与整理结果恢复到当前资源库；已存在的资源会合并关系而不重复占用空间。",
+            "导入 Nekori 原生表情合集",
+            "恢复表情合集中的内容与排列顺序。\n已有表情会合并分类与标签，不会重复保存。",
             [("导入…", self.import_nekori_package, True)], self))
 
         section = self._section("SUZU SHARE PACKAGE")
         section.add_row(ActionRow(
             "导入 Suzu 分享包",
-            "读取 Suzu 导出的平面分享压缩包（不含 Nekori 节点树与混排顺序）。",
+            "导入 Suzu 分享的表情与标签。\nSuzu 格式不包含完整分类与排列顺序。",
             [("导入…", self.import_suzu_share, False)], self))
 
         section.add_row(ActionRow('导出 Suzu 分享包', '导出为兼容 Suzu 的分享格式，不包含完整 NekoriEmojy 分类和排序信息。',
             [('导出全部…', lambda: self._legacy_share('all')), ('选择分类…', lambda: self._legacy_share('categories'))], self))
-        section.add_row(ActionRow('拆分资源包', '将资源 ZIP 拆分为不超过 100MB 的分享包。',
+        section.add_row(ActionRow('拆分表情合集', '将表情 ZIP 拆分为不超过 100MB 的分享包。',
             [('拆分…', lambda: self._legacy_share('split'))], self))
 
     def export_nekori_package(self):
         from services.nekori_package import NekoriPackageService
         from fluent_ui.components.exchange_task_dialog import run_exchange_task
         path, _ = QFileDialog.getSaveFileName(
-            self, t("导出 Nekori 资源包"), "NekoriEmojy.nkpkg.zip", t("Nekori 资源包 (*.zip)"))
+            self, t("导出 Nekori 表情合集"), "NekoriEmojy.nkpkg.zip", t("Nekori 表情合集 (*.zip)"))
         if not path:
             return
         if not path.lower().endswith(".zip"):
@@ -529,42 +524,42 @@ class SettingsCenter(QWidget):
         service = NekoriPackageService(self.storage)
         try:
             manifest = run_exchange_task(
-                self.window(), "正在导出 Nekori 资源包",
+                self.window(), "正在导出 Nekori 表情合集",
                 lambda progress: service.export(path, progress))
         except Exception as exc:
             self.show_error(t("导出失败"), str(exc))
             return
-        self.show_success(t("导出完成"), t('资源 {value_0} 项，分类 {value_1} 个\n{value_2}').format(value_0=manifest['resources'], value_1=manifest['nodes'], value_2=path))
+        self.show_success(t("导出完成"), t('表情 {value_0} 项，分类 {value_1} 个\n{value_2}').format(value_0=manifest['resources'], value_1=manifest['nodes'], value_2=path))
 
     def import_nekori_package(self):
         from services.nekori_package import NekoriPackageService
         from fluent_ui.components.exchange_task_dialog import run_exchange_task
         path, _ = QFileDialog.getOpenFileName(
-            self, t("导入 Nekori 资源包"), "", t("Nekori 资源包 (*.zip)"))
+            self, t("导入 Nekori 表情合集"), "", t("Nekori 表情合集 (*.zip)"))
         if not path:
             return
         service = NekoriPackageService(self.storage)
         try:
             report = run_exchange_task(
-                self.window(), "正在导入 Nekori 资源包",
+                self.window(), "正在导入 Nekori 表情合集",
                 lambda progress: service.import_package(path, progress))
         except Exception as exc:
             self.show_error(t("导入失败"), str(exc))
             return
         self.settings_changed.emit("library_rescan")
         self.show_success(t("导入完成"),
-                          t('资源 {value_0} 项，分类 {value_1} 个，跳过重复 {value_2} 项').format(value_0=report['resources'], value_1=report['nodes'], value_2=report['duplicates']))
+                          t('表情 {value_0} 项，分类 {value_1} 个，跳过重复 {value_2} 项').format(value_0=report['resources'], value_1=report['nodes'], value_2=report['duplicates']))
 
     def import_suzu_share(self):
         from services.exchange_import import ExchangeImportService
         from fluent_ui.components.exchange_task_dialog import run_exchange_task
-        path, _ = QFileDialog.getOpenFileName(self, t("导入 Suzu 分享包"), "", t("资源包 (*.zip)"))
+        path, _ = QFileDialog.getOpenFileName(self, t("导入 Suzu 分享包"), "", t("表情合集 (*.zip)"))
         if not path:
             return
         service = ExchangeImportService(storage=self.storage)
         try:
             saved, skipped = run_exchange_task(
-                self.window(), "正在导入共享资源包",
+                self.window(), "正在导入共享表情合集",
                 lambda progress: service.import_zip(path, progress))
         except Exception as exc:
             self.show_error(t("导入失败"), str(exc))
@@ -577,12 +572,12 @@ class SettingsCenter(QWidget):
         section = self._section("Suzu 数据兼容")
         section.add_row(ActionRow(
             "Suzu 迁移",
-            "将 Suzu 实例或资源包中的图片、分类与标签复制到 NekoriEmojy。导入前可预览，原数据保持不变。",
+            "复制 Suzu 中的表情、分类与标签。\n导入前可预览，Suzu 中的内容保持不变。",
             [("开始迁移", self._start_migration, True)], self))
 
     def _start_migration(self):
         source, accepted = dialogs.choose_item(self.window(), t('开始迁移'), t('选择迁移来源'),
-            [('running', t('从运行中的 Suzu 迁移')), ('package', t('从 Suzu 资源压缩包迁移'))])
+            [('running', t('从运行中的 Suzu 迁移')), ('package', t('从 Suzu 表情压缩包迁移'))])
         if accepted:
             (self.migrate_from_suzu_data if source == 'running' else self.migrate_from_suzu_package)()
 
@@ -603,11 +598,11 @@ class SettingsCenter(QWidget):
             self.show_error(t("迁移失败"), str(exc))
             return
         self.settings_changed.emit("library_rescan")
-        summary = t('图片 {value_0} 项，分类 {value_1} 个，跳过重复 {value_2} 项，缺失 / 失败 {value_3} 项').format(value_0=report['resources'], value_1=report['nodes'], value_2=report['duplicates'], value_3=report.get('skipped', 0))
+        summary = t('表情 {value_0} 项，分类 {value_1} 个，跳过重复 {value_2} 项，缺失 / 失败 {value_3} 项').format(value_0=report['resources'], value_1=report['nodes'], value_2=report['duplicates'], value_3=report.get('skipped', 0))
         self.feedback_host.notice(t('迁移完成'), summary, error=bool(report.get('skipped')) and not report['resources'])
 
     def migrate_from_suzu_package(self):
-        path, _ = QFileDialog.getOpenFileName(self, t("选择 Suzu 资源压缩包"), "", t("资源包 (*.zip)"))
+        path, _ = QFileDialog.getOpenFileName(self, t("选择 Suzu 表情压缩包"), "", t("表情合集 (*.zip)"))
         if not path:
             return
         from services.suzu_migration import SuzuMigrationService
@@ -616,7 +611,7 @@ class SettingsCenter(QWidget):
         try:
             preview = run_exchange_task(self.window(), t('迁移预览'), lambda progress: service.preview_package(path, progress))
             if not dialogs.confirm(self.window(), t('迁移预览'),
-                t('图片 {value_0} 项，分类 {value_1} 个').format(value_0=preview['resources'], value_1=preview['nodes'])
+                t('表情 {value_0} 项，分类 {value_1} 个').format(value_0=preview['resources'], value_1=preview['nodes'])
                 + '\n' + '、'.join(preview['categories']), ok_text=t('开始迁移')):
                 return
             report = run_exchange_task(
@@ -627,7 +622,7 @@ class SettingsCenter(QWidget):
             return
         self.settings_changed.emit("library_rescan")
         self.feedback_host.notice(t("迁移完成"),
-                          t('图片 {value_0} 项，分类 {value_1} 个').format(value_0=report['resources'], value_1=report['nodes']))
+                          t('表情 {value_0} 项，分类 {value_1} 个').format(value_0=report['resources'], value_1=report['nodes']))
 
     def _page_settings_file(self):
         section = self._section("SETTINGS FILE")
@@ -639,7 +634,7 @@ class SettingsCenter(QWidget):
             "导入设置", "从 JSON 文件恢复应用设置。",
             [("导入…", self._import_settings, False)], self)
         reset_row = ActionRow(
-            "恢复全部默认", "把所有应用设置恢复到程序默认值；不会改动资源库内容。",
+            "恢复全部默认", "把所有应用设置恢复到程序默认值；不会改动表情库内容。",
             [("恢复全部默认", self._restore_all_defaults, False)], self)
         section.add_row(import_row)
         section.add_row(reset_row)
@@ -816,7 +811,7 @@ class SettingsCenter(QWidget):
         self._set_dirty(False)
         if hasattr(self, 'library_info'):
             self.library_info.set_value(self._library_path())
-            self.library_info.set_hint(t('保存后重启切换资源库。'))
+            self.library_info.set_hint(t('保存后重启切换表情库。'))
         if hasattr(self, 'icon_options'):
             self.icon_options.setEnabled(self.config.get('sidebar_mode', 'tree') == 'categorized_icons')
         self.show_success(t("已放弃修改"))
@@ -848,7 +843,7 @@ class SettingsCenter(QWidget):
         if not dialogs.confirm(self.window(), t("恢复全部默认"),
                                t("把所有应用设置恢复为程序默认值？"),
                                ok_text=t("恢复默认"), danger=True, code="SETTINGS",
-                               hint=t("资源库内容、分类、Tag 与排序不会受影响。")):
+                               hint=t("表情库内容、分类、标签与排序不会受影响。")):
             return
         defaults = self._default_config()
         for key, value in defaults.items():
@@ -998,7 +993,7 @@ class SettingsCenter(QWidget):
                          self.config.get("preview_delay", 500), 100, 3000, 50, self),
                 "preview_delay", 500))
             section.add_row(self._track(
-                ModeRow("资源预览位置", "固定：停靠在资源区右下角，被遮挡时移到左下；浮动：跟随鼠标。",
+                ModeRow("表情预览位置", "固定：停靠在表情区右下角，被遮挡时移到左下；浮动：跟随鼠标。",
                           "preview_position", self.config.get("preview_position", "floating"),
                           [("fixed", "固定"), ("floating", "浮动")], self),
                 "preview_position", "floating"))

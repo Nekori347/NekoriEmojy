@@ -38,7 +38,7 @@ def split_package(zip_path, output_dir, progress_callback=None, *, max_bytes=MAX
     source = Path(zip_path)
     output = Path(output_dir)
     if not source.is_file() or not output.is_dir():
-        raise ValueError("请选择有效的资源包和输出文件夹")
+        raise ValueError("请选择有效的表情合集和输出文件夹")
 
     def progress(current, total, message):
         if progress_callback:
@@ -47,14 +47,14 @@ def split_package(zip_path, output_dir, progress_callback=None, *, max_bytes=MAX
     service = ExchangeImportService()
     with tempfile.TemporaryDirectory(prefix="suzu-split-source-") as temp:
         staging = Path(temp)
-        progress(0, 0, "正在校验资源包")
+        progress(0, 0, "正在校验表情合集")
         service._extract_zip(source, staging, progress_callback)
         manifest = service._load_json(staging / "manifest.json")
         catalog = service._load_json(staging / "catalog.json")
         service._parse_catalog(manifest, catalog, staging)
         service._parse_icons(catalog, staging)
         if service.warnings:
-            raise ValueError("资源包图标校验失败：" + "；".join(service.warnings))
+            raise ValueError("表情合集图标校验失败：" + "；".join(service.warnings))
 
         resources = copy.deepcopy(catalog["resources"])
         for resource in resources:
@@ -86,7 +86,7 @@ def split_package(zip_path, output_dir, progress_callback=None, *, max_bytes=MAX
             for resource in items:
                 name = resource["asset_path"]
                 if name in ("manifest.json", "catalog.json"):
-                    raise ValueError("资源路径与清单冲突")
+                    raise ValueError("表情路径与清单冲突")
                 result[name] = service._safe_asset_path(staging, name)
             return result
 
@@ -118,7 +118,7 @@ def split_package(zip_path, output_dir, progress_callback=None, *, max_bytes=MAX
             start = end
         if not groups:
             if volume_size([]) > max_bytes:
-                raise ValueError("资源清单和图标超过分卷上限")
+                raise ValueError("表情清单和图标超过分卷上限")
             groups = [[]]
 
         # A unique directory prevents overwriting earlier runs or the original ZIP.

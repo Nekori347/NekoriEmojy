@@ -75,7 +75,7 @@ def build_workbench(g):
     g.search_box=SearchLineEdit(g.search_surface)
     g.search_box.setFixedHeight(30)
     bind_text(g.search_box,'搜索名称、标签或关键词…','setPlaceholderText')
-    bind_text(g.search_box,'支持文件名、标签、分类名称和已保存的图片文字。','setToolTip')
+    bind_text(g.search_box,'支持文件名、标签、分类名称和已保存的表情文字。','setToolTip')
     g.search_box.setMinimumWidth(90);search.addWidget(g.search_box,1)
     g.btn_filter=TransparentToolButton(I.FILTER,g.search_surface);g.btn_filter.setFixedSize(24,24)
     bind_text(g.btn_filter,'筛选当前视图','setToolTip');g.btn_filter.clicked.connect(g._show_filter_menu)
@@ -87,8 +87,8 @@ def build_workbench(g):
     g.btn_paste=SplitPushButton(ClipboardImportIcon(),'',commands)
     g.btn_paste.button.ghost=True;g.btn_paste.button.setFixedSize(26,24)
     g.btn_paste.dropButton.setIcon(I.DOWNLOAD);g.btn_paste.dropButton.setFixedSize(24,24)
-    bind_text(g.btn_paste.button,'从剪贴板粘贴资源 (Ctrl+V)','setToolTip')
-    bind_text(g.btn_paste.dropButton,'导入资源','setToolTip')
+    bind_text(g.btn_paste.button,'从剪贴板粘贴表情 (Ctrl+V)','setToolTip')
+    bind_text(g.btn_paste.dropButton,'导入表情','setToolTip')
     g.btn_paste.clicked.connect(g.handle_global_paste)
     g.import_menu=SafeRoundMenu(parent=g.btn_paste)
     for text,callback in [('导入文件…',g._pick_import_files),('导入文件夹为分类…',lambda:g.sidebar.import_folder_as_node(g.content_scope_node()))]:
@@ -137,8 +137,10 @@ def build_workbench(g):
     g.scroll_area.viewport().installEventFilter(g)
     g.scroll_area.verticalScrollBar().valueChanged.connect(g._on_scroll)
     g.btn_back_top=TransparentToolButton(I.UP,g.scroll_area.viewport());g.btn_back_top.setFixedSize(30,30)
-    bind_text(g.btn_back_top,'回到顶部','setToolTip')
+    g.btn_back_top.setProperty('floating',True)
+    bind_text(g.btn_back_top,'回到顶部（PgUp） · 到底部（PgDown）','setToolTip')
     g.btn_back_top.clicked.connect(lambda:g.scroll_area.verticalScrollBar().setValue(0));g.btn_back_top.hide()
+    g.install_navigation_shortcuts()
     # The app menu is the footer of the navigation, in the same continuous face.
     footer=QWidget(g.sidebar);foot=QHBoxLayout(footer);foot.setContentsMargins(6,2,2,0);foot.setSpacing(2)
     from fluent_ui.presentation.glyphs import BrandLockup

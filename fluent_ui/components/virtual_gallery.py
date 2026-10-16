@@ -118,7 +118,7 @@ class VirtualGallery:
             state = 'missing' if entry.get('status') == 'missing' else 'normal'
             if card.property('state') != state:
                 card.setProperty('state', state)
-                card.setToolTip(t('资源文件缺失') if state == 'missing' else '')
+                card.setToolTip(t('表情文件缺失') if state == 'missing' else '')
             if card.current_size != self.index.size:
                 card.update_size(self.index.size, load_image=False)
                 card._gallery_thumbnail_key = None

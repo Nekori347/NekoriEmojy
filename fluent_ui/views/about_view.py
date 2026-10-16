@@ -27,7 +27,7 @@ class AboutInterface(QWidget):
         # The window supplies the actual Nekori icon, including user overrides.
         logo.setPixmap(self.window().windowIcon().pixmap(64,64));brand.addWidget(logo)
         names=QVBoxLayout();name=QLabel('NekoriEmojy',self.sheet);name.setFont(visual.font('page_title'));name.setProperty('role','title')
-        names.addWidget(name);self.summary=QLabel(self.sheet);bind_text(self.summary,'本地图片与表情资源管理')
+        names.addWidget(name);self.summary=QLabel(self.sheet);bind_text(self.summary,'本地表情管理')
         self.summary.setProperty('role','hint');names.addWidget(self.summary);brand.addLayout(names,1)
         self.version=QLabel('v'+current_version(),self.sheet);self.version.setProperty('role','data');brand.addWidget(self.version)
         sheet.addLayout(brand)
@@ -38,7 +38,7 @@ class AboutInterface(QWidget):
         content=QVBoxLayout(body);content.setContentsMargins(0,0,0,0);content.setSpacing(18);content.setAlignment(Qt.AlignTop)
         self._entry(content,'Nekori347','NekoriEmojy · Softframe',self.AUTHOR_URL)
         details=Surface('raised',body,radius=12);info=QVBoxLayout(details);info.setContentsMargins(20,16,20,16);info.setSpacing(12)
-        for text in ('分类、标签与搜索','快速面板与图片发送','QQ / Telegram 导入工具'):
+        for text in ('分类、标签与搜索','快速面板与表情发送','QQ / Telegram 导入工具'):
             label=QLabel(details);bind_text(label,text);info.addWidget(label)
         content.addWidget(details)
         title=RuleHeading('',body);bind_text(title.label,'来源与致谢');content.addWidget(title)
@@ -47,7 +47,7 @@ class AboutInterface(QWidget):
         self._entry(content,'QQFavoriteExtract · VanillaNahida','QQ 表情提取参考','https://github.com/VanillaNahida/QQFavoriteExtract')
         resources=QLabel('Sarasa UI SC  /  Rajdhani  /  JetBrains Mono\nTabler Icons  ·  PySide6',body)
         resources.setFont(visual.font('data'));resources.setProperty('role','data');content.addWidget(resources)
-        license=QLabel('GPL-3.0  ·  '+t('资源版权归各自作者所有'),body);license.setWordWrap(True)
+        license=QLabel('GPL-3.0  ·  '+t('表情版权归各自作者所有'),body);license.setWordWrap(True)
         license.setProperty('role','hint');content.addWidget(license);sheet.addWidget(self.scroll,1)
         footer=QHBoxLayout();footer.addStretch()
         self.btnReleases=PushButton(Icon.CLOUD_DOWNLOAD,t('检查更新'),self.sheet)

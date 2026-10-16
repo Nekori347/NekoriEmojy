@@ -16,7 +16,8 @@ class ScrollPaint(QObject):
         color.setAlpha(210 if bar.underMouse() or bar.isSliderDown() else 130)
         r=QRectF(rect)
         if bar.orientation()==Qt.Vertical:
-            r.setLeft(r.center().x()-2);r.setWidth(4)
+            sidebar=bool(bar.property('sidebarThumb'))
+            r.setLeft(bar.width()-7 if sidebar else r.center().x()-2);r.setWidth(6 if sidebar else 4)
         else:
             r.setTop(r.center().y()-2);r.setHeight(4)
         p.setPen(Qt.NoPen);p.setBrush(color);p.drawRoundedRect(r,2,2)

@@ -43,14 +43,14 @@ class ApplicationIconService:
     def is_custom(self):
         return self.custom_path.is_file()
 
-    def set_from_image(self, image_path):
+    def set_from_image(self, image_path, *, frame=0):
         source = Path(image_path)
         if not source.is_file():
             raise FileNotFoundError(str(source))
         with Image.open(source) as image:
-            # Animated sources use their first frame as the static icon.
+            # Reuse the library's existing chosen thumbnail frame.
             if getattr(image, "is_animated", False):
-                image.seek(0)
+                image.seek(max(0,min(int(frame),image.n_frames-1)))
             canvas = self._square(image.convert("RGBA"))
         self.data_dir.mkdir(parents=True, exist_ok=True)
         canvas.save(self.custom_path, format="ICO", sizes=ICO_SIZES)

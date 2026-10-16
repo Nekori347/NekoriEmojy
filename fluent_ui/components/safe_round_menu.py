@@ -55,7 +55,7 @@ class SafeRoundMenu(RoundMenu):
         from PySide6.QtGui import QFontMetrics
         fm=QFontMetrics(visual.font())
         shortcut=action.shortcut().toString()
-        width=fm.horizontalAdvance(action.text())+64+(fm.horizontalAdvance(shortcut)+18 if shortcut else 0)
+        width=fm.horizontalAdvance(action.text())+64+(fm.horizontalAdvance(shortcut)+36 if shortcut else 0)
         item.setText(action.text());item.setSizeHint(QSize(width,32))
         return width
 

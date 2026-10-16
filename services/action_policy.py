@@ -52,5 +52,5 @@ class ActionPolicy:
     @staticmethod
     def delete_label(context):
         if len(context.paths) != 1:
-            return '从 Nekori 删除所选资源'
-        return '删除资源（回收站）' if context.existing else '移除失效记录'
+            return '从 Nekori 删除所选表情'
+        return '删除表情（回收站）' if context.existing else '移除失效记录'

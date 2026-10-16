@@ -23,7 +23,7 @@ def build_quick(q):
     q.bg_layout.addWidget(title)
     q.search_box=SearchLineEdit(q.bg_widget);q.search_box.setObjectName('quickPanelSearchBox')
     bind_text(q.search_box,'搜索名称、标签或关键词…','setPlaceholderText');q.search_box.textChanged.connect(q._on_search_text_changed)
-    bind_text(q.search_box,'支持文件名、标签、分类名称和已保存的图片文字。','setToolTip')
+    bind_text(q.search_box,'支持文件名、标签、分类名称和已保存的表情文字。','setToolTip')
     q.bg_layout.addWidget(q.search_box)
     q.scroll_area=QScrollArea(q.bg_widget);q.scroll_area.setWidgetResizable(True);q.scroll_area.setFrameShape(QScrollArea.NoFrame)
     q.grid_container=QWidget();q.grid_layout=QGridLayout(q.grid_container)

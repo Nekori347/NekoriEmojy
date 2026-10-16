@@ -17,6 +17,7 @@ from fluent_ui.visual import DATA_FONT, accent, colors
 from services.i18n import t, bind_text, translated, i18n_engine
 from fluent_ui import visual
 from fluent_ui.components.number_box import CompactNumberBox
+from fluent_ui.components.keycap_label import KeycapLabel
 from fluent_ui.components.softframe import SoftframeSlider as Slider, paint_setting_surface
 from fluent_ui.components.softframe import DisclosureButton, SectionHeading
 from fluent_ui.components.interaction_controls import ModeSegment
@@ -56,7 +57,7 @@ class SettingRow(QWidget):
         title_font.setWeight(QFont.Medium)
         self.title_label.setFont(title_font)
         text_column.addWidget(self.title_label)
-        self.hint_label = translated(QLabel, hint, self)
+        self.hint_label = translated(KeycapLabel, hint, self)
         self.hint_label.setProperty("role", "hint")
         self.hint_label.setWordWrap(True)
         self.hint_label.setFont(visual.font('secondary'))
@@ -97,7 +98,8 @@ class SettingRow(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        direction = QBoxLayout.TopToBottom if self.width() < self.controls.minimumSize().width()+230 else QBoxLayout.LeftToRight
+        text_width=340 if '\n' in self.hint_label.text() else 230
+        direction = QBoxLayout.TopToBottom if self.width() < self.controls.minimumSize().width()+text_width else QBoxLayout.LeftToRight
         if self.layout().direction() != direction:
             self.layout().setDirection(direction)
             self.updateGeometry()
@@ -237,8 +239,8 @@ class RangeRow(SettingRow):
         self.slider = _ignore_wheel(Slider(Qt.Horizontal, self))
         self.slider.setRange(minimum, maximum)
         self.slider.setSingleStep(step)
-        self.slider.setMinimumWidth(140)
-        self.slider.setMaximumWidth(220)
+        self.slider.setMinimumWidth(180)
+        self.slider.setMaximumWidth(260)
         self.slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.controls.addWidget(self.slider, 1)
         self.slider.setVisible(not count_only)
@@ -465,7 +467,7 @@ class SettingSection(QWidget):
         self.toggle = DisclosureButton(self.header)
         bind_text(self.toggle, title, 'setAccessibleName')
         self.toggle.clicked.connect(self.toggle_collapsed)
-        self.title_label = translated(QLabel, title, self.header)
+        self.title_label = translated(KeycapLabel, title, self.header)
         self.title_label.setObjectName("SettingsSectionTitle")
         self.title_label.setFont(visual.font('section_title'))
         self.title_label.setProperty('typography','section_title')

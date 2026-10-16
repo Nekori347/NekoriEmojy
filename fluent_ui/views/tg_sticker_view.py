@@ -82,7 +82,7 @@ class TGHelpDialog(dialogs.OwnerCenteredDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._window_title_source = "Telegram 贴纸下载器 - 使用说明与高级配置教程"
+        self._window_title_source = "Telegram 表情下载器 - 使用说明与高级配置教程"
         self.setWindowTitle(t(self._window_title_source))
         self.resize(780, 560)
         self.setMinimumSize(600, 450)
@@ -91,7 +91,7 @@ class TGHelpDialog(dialogs.OwnerCenteredDialog):
     def _get_help_html(self, section):
         pages = {
             "links": {
-                "zh": """<div style="font-family: 'Sarasa UI SC', 'Microsoft YaHei UI'; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4;">📘 如何获取 Telegram 贴纸链接与包名？</h3><ol><li><b>在客户端中复制链接</b>：在 Telegram 中打开任意聊天，点击任一贴纸/表情，点击<b>「添加贴纸包」</b>进入详情页；</li><li><b>分享并复制链接</b>：点击右上角菜单，选择<b>「分享」</b>或<b>「复制链接」</b>；</li><li><b>支持的常见输入格式</b>：<ul><li><b>标准贴纸链接</b>：<code>https://t.me/addstickers/FunnyDogs</code></li><li><b>短链接格式</b>：<code>t.me/addstickers/FunnyDogs</code></li><li><b>自定义表情包链接</b>：<code>https://t.me/addemoji/MyEmojiPack</code></li><li><b>TG 协议链接</b>：<code>tg://resolve?domain=addstickers&set=FunnyDogs</code></li><li><b>直接输入包名</b>：直接输入末尾的短英文名称，例如 <code>FunnyDogs</code> 即可直接解析！</li></ul></li></ol><h3 style="color: #0078d4;">💡 格式转换说明</h3><ul><li><b>PNG</b>：通用静态图片格式。对于动图或视频贴纸，会智能提取其第一帧高清画面。</li><li><b>GIF</b>：动态图片格式。支持将 <b>TGS (Lottie矢量动画)</b> 与 <b>WebM (VP9高清视频贴纸)</b> 自动转码为可循环播放的 GIF。</li><li><b>原始格式</b>：不进行任何转换，原汁原味保存 Telegram 官方服务器原始文件（<code>.webp</code> / <code>.tgs</code> / <code>.webm</code>）。</li></ul></div>""",
+                "zh": """<div style="font-family: 'Sarasa UI SC', 'Microsoft YaHei UI'; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4;">📘 如何获取 Telegram 表情链接与包名？</h3><ol><li><b>在客户端中复制链接</b>：在 Telegram 中打开任意聊天，点击任一表情/表情，点击<b>「添加贴纸包」</b>进入详情页；</li><li><b>分享并复制链接</b>：点击右上角菜单，选择<b>「分享」</b>或<b>「复制链接」</b>；</li><li><b>支持的常见输入格式</b>：<ul><li><b>标准表情链接</b>：<code>https://t.me/addstickers/FunnyDogs</code></li><li><b>短链接格式</b>：<code>t.me/addstickers/FunnyDogs</code></li><li><b>自定义表情合集链接</b>：<code>https://t.me/addemoji/MyEmojiPack</code></li><li><b>TG 协议链接</b>：<code>tg://resolve?domain=addstickers&set=FunnyDogs</code></li><li><b>直接输入包名</b>：直接输入末尾的短英文名称，例如 <code>FunnyDogs</code> 即可直接解析！</li></ul></li></ol><h3 style="color: #0078d4;">💡 格式转换说明</h3><ul><li><b>PNG</b>：通用静态表情格式。对于动图或视频表情，会智能提取其第一帧高清画面。</li><li><b>GIF</b>：动态表情格式。支持将 <b>TGS (Lottie矢量动画)</b> 与 <b>WebM (VP9高清视频表情)</b> 自动转码为可循环播放的 GIF。</li><li><b>原始格式</b>：不进行任何转换，原汁原味保存 Telegram 官方服务器原始文件（<code>.webp</code> / <code>.tgs</code> / <code>.webm</code>）。</li></ul></div>""",
                 "zh_TW": """<div style="font-family: 'Sarasa UI SC', 'Microsoft YaHei UI'; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4;">📘 如何取得 Telegram 貼圖連結與套組名稱？</h3><ol><li><b>在用戶端複製連結</b>：在 Telegram 開啟任意聊天，點選貼圖／表情，再點選<b>「加入貼圖套組」</b>進入詳細頁面；</li><li><b>分享並複製連結</b>：點選右上角選單，選擇<b>「分享」</b>或<b>「複製連結」</b>；</li><li><b>支援的常見輸入格式</b>：<ul><li><b>標準貼圖連結</b>：<code>https://t.me/addstickers/FunnyDogs</code></li><li><b>短連結格式</b>：<code>t.me/addstickers/FunnyDogs</code></li><li><b>自訂表情套組連結</b>：<code>https://t.me/addemoji/MyEmojiPack</code></li><li><b>TG 協定連結</b>：<code>tg://resolve?domain=addstickers&set=FunnyDogs</code></li><li><b>直接輸入套組名稱</b>：輸入末尾的英文名稱，例如 <code>FunnyDogs</code> 即可解析！</li></ul></li></ol><h3 style="color: #0078d4;">💡 格式轉換說明</h3><ul><li><b>PNG</b>：通用靜態圖片格式。動態或影片貼圖會智慧擷取第一幀高清畫面。</li><li><b>GIF</b>：動態圖片格式。支援將 <b>TGS（Lottie 向量動畫）</b>與 <b>WebM（VP9 高畫質影片貼圖）</b>轉碼為可循環播放的 GIF。</li><li><b>原始格式</b>：不進行轉換，保留 Telegram 官方伺服器的原始檔案（<code>.webp</code>／<code>.tgs</code>／<code>.webm</code>）。</li></ul></div>""",
                 "en": """<div style="font-family: 'Sarasa UI SC', 'Microsoft YaHei UI'; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4;">📘 How to get Telegram sticker links and pack names</h3><ol><li><b>Copy a link in the client</b>: Open any chat in Telegram, click a sticker or emoji, then click <b>“Add Sticker Pack”</b> to open its details.</li><li><b>Share and copy the link</b>: Open the top-right menu and choose <b>“Share”</b> or <b>“Copy Link”</b>.</li><li><b>Supported input formats</b>: <ul><li><b>Standard sticker link</b>: <code>https://t.me/addstickers/FunnyDogs</code></li><li><b>Short link</b>: <code>t.me/addstickers/FunnyDogs</code></li><li><b>Custom emoji pack link</b>: <code>https://t.me/addemoji/MyEmojiPack</code></li><li><b>TG protocol link</b>: <code>tg://resolve?domain=addstickers&set=FunnyDogs</code></li><li><b>Pack name</b>: Enter a short English name such as <code>FunnyDogs</code> to parse it directly.</li></ul></li></ol><h3 style="color: #0078d4;">💡 Format conversion</h3><ul><li><b>PNG</b>: A universal static image format. The first high-quality frame is extracted from animated or video stickers.</li><li><b>GIF</b>: Animated stickers and videos are converted to looping GIFs. TGS (Lottie vector animation) and WebM (VP9 video stickers) are supported.</li><li><b>Original format</b>: No conversion; the original Telegram files are preserved (<code>.webp</code> / <code>.tgs</code> / <code>.webm</code>).</li></ul></div>""",
                 "ja": """<div style="font-family: 'Sarasa UI SC', 'Microsoft YaHei UI'; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4;">📘 Telegram ステッカーのリンクとパック名を取得する方法</h3><ol><li><b>クライアントでリンクをコピー</b>：Telegram のチャットでステッカーまたは絵文字をクリックし、<b>「ステッカーパックを追加」</b>を選択します。</li><li><b>共有してリンクをコピー</b>：右上のメニューから<b>「共有」</b>または<b>「リンクをコピー」</b>を選択します。</li><li><b>対応する入力形式</b>：<ul><li><b>標準リンク</b>：<code>https://t.me/addstickers/FunnyDogs</code></li><li><b>短縮リンク</b>：<code>t.me/addstickers/FunnyDogs</code></li><li><b>カスタム絵文字パック</b>：<code>https://t.me/addemoji/MyEmojiPack</code></li><li><b>TG プロトコル</b>：<code>tg://resolve?domain=addstickers&set=FunnyDogs</code></li><li><b>パック名</b>：<code>FunnyDogs</code> のような短い英語名を直接入力できます。</li></ul></li></ol><h3 style="color: #0078d4;">💡 形式変換について</h3><ul><li><b>PNG</b>：静止画形式。アニメーションや動画ステッカーから最初の高画質フレームを抽出します。</li><li><b>GIF</b>：TGS（Lottie ベクターアニメーション）と WebM（VP9 動画ステッカー）をループ再生可能な GIF に変換します。</li><li><b>元の形式</b>：変換せず、Telegram サーバーの元ファイル（<code>.webp</code>／<code>.tgs</code>／<code>.webm</code>）を保存します。</li></ul></div>"""
@@ -146,7 +146,7 @@ class TGHelpDialog(dialogs.OwnerCenteredDialog):
         tb1.setOpenExternalLinks(True)
         tb1.setHtml(self._get_help_html("links"))
         tab1_layout.addWidget(tb1)
-        tabs.addTab(tab1, t("📘 贴纸链接获取"))
+        tabs.addTab(tab1, t("📘 表情链接获取"))
 
         # Tab 2: Cloudflare CORS 代理搭建教程
         tab2 = QWidget()
@@ -558,7 +558,7 @@ class ImportPackThread(QThread):
                         if self._cancelled():
                             break
                         self.skipped_count += 1
-                        detail = t("贴纸 #{index} 获取失败：{error}").format(
+                        detail = t("表情 #{index} 获取失败：{error}").format(
                             index=sticker.index + 1, error=exc,
                         )
                         self.skipped_details.append(detail)
@@ -593,7 +593,7 @@ class ImportPackThread(QThread):
                             self.progress.emit(
                                 done_count,
                                 total_count,
-                                t("已入库 ({done}/{total}): 贴纸 #{index}").format(
+                                t("已入库 ({done}/{total}): 表情 #{index}").format(
                                     done=done_count, total=total_count, index=idx + 1
                                 ),
                             )
@@ -602,7 +602,7 @@ class ImportPackThread(QThread):
                             self.progress.emit(
                                 done_count,
                                 total_count,
-                                t("入库失败: 贴纸 #{index} ({error})").format(
+                                t("入库失败: 表情 #{index} ({error})").format(
                                     index=idx + 1, error=err
                                 ),
                             )
@@ -612,9 +612,9 @@ class ImportPackThread(QThread):
             self.imported_count = imported_count
             if not self._cancelled() and self.export_path:
                 if fail_count:
-                    raise ValueError(t("贴纸入库未全部成功，未导出资源包。请使用相同 ID 重试以补齐索引和收藏夹。") + "\n" + "\n".join(failures[:5]))
+                    raise ValueError(t("表情入库未全部成功，未导出表情合集。请使用相同 ID 重试以补齐索引和收藏夹。") + "\n" + "\n".join(failures[:5]))
                 if not imported_count:
-                    raise ValueError(t("没有可导出的贴纸，所有贴纸均获取失败。")
+                    raise ValueError(t("没有可导出的表情，所有表情均获取失败。")
                                      + "\n" + "\n".join(self.skipped_details))
                 self.stage_changed.emit("export")
                 self._export_resource_package()
@@ -646,7 +646,7 @@ class ImportPackThread(QThread):
                 progress_callback=progress,
             )
             if not manifest["counts"]["resources"]:
-                raise ValueError(t("收藏夹中没有可导出的资源"))
+                raise ValueError(t("收藏夹中没有可导出的表情"))
             if self.source_url:
                 with zipfile.ZipFile(temporary, "a", compression=zipfile.ZIP_DEFLATED) as archive:
                     archive.writestr("TG.txt", self.source_url.strip() + "\n")
@@ -714,7 +714,7 @@ class TGStickerInterface(QWidget):
         self.btnBack = TransparentToolButton(FIF.LEFT_ARROW, self.topBar)
         self.btnBack.setToolTip(t("返回主面板"))
         self.btnBack.clicked.connect(self._on_back_clicked)
-        self.titleLabel = TitleLabel(t("下载TG贴纸"), self.topBar)
+        self.titleLabel = TitleLabel(t("下载TG表情"), self.topBar)
         self.btnLog = TransparentToolButton(FIF.DOCUMENT, self.topBar)
         self.btnLog.setFixedSize(32, 32)
         self.btnLog.setToolTip(t("操作日志"))
@@ -748,7 +748,7 @@ class TGStickerInterface(QWidget):
         self.configCardLayout.setSpacing(10)
 
         config_header = QHBoxLayout()
-        self.configTitle = StrongBodyLabel(t("Telegram 贴纸配置"), self.configCard)
+        self.configTitle = StrongBodyLabel(t("Telegram 表情配置"), self.configCard)
         self.collapseConfigButton = RotatingChevronButton(self.configCard)
         self.collapseConfigButton.set_direction(180, animated=False)
         self.collapseConfigButton.setToolTip(t("收起配置面板"))
@@ -786,18 +786,18 @@ class TGStickerInterface(QWidget):
 
         self.urlInputEdit = LineEdit(self.configFormWidget)
         self.urlInputEdit.setPlaceholderText(
-            t("贴纸链接或包名，如: animals 或 https://t.me/addstickers/xxx")
+            t("表情链接或包名，如: animals 或 https://t.me/addstickers/xxx")
         )
         self.urlInputEdit.returnPressed.connect(self.startParsePack)
         self.helpButton = TransparentToolButton(FIF.HELP, self.configFormWidget)
         self.helpButton.setFixedSize(32, 32)
         self.helpButton.setToolTip(t("使用帮助与教程"))
         self.helpButton.clicked.connect(self.showHelpDialog)
-        self.urlLabel = add_form_row("贴纸链接:", self.urlInputEdit, self.helpButton)
+        self.urlLabel = add_form_row("表情链接:", self.urlInputEdit, self.helpButton)
 
         self.savePathEdit = LineEdit(self.configFormWidget)
         self.savePathEdit.setText(self.save_path)
-        self.savePathEdit.setPlaceholderText(t("请选择贴纸保存路径..."))
+        self.savePathEdit.setPlaceholderText(t("请选择表情保存路径..."))
         self.selectDirButton = PushButton(t("浏览..."), self.configFormWidget)
         self.selectDirButton.setFixedWidth(90)
         self.selectDirButton.clicked.connect(self.selectSavePath)
@@ -809,8 +809,8 @@ class TGStickerInterface(QWidget):
         self.formatLabel.setFixedWidth(76)
         self.formatComboBox = ComboBox(self.configFormWidget)
         self.formatComboBox.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.formatComboBox.addItem(t("PNG (静态图片 / 动图首帧)"), userData="png")
-        self.formatComboBox.addItem(t("GIF (动图 / 视频贴纸)"), userData="gif")
+        self.formatComboBox.addItem(t("PNG (静态表情 / 动图首帧)"), userData="png")
+        self.formatComboBox.addItem(t("GIF (动图 / 视频表情)"), userData="gif")
         self.formatComboBox.addItem(t("原始格式 (WebP / TGS / WebM)"), userData="original")
         self.formatComboBox.addItem(t("智能适配 (自动匹配最佳格式)"), userData="auto")
         self.zipCheckBox = CheckBox(t("导出完成后打包为 ZIP 压缩文件"), self.configFormWidget)
@@ -880,7 +880,7 @@ class TGStickerInterface(QWidget):
         config_layout.addWidget(self.advWidget)
 
         self.parseButton = PrimaryPushButton(
-            FIF.SEARCH, t("解析贴纸包预览"), self.configFormWidget
+            FIF.SEARCH, t("解析表情合集预览"), self.configFormWidget
         )
         self.parseButton.setFixedHeight(36)
         self.parseButton.clicked.connect(self.startParsePack)
@@ -920,8 +920,8 @@ class TGStickerInterface(QWidget):
             FIF.SAVE, t("入库选中"), self.actionBar
         )
         self.importAllButton = PushButton(FIF.APPLICATION, t("入库全部"), self.actionBar)
-        self.exportPackageButton = PushButton(FIF.SAVE, t("导出为资源包"), self.actionBar)
-        self.exportPackageButton.setToolTip(t("将当前贴纸包全部清洗入库到 ID 同名收藏夹，并导出为 ID.zip"))
+        self.exportPackageButton = PushButton(FIF.SAVE, t("导出为表情合集"), self.actionBar)
+        self.exportPackageButton.setToolTip(t("将当前表情合集全部清洗入库到 ID 同名收藏夹，并导出为 ID.zip"))
         self.selectAllButton = PushButton(t("全选已加载"), self.actionBar)
         self.clearSelectionButton = PushButton(t("清空选择"), self.actionBar)
         self.invertSelectionButton = PushButton(t("反选"), self.actionBar)
@@ -953,7 +953,7 @@ class TGStickerInterface(QWidget):
         action_layout.addWidget(self.invertSelectionButton)
 
         # 5. 贴纸包轻量标题
-        self.previewTitleLabel = SubtitleLabel(t("贴纸预览区 (未加载)"), self)
+        self.previewTitleLabel = SubtitleLabel(t("表情预览区 (未加载)"), self)
 
         # 6. 主内容区：预览网格 + 详情卡
         self.contentLayout = QHBoxLayout()
@@ -1009,7 +1009,7 @@ class TGStickerInterface(QWidget):
         self.detailLayout.setSpacing(10)
 
         self.detailWidget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
-        self.detailTitle = SubtitleLabel(t("贴纸详细预览"), self.detailWidget)
+        self.detailTitle = SubtitleLabel(t("表情详细预览"), self.detailWidget)
         self.detailPreviewLabel = QLabel(self.detailWidget)
         self.detailPreviewLabel.setAlignment(Qt.AlignCenter)
         self.detailPreviewLabel.setFrameStyle(QFrame.StyledPanel | QFrame.Sunken)
@@ -1020,7 +1020,7 @@ class TGStickerInterface(QWidget):
             "background-color: rgba(0, 0, 0, 5); "
             "border: 1px solid rgba(0, 0, 0, 15); border-radius: 8px;"
         )
-        self.detailInfoLabel = BodyLabel(t("未选中贴纸"), self.detailWidget)
+        self.detailInfoLabel = BodyLabel(t("未选中表情"), self.detailWidget)
         self.detailInfoLabel.setWordWrap(True)
         self.detailInfoLabel.setFixedWidth(250)
         self.detailInfoLabel.setAlignment(Qt.AlignTop | Qt.AlignLeft)
@@ -1048,8 +1048,8 @@ class TGStickerInterface(QWidget):
         self._update_summary_label()
         self._update_detail_preview_visibility()
 
-        self.log(t("💬 Telegram 贴纸包批量下载工具已就绪"))
-        self.log(t("💡 支持官方直连与智能路由回退，在上方输入贴纸包链接即可开始解析。"))
+        self.log(t("💬 Telegram 表情合集批量下载工具已就绪"))
+        self.log(t("💡 支持官方直连与智能路由回退，在上方输入表情合集链接即可开始解析。"))
 
         self._i18n_widgets = []
         self._register_i18n_widgets()
@@ -1132,7 +1132,7 @@ class TGStickerInterface(QWidget):
             self.back_requested.emit()
             return
 
-        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认中断并返回"), t("当前正在处理 Telegram 贴纸，确定要中断当前任务并返回吗？")) else QMessageBox.No)
+        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认中断并返回"), t("当前正在处理 Telegram 表情，确定要中断当前任务并返回吗？")) else QMessageBox.No)
         if reply != QMessageBox.Yes:
             return
 
@@ -1189,7 +1189,7 @@ class TGStickerInterface(QWidget):
 
     def _update_summary_label(self):
         link = self.urlInputEdit.text().strip()
-        link_text = link if link else t("未填写贴纸链接")
+        link_text = link if link else t("未填写表情链接")
         format_text = self.formatComboBox.currentText()
         self.summaryLabel.setText(
             t("📌 当前配置：{link}  /  {format}").format(
@@ -1348,7 +1348,7 @@ class TGStickerInterface(QWidget):
 
     def selectSavePath(self):
         directory = QFileDialog.getExistingDirectory(
-            self, t("💬 请选择贴纸保存路径"), self.savePathEdit.text()
+            self, t("💬 请选择表情保存路径"), self.savePathEdit.text()
         )
         if directory:
             self.savePathEdit.setText(directory)
@@ -1408,8 +1408,8 @@ class TGStickerInterface(QWidget):
             return
         link = self.urlInputEdit.text().strip()
         if not link:
-            self.log(t("❌ 请先输入 Telegram 贴纸链接或包名！"))
-            notify(self, t("提示"), t("请先输入 Telegram 贴纸链接或包名！"))
+            self.log(t("❌ 请先输入 Telegram 表情链接或包名！"))
+            notify(self, t("提示"), t("请先输入 Telegram 表情链接或包名！"))
             return
 
         self._cancelActiveThreads()
@@ -1424,11 +1424,11 @@ class TGStickerInterface(QWidget):
         self.is_batch_loading = False
 
         self.detailPreviewLabel.clear()
-        self.detailInfoLabel.setText(t("未选中贴纸"))
+        self.detailInfoLabel.setText(t("未选中表情"))
 
-        parse_message = t("正在解析贴纸包 [{link}] ...").format(link=link)
+        parse_message = t("正在解析表情合集 [{link}] ...").format(link=link)
         self.log(t("💬 {message}").format(message=parse_message))
-        self.tooltip.show(t("正在解析 Telegram 贴纸包..."), parse_message)
+        self.tooltip.show(t("正在解析 Telegram 表情合集..."), parse_message)
 
         self.downloader = self._get_configured_downloader()
         self._parse_thread = ParsePackThread(self.downloader, link, self)
@@ -1473,16 +1473,16 @@ class TGStickerInterface(QWidget):
         self.all_stickers = pack.stickers
 
         self.previewTitleLabel.setText(
-            t("贴纸预览区 ({title} - 共 {total} 张)").format(
+            t("表情预览区 ({title} - 共 {total} 张)").format(
                 title=pack.title, total=pack.total_count
             )
         )
         self.log(
-            t("✅ 成功解析贴纸包: 《{title}》({name})，共 {total} 张贴纸。").format(
+            t("✅ 成功解析表情合集: 《{title}》({name})，共 {total} 张表情。").format(
                 title=pack.title, name=pack.name, total=pack.total_count
             )
         )
-        self.log(t("ℹ️ 贴纸类型: {type}").format(type=pack.type_desc))
+        self.log(t("ℹ️ 表情类型: {type}").format(type=pack.type_desc))
 
         if pack.is_animated or pack.is_video:
             self.formatComboBox.setCurrentIndex(1)
@@ -1491,7 +1491,7 @@ class TGStickerInterface(QWidget):
 
         self.tooltip.finish(
             t("解析完成"),
-            t("已加载《{title}》，共 {total} 张贴纸").format(
+            t("已加载《{title}》，共 {total} 张表情").format(
                 title=pack.title, total=pack.total_count
             ),
         )
@@ -1501,8 +1501,8 @@ class TGStickerInterface(QWidget):
     def _onParseFailed(self, error_msg: str):
         self.current_pack = None
         self._set_busy(False)
-        self.previewTitleLabel.setText(t("贴纸预览区 (解析失败)"))
-        self.log(t("❌ 解析贴纸包失败: {error}").format(error=error_msg))
+        self.previewTitleLabel.setText(t("表情预览区 (解析失败)"))
+        self.log(t("❌ 解析表情合集失败: {error}").format(error=error_msg))
         self.tooltip.fail(t("解析失败"), str(error_msg))
 
     def onScrollBarMoved(self, value):
@@ -1622,7 +1622,7 @@ class TGStickerInterface(QWidget):
         for i in range(self.previewListWidget.count()):
             self.previewListWidget.item(i).setSelected(True)
         self.log(
-            t("✅ 已全选当前已加载的 {count} 个贴纸").format(
+            t("✅ 已全选当前已加载的 {count} 个表情").format(
                 count=self.previewListWidget.count()
             )
         )
@@ -1661,7 +1661,7 @@ class TGStickerInterface(QWidget):
 
         if not current_item or not current_item.isSelected() or not self.current_pack:
             self.detailPreviewLabel.clear()
-            self.detailInfoLabel.setText(t("未选中贴纸"))
+            self.detailInfoLabel.setText(t("未选中表情"))
             return
 
         sticker_idx = current_item.data(Qt.UserRole)
@@ -1670,17 +1670,17 @@ class TGStickerInterface(QWidget):
 
         sticker = self.all_stickers[sticker_idx]
 
-        format_display = t("静态贴纸 (WebP)")
+        format_display = t("静态表情 (WebP)")
         if sticker.is_animated:
             format_display = t("矢量动画 (TGS / Lottie)")
         elif sticker.is_video:
             format_display = t("视频动图 (WebM / VP9)")
 
         info_text = t(
-            "<b>贴纸序号:</b> #{index}<br/>"
+            "<b>表情序号:</b> #{index}<br/>"
             "<b>代表表情:</b> {emoji}<br/>"
-            "<b>所属贴纸包:</b> {pack}<br/>"
-            "<b>贴纸类型:</b> {type}<br/>"
+            "<b>所属表情合集:</b> {pack}<br/>"
+            "<b>表情类型:</b> {type}<br/>"
             "<b>原始尺寸:</b> {width} x {height}<br/>"
             "<b>文件大小:</b> {size:.2f} KB<br/><br/>"
             "<b>Telegram File ID:</b><br/>"
@@ -1697,7 +1697,7 @@ class TGStickerInterface(QWidget):
             muted=colors()['text_muted'],
         )
         self.detailInfoLabel.setTextFormat(Qt.PlainText)
-        self.detailInfoLabel.setText(f'{sticker.emoji or t("贴纸")} · {sticker.width} × {sticker.height}\n{(sticker.file_size or 0)/1024:.1f} KB')
+        self.detailInfoLabel.setText(f'{sticker.emoji or t("表情")} · {sticker.width} × {sticker.height}\n{(sticker.file_size or 0)/1024:.1f} KB')
 
         if sticker_idx in self._detail_cache:
             file_path, is_gif = self._detail_cache[sticker_idx]
@@ -1749,7 +1749,7 @@ class TGStickerInterface(QWidget):
                     scaled = pixmap.scaled(self.detailPreviewLabel.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     self.detailPreviewLabel.setPixmap(scaled)
                 else:
-                    self.detailPreviewLabel.setText(t("图片解析失败"))
+                    self.detailPreviewLabel.setText(t("表情解析失败"))
         except Exception as e:
             self.detailPreviewLabel.setText(t("展示失败: {error}").format(error=e))
 
@@ -1764,13 +1764,13 @@ class TGStickerInterface(QWidget):
 
         selected_items = self.previewListWidget.selectedItems()
         if not selected_items:
-            self.log(t("❌ 您尚未选择任何贴纸！请先在预览区选中贴纸后再导出。"))
-            notify(self, t("提示"), t("请先在预览区选中贴纸后再导出！"))
+            self.log(t("❌ 您尚未选择任何表情！请先在预览区选中表情后再导出。"))
+            notify(self, t("提示"), t("请先在预览区选中表情后再导出！"))
             return
 
         selected_indices = [item.data(Qt.UserRole) for item in selected_items if item.data(Qt.UserRole) is not None]
 
-        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导出选中"), t("确定导出当前选中的 {count} 个贴纸到文件夹？").format(
+        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导出选中"), t("确定导出当前选中的 {count} 个表情到文件夹？").format(
                 count=len(selected_indices)
             )) else QMessageBox.No)
         if reply == QMessageBox.No:
@@ -1784,7 +1784,7 @@ class TGStickerInterface(QWidget):
         if not self.current_pack:
             return
 
-        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导出全部"), t("当前不管预览是否完全加载，将直接从服务器批量导出《{title}》的全部 {count} 个贴纸？").format(
+        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导出全部"), t("当前不管预览是否完全加载，将直接从服务器批量导出《{title}》的全部 {count} 个表情？").format(
                 title=self.current_pack.title, count=self.current_pack.total_count
             )) else QMessageBox.No)
         if reply == QMessageBox.No:
@@ -1812,15 +1812,15 @@ class TGStickerInterface(QWidget):
 
         count_desc = len(selected_indices) if selected_indices is not None else self.current_pack.total_count
         self.log(
-            t("🚀 开始批量导出: 目标目录 -> {directory} (共 {count} 个贴纸, 格式: {format})").format(
+            t("🚀 开始批量导出: 目标目录 -> {directory} (共 {count} 个表情, 格式: {format})").format(
                 directory=output_dir, count=count_desc, format=str(fmt).upper()
             )
         )
 
         self._set_busy(True)
         self.tooltip.show(
-            t("正在导出 Telegram 贴纸..."),
-            t("准备导出 {count} 张贴纸").format(count=count_desc),
+            t("正在导出 Telegram 表情..."),
+            t("准备导出 {count} 张表情").format(count=count_desc),
         )
 
         downloader = self._get_configured_downloader()
@@ -1885,7 +1885,7 @@ class TGStickerInterface(QWidget):
             return
         storage = getattr(self.window(), "storage", None)
         if storage is None:
-            notify(self, t("错误"), t("无法获取表情包资源库存储服务！"))
+            notify(self, t("错误"), t("无法获取表情合集表情库存储服务！"))
             return
         from fluent_ui.components.tg_batch_dialog import TGBatchPackageDialog
         downloader = self._get_configured_downloader()
@@ -1917,27 +1917,27 @@ class TGStickerInterface(QWidget):
             return
         storage = getattr(self.window(), "storage", None)
         if storage is None:
-            notify(self, t("错误"), t("无法获取表情包资源库存储服务！"))
+            notify(self, t("错误"), t("无法获取表情合集表情库存储服务！"))
             return
         package_id, accepted = dialogs.prompt_text(
-            self, t("导出为资源包"),
-            t("请输入资源包 ID（同时作为收藏夹名称和 ZIP 文件名）："),
+            self, t("导出为表情合集"),
+            t("请输入表情合集 ID（同时作为收藏夹名称和 ZIP 文件名）："),
             initial=self.current_pack.title,
         )
         if not accepted:
             return
         package_id = package_id.strip()
         if not package_id:
-            notify(self, t("提示"), t("资源包 ID 不能为空"))
+            notify(self, t("提示"), t("表情合集 ID 不能为空"))
             return
-        directory = QFileDialog.getExistingDirectory(self, t("选择资源包保存目录"), self.save_path)
+        directory = QFileDialog.getExistingDirectory(self, t("选择表情合集保存目录"), self.save_path)
         if not directory:
             return
         export_path = os.path.join(directory, package_id + ".zip")
-        if os.path.exists(export_path) and (QMessageBox.Yes if dialogs.confirm(self, t("覆盖资源包"), t("文件已存在，是否覆盖？") + "\n" + export_path) else QMessageBox.No) != QMessageBox.Yes:
+        if os.path.exists(export_path) and (QMessageBox.Yes if dialogs.confirm(self, t("覆盖表情合集"), t("文件已存在，是否覆盖？") + "\n" + export_path) else QMessageBox.No) != QMessageBox.Yes:
             return
         self._set_busy(True)
-        self.tooltip.show(t("正在导出资源包"), t("正在下载并清洗贴纸..."))
+        self.tooltip.show(t("正在导出表情合集"), t("正在下载并清洗表情..."))
         worker = ImportPackThread(
             self._get_configured_downloader(), storage, list(self.all_stickers),
             package_id, parent=self, export_path=export_path,
@@ -1960,8 +1960,8 @@ class TGStickerInterface(QWidget):
             skipped=self._import_thread.skipped_count,
         )
         details = "\n".join(self._import_thread.skipped_details)
-        self.log(t("资源包导出完成") + ": " + path + "\n" + summary + "\n" + details)
-        self.tooltip.finish(t("资源包导出完成"), summary + "\n" + path + "\n" + details, outcome="partial" if failed or self._import_thread.skipped_count else "success")
+        self.log(t("表情合集导出完成") + ": " + path + "\n" + summary + "\n" + details)
+        self.tooltip.finish(t("表情合集导出完成"), summary + "\n" + path + "\n" + details, outcome="partial" if failed or self._import_thread.skipped_count else "success")
 
     def _onPackageFailed(self, message):
         self._set_busy(False)
@@ -1969,7 +1969,7 @@ class TGStickerInterface(QWidget):
         if callable(refresh):
             refresh()
         self.log(message)
-        self.tooltip.fail(t("资源包导出失败"), message)
+        self.tooltip.fail(t("表情合集导出失败"), message)
 
     def importSelected(self):
         """将选中的贴纸下载并导入到资源库"""
@@ -1978,13 +1978,13 @@ class TGStickerInterface(QWidget):
 
         selected_items = self.previewListWidget.selectedItems()
         if not selected_items:
-            self.log(t("❌ 您尚未选择任何贴纸！请先在预览区选中贴纸后再导入。"))
-            notify(self, t("提示"), t("请先在预览区选中贴纸后再导入！"))
+            self.log(t("❌ 您尚未选择任何表情！请先在预览区选中表情后再导入。"))
+            notify(self, t("提示"), t("请先在预览区选中表情后再导入！"))
             return
 
         selected_indices = [item.data(Qt.UserRole) for item in selected_items if item.data(Qt.UserRole) is not None]
 
-        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导入选中"), t("确定将当前选中的 {count} 个贴纸导入到资源库？（自动转码为通用图片并去重）").format(
+        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导入选中"), t("确定将当前选中的 {count} 个表情导入到表情库？（自动转码为通用表情并去重）").format(
                 count=len(selected_indices)
             )) else QMessageBox.No)
         if reply == QMessageBox.No:
@@ -1998,7 +1998,7 @@ class TGStickerInterface(QWidget):
         if not self.current_pack:
             return
 
-        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导入全部"), t("确定将《{title}》的全部 {count} 个贴纸导入到资源库？（自动转码并去重）").format(
+        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导入全部"), t("确定将《{title}》的全部 {count} 个表情导入到表情库？（自动转码并去重）").format(
                 title=self.current_pack.title, count=self.current_pack.total_count
             )) else QMessageBox.No)
         if reply == QMessageBox.No:
@@ -2012,8 +2012,8 @@ class TGStickerInterface(QWidget):
             return
         main_win = self.window()
         if not hasattr(main_win, 'storage') or not main_win.storage:
-            self.log(t("❌ 导入失败，无法获取表情包资源库存储服务！"))
-            notify(self, t("错误"), t("无法获取表情包资源库存储服务！"))
+            self.log(t("❌ 导入失败，无法获取表情合集表情库存储服务！"))
+            notify(self, t("错误"), t("无法获取表情合集表情库存储服务！"))
             return
 
         storage = main_win.storage
@@ -2035,14 +2035,14 @@ class TGStickerInterface(QWidget):
 
         self._set_busy(True)
         self.log(
-            t("💬 开始异步并发导入贴纸到资源库，分类: [{category}]...").format(
+            t("💬 开始异步并发导入表情到表情库，分类: [{category}]...").format(
                 category=category_name
             )
         )
 
         self.tooltip.show(
-            t("正在导入 Telegram 贴纸..."),
-            t("准备入库 {count} 张贴纸至 [{category}]").format(
+            t("正在导入 Telegram 表情..."),
+            t("准备入库 {count} 张表情至 [{category}]").format(
                 count=total_count, category=category_name
             ),
         )
@@ -2074,7 +2074,7 @@ class TGStickerInterface(QWidget):
         failed += self._import_thread.skipped_count
 
         self.log(
-            t("✅ 导入完成！成功入库 {imported} 张贴纸到 [{category}]，重复合并 {duplicated} 张，失败 {failed} 张。").format(
+            t("✅ 导入完成！成功入库 {imported} 张表情到 [{category}]，重复合并 {duplicated} 张，失败 {failed} 张。").format(
                 imported=imported, category=cat_name, duplicated=dup, failed=failed
             )
         )

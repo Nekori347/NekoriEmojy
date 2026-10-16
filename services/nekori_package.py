@@ -126,10 +126,10 @@ class NekoriPackageService:
                 archive.extractall(staging)
             manifest_path = staging / MANIFEST_NAME
             if not manifest_path.is_file():
-                raise NekoriPackageError("这不是 Nekori 原生资源包：缺少 nekori.json")
+                raise NekoriPackageError("这不是 Nekori 原生表情合集：缺少 nekori.json")
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             if manifest.get("format") != FORMAT:
-                raise NekoriPackageError("资源包格式不受支持")
+                raise NekoriPackageError("表情合集格式不受支持")
             return self._restore(manifest, staging, progress)
         except zipfile.BadZipFile as exc:
             raise NekoriPackageError(f"压缩包无法读取: {exc}") from exc
@@ -148,7 +148,7 @@ class NekoriPackageService:
         if full_restore:
             sequences = [e['library_added_seq'] for e in resources if e.get('library_added_seq') is not None]
             if any(type(seq) is not int or seq < 1 for seq in sequences) or len(set(sequences)) != len(sequences):
-                raise NekoriPackageError('资源包 library_added_seq 无效或重复')
+                raise NekoriPackageError('表情合集 library_added_seq 无效或重复')
             if sequences:
                 with self.index.connect() as db:
                     # Reserve packaged values before allocating for older entries.

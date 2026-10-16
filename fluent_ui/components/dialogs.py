@@ -17,6 +17,7 @@ from services.i18n import t, i18n_engine, bind_text, translated
 from fluent_ui.visual import DATA_FONT, RADIUS, accent, colors, dialog_style
 from fluent_ui.components.controls import PushButton as QPushButton, LineEdit as QLineEdit
 from fluent_ui.components.softframe import SoftframeSlider as QSlider
+from fluent_ui.components.keycap_label import KeycapLabel
 
 BUTTON_STYLE = '''
 QPushButton {{ background: {surface}; color: {text}; border: 1px solid {border};
@@ -181,7 +182,7 @@ class NekoriDialog(OwnerCenteredDialog):
         return button
 
     def add_hint(self, text):
-        label = translated(QLabel, text, self)
+        label = translated(KeycapLabel, text, self)
         label.setWordWrap(True)
         label.setProperty("role", "hint")
         self.body.addWidget(label)
@@ -386,7 +387,7 @@ class TagChoiceButton(QAbstractButton):
         self.tag=tag;self.initial=Qt.Checked if count==total else Qt.PartiallyChecked if count else Qt.Unchecked
         self.state=self.initial;self.count=count;self.total=total
         self.setText(tag);self.setFont(visual.font());self.setFocusPolicy(Qt.TabFocus);self.setCursor(Qt.PointingHandCursor)
-        self.setToolTip(t('部分资源已有此标签') if self.state==Qt.PartiallyChecked else tag)
+        self.setToolTip(t('部分表情已有此标签') if self.state==Qt.PartiallyChecked else tag)
         self.clicked.connect(self._toggle)
         self.setFixedSize(self.sizeHint())
 
@@ -419,11 +420,12 @@ class TagEditorDialog(NekoriDialog):
         super().__init__(parent, "编辑标签")
         self.storage = storage
         self.paths = list(paths)
-        self.add_hint(t('编辑选中的 {value_0} 个资源的标签。').format(value_0=len(paths)))
+        self.add_hint(t('编辑选中的 {value_0} 个表情的标签。').format(value_0=len(paths)))
         self.add_hint(t('勾选表示全部已有，短线表示部分已有；未操作的标签保持原样。'))
         entry=QWidget(self);entry_row=QHBoxLayout(entry);entry_row.setContentsMargins(0,0,0,0)
         self.editor = QLineEdit(self)
-        self.editor.setPlaceholderText(t('输入新标签，按 Enter 添加'))
+        self.editor.setPlaceholderText(t('输入新标签'))
+        self.add_hint(t('输入标签后按 Enter 添加。'))
         entry_row.addWidget(self.editor,1)
         add=QPushButton(t('添加'),self);add.clicked.connect(self._add_entered);entry_row.addWidget(add)
         self.editor.returnPressed.connect(self._add_entered);self.add_widget(entry)

@@ -385,7 +385,7 @@ class MainWindow(NekoriWindow):
             dialog = SimilarityDialog(self.gallery_interface)
             dialog.setModal(False)
             dialog.setWindowModality(Qt.NonModal)
-            self._similarity_window = ToolWindow(self, dialog, '相似图片')
+            self._similarity_window = ToolWindow(self, dialog, '相似表情')
             self.destroyed.connect(self._similarity_window.deleteLater)
         self._similarity_window.present()
 

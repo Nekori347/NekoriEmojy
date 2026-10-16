@@ -319,7 +319,7 @@ class ExchangeImportService:
         relation_count = 0
         for item in raw_resources:
             if not isinstance(item, Mapping):
-                raise ExchangeImportError("资源声明格式错误")
+                raise ExchangeImportError("表情声明格式错误")
             try:
                 sync_key = str(item["sync_key"])
                 asset_path = str(item["asset_path"]).replace("\\", "/")
@@ -338,7 +338,7 @@ class ExchangeImportService:
                 if not source.is_file():
                     raise ValueError
             except (KeyError, TypeError, ValueError, OSError) as exc:
-                raise ExchangeImportError("资源声明无效") from exc
+                raise ExchangeImportError("表情声明无效") from exc
 
             actual_size = source.stat().st_size
             actual_sha256 = self._sha256(source)
@@ -381,7 +381,7 @@ class ExchangeImportService:
             if key in counts and int(counts[key]) != value:
                 raise ExchangeImportError(f"manifest {key} 数量校验失败")
         if "total_asset_bytes" in manifest and int(manifest["total_asset_bytes"]) != total_bytes:
-            raise ExchangeImportError("资源总大小校验失败")
+            raise ExchangeImportError("表情总大小校验失败")
         return resources, categories
 
     def _parse_icons(self, catalog, staging):
@@ -429,10 +429,10 @@ class ExchangeImportService:
     def _safe_asset_path(staging: Path, asset_path: str) -> Path:
         path = Path(asset_path)
         if path.is_absolute() or ".." in path.parts:
-            raise ExchangeImportError("资源路径非法")
+            raise ExchangeImportError("表情路径非法")
         result = (staging / path).resolve()
         if os.path.commonpath((str(staging.resolve()), str(result))) != str(staging.resolve()):
-            raise ExchangeImportError("资源路径非法")
+            raise ExchangeImportError("表情路径非法")
         return result
 
     @staticmethod

@@ -79,7 +79,7 @@ class BatchPackageWorker(QThread):
         if not output.is_file():
             if cancel_event.is_set():
                 raise InterruptedError()
-            raise RuntimeError(t("资源包未生成"))
+            raise RuntimeError(t("表情合集未生成"))
         message = t("已导出：处理成功 {success} 张，获取失败跳过 {skipped} 张。").format(
             success=importer.imported_count, skipped=importer.skipped_count,
         )
@@ -107,11 +107,11 @@ class TGBatchPackageDialog(dialogs.OwnerCenteredDialog):
         self.config, self.storage = config, storage
         self.importer_factory = importer_factory
         self.worker = None
-        self.setWindowTitle(t("批量打包 Telegram 贴纸"))
+        self.setWindowTitle(t("批量打包 Telegram 表情"))
         self.resize(920, 640)
         self.setMinimumSize(680, 480)
         layout = QVBoxLayout(self)
-        layout.addWidget(BodyLabel(t("每行输入一个 TG 链接，按顺序处理，每个贴纸包生成独立 ZIP。"), self))
+        layout.addWidget(BodyLabel(t("每行输入一个 TG 链接，按顺序处理，每个表情合集生成独立 ZIP。"), self))
         self.links_edit = TextEdit(self)
         self.links_edit.setPlaceholderText("https://t.me/addstickers/Kei_Aris\nhttps://t.me/addstickers/...")
         self.links_edit.setMaximumHeight(150)
@@ -126,7 +126,7 @@ class TGBatchPackageDialog(dialogs.OwnerCenteredDialog):
         path_row.addWidget(self.browse_button)
         layout.addLayout(path_row)
         self.table = QTableWidget(0, 4, self)
-        self.table.setHorizontalHeaderLabels([t("贴纸包 / 链接"), t("阶段"), t("进度"), t("结果 / 详情")])
+        self.table.setHorizontalHeaderLabels([t("表情合集 / 链接"), t("阶段"), t("进度"), t("结果 / 详情")])
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setToolTip(t("双击任意行查看完整详情。"))
@@ -150,7 +150,7 @@ class TGBatchPackageDialog(dialogs.OwnerCenteredDialog):
         layout.addLayout(buttons)
 
     def _browse(self):
-        directory = QFileDialog.getExistingDirectory(self, t("选择资源包保存目录"), self.path_edit.text())
+        directory = QFileDialog.getExistingDirectory(self, t("选择表情合集保存目录"), self.path_edit.text())
         if directory:
             self.path_edit.setText(directory)
 

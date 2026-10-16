@@ -8,6 +8,7 @@ consistent delay instead of per-button configuration.
 from PySide6.QtCore import QEvent, QObject, QPoint, QTimer, Qt, QRectF
 from PySide6.QtGui import QPainter, QColor, QPen
 from PySide6.QtWidgets import QAbstractItemView, QApplication, QWidget, QLabel, QVBoxLayout, QToolTip
+from fluent_ui.components.keycap_label import KeycapLabel
 
 
 class TooltipSurface(QWidget):
@@ -17,7 +18,7 @@ class TooltipSurface(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
-        self.label=QLabel(self);self.label.setWordWrap(True);self.label.setMaximumWidth(380)
+        self.label=KeycapLabel(self);self.label.setWordWrap(True);self.label.setMaximumWidth(380)
         layout=QVBoxLayout(self);layout.setContentsMargins(10,7,10,7);layout.addWidget(self.label)
         self.expiry=QTimer(self);self.expiry.setSingleShot(True);self.expiry.timeout.connect(self.hide)
 

@@ -16,7 +16,7 @@ class MainPanelAutoHideTests(unittest.TestCase):
             with self.subTest(mode=mode, modifiers=modifiers, click_action=click_action):
                 config = Mock()
                 config.get.side_effect = lambda key, default=None: click_action if key == 'gallery_click_action' else default
-                view = SimpleNamespace(config=config, mode=mode, _shift_anchor='previous',
+                view = SimpleNamespace(config=config, mode=mode, setFocus=Mock(), selected_keys=set(), _selection_parents={}, _shift_anchor='previous',
                     _shift_touched=set(), _last_clicked_key=None, _select_single=Mock(),
                     _toggle_selection=Mock(), _extend_shift_selection=Mock(), use_resource=Mock())
                 GalleryInterface.on_image_clicked(view, 'emoji.gif', modifiers)

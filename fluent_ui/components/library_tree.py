@@ -244,7 +244,7 @@ class LibraryTree(QTreeWidget):
         item.setForeground(1, QColor(colors()["muted"]))
         item.setSizeHint(0, QSize(0, self._row_height()))
         if pinned:
-            item.setToolTip(0, t('资源库全部资源 · {value_0} 项').format(value_0=stats['resources']))
+            item.setToolTip(0, t('表情库全部表情 · {value_0} 项').format(value_0=stats['resources']))
         else:
             item.setToolTip(0, t('{value_0}\n{value_1} 个子分类 · {value_2} 项直接内容').format(value_0=node.get('name',''), value_1=stats['children'], value_2=stats['resources']))
         item.setIcon(0, FIF.TILES.icon() if pinned else self._node_icon(node))
