@@ -38,6 +38,7 @@ class ButtonPaint:
         _own_presentation(self)
         self.setFont(visual.font())
         self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.TabFocus)
         self._hover = 0.0
         self._hover_animation = QVariantAnimation(self)
         self._hover_animation.setDuration(visual.MOTION.hover)
@@ -62,6 +63,11 @@ class ButtonPaint:
         self._hover_animation.setStartValue(self._hover)
         self._hover_animation.setEndValue(target)
         self._hover_animation.start()
+
+    def hideEvent(self,event):
+        if hasattr(self,'_hover_animation'):
+            self._hover_animation.stop();self._hover=0.0;self.setDown(False)
+        super().hideEvent(event)
 
     def sizeHint(self):
         width = self.fontMetrics().horizontalAdvance(self.text())
@@ -279,6 +285,7 @@ class SwitchButton(QAbstractButton):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setCheckable(True)
+        self.setFocusPolicy(Qt.TabFocus)
         self.setFixedSize(104, 34)
         self.setCursor(Qt.PointingHandCursor)
         self._position = 0.0
@@ -362,13 +369,17 @@ class CheckBox(FluentCheck):
 
 
 class LineEdit(FluentLineEdit):
-    def __init__(self, parent=None):
+    def __init__(self, text='', parent=None):
+        # Keep both Qt overloads: LineEdit(parent) and LineEdit(text, parent).
+        if isinstance(text, QWidget) or text is None:
+            parent, text = text, ''
         super().__init__(parent)
         _own_presentation(self)
         self.setFont(visual.font())
         self.clearButton.setIcon(Icon.CLOSE)
         visual.theme.changed.connect(self.refresh_theme)
         self.refresh_theme()
+        self.setText(str(text))
 
     def refresh_theme(self):
         self.setStyleSheet(visual.control_style())

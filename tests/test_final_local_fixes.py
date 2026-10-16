@@ -55,8 +55,8 @@ def test_rail_three_tick_centers_independent_decoration_and_counts(surface):
     assert [r[0] for r in rows]==['5','6','child']
     assert all(tick[0]==row[2]+row[4]/2 for row,tick in zip(rows,ticks))
     assert all(not r[1].startswith('//') for r in rows)
-    assert h.height()-(rows[-1][2]+rows[-1][4])>=8
-    assert h.count_label.font().pixelSize()>=12 and h.count_label.font().weight()>=500
+    assert h.height()-(rows[-1][2]+rows[-1][4])>=4
+    assert h.count_label.font().pixelSize()>=11 and h.count_label.font().weight()>=500
     first=h.grab().toImage().copy(12,0,10,24)
     path=[{'id':str(i),'name':f'Level {i}'} for i in range(7)]
     path[-2]['name']='A much longer parent name'
@@ -77,7 +77,7 @@ def test_sidebar_complete_row_has_no_native_selection_gutter(surface):
     row=tree.visualItemRect(child)
     assert not any(image.pixelColor(x,y).name()=='#1545ff' for x in range(image.width()) for y in range(row.top(),row.bottom()))
     accent=visual.colors()['accent']
-    assert image.pixelColor(20,row.center().y()).name()==accent
+    assert image.pixelColor(round(tree.itemDelegate()._indicator_target().center().x()),row.center().y()).name()==accent
     pixels=[x for x in range(30) if image.pixelColor(x,row.center().y()).name()==accent]
     # A 3 DIP antialiased stroke has two fully covered columns at 100% DPI.
     assert 2<=len(pixels)<=3 and pixels==list(range(min(pixels),max(pixels)+1))

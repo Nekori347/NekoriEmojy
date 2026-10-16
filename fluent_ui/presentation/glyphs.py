@@ -18,8 +18,8 @@ class BrandLockup(QWidget):
         font=visual.font('brand');font.setPixelSize(24);p.setFont(font)
         width=QFontMetrics(font).horizontalAdvance('Nekori')
         p.drawText(QRectF(0,0,width+1,25),Qt.AlignLeft|Qt.AlignVCenter,'Nekori')
-        font.setPixelSize(10);p.setFont(font)
-        p.drawText(QRectF(0,23,width+1,11),Qt.AlignRight|Qt.AlignVCenter,'Emojy')
+        font.setPixelSize(12);p.setFont(font)
+        p.drawText(QRectF(0,21,width,13),Qt.AlignRight|Qt.AlignVCenter,'Emojy')
         font=visual.font('data_small');font.setPixelSize(8);p.setFont(font);p.setPen(QColor(visual.colors()['muted']))
         p.drawText(QRectF(0,24,max(1,width-26),10),Qt.AlignLeft|Qt.AlignVCenter,self.version)
 

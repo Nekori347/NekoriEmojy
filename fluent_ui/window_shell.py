@@ -207,7 +207,10 @@ class NekoriWindow(FramelessWindow):
         native_material(self)
         from fluent_ui.materials import sync_native_clip
         sync_native_clip(self)
-        if hasattr(self,'_reveal') and QApplication.platformName() not in ('offscreen','minimal'):
+        # Animating native alpha on Acrylic changes the layered HWND surface
+        # and can briefly composite the owner over its child. Keep the native
+        # backdrop stable; opaque fallback windows can still use the reveal.
+        if hasattr(self,'_reveal') and self.property('nativeMaterial')!='acrylic' and QApplication.platformName() not in ('offscreen','minimal'):
             self._reveal.stop();self._reveal.setStartValue(.94);self._reveal.setEndValue(1.0);self._reveal.start()
 
     def paintEvent(self,event):

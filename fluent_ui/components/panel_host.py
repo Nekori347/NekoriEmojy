@@ -49,7 +49,7 @@ class EdgeDockPanelChrome(QAbstractButton):
         super().__init__(panel)
         self.panel = panel
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setFocusPolicy(Qt.StrongFocus)
+        self.setFocusPolicy(Qt.TabFocus)
         self.setCursor(Qt.PointingHandCursor)
         self.clicked.connect(panel.toggle_collapse_requested)
         i18n_engine.language_changed.connect(self.refresh_text)

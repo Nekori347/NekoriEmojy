@@ -17,6 +17,24 @@ class IconCaption(QLabel):
 
 
 class PreviewImage(QLabel):
+    # QLabel's QMovie handler updates the unscaled frame rectangle. Our custom
+    # painter scales to fit, so every frame must invalidate the whole surface.
+    def setMovie(self, movie):
+        self._movie = movie
+        movie.frameChanged.connect(self.update_frame)
+        self.update()
+
+    def movie(self):
+        return getattr(self, '_movie', None)
+
+    def update_frame(self, *_):
+        self.update()
+
+    def clear(self):
+        self._movie = None
+        super().clear()
+        self.update()
+
     def paintEvent(self,event):
         p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);p.setRenderHint(QPainter.SmoothPixmapTransform)
         r=QRectF(self.rect());path=QPainterPath();path.addRoundedRect(r,8,8);p.setClipPath(path)
@@ -92,18 +110,23 @@ class HoverPreviewPopup(QWidget):
         # The image stays the first information; the file identity lives here as
         # low-weight text instead of a separate path tooltip on the card.
         self.name_label = CaptionLabel("")
+        self.name_label.setWordWrap(True)
         self.name_label.setProperty("role", "section")
         self.path_label = CaptionLabel("")
+        self.path_label.setWordWrap(True)
         self.path_label.setProperty("role", "data")
 
         self.category_label = IconCaption(Icon.FOLDER,f"{t('无分类')}")
 
-        self.keyword_label = IconCaption(Icon.TAG,f"{t('无关键词')}")
+        self.keyword_label = IconCaption(Icon.TAG,f"{t('无标签')}")
+        self.ocr_label = IconCaption(Icon.SEARCH,'')
 
         self.meta_layout.addWidget(self.name_label)
         self.meta_layout.addWidget(self.path_label)
         self.meta_layout.addWidget(self.category_label)
         self.meta_layout.addWidget(self.keyword_label)
+        self.meta_layout.addWidget(self.ocr_label)
+        self.ocr_label.hide()
         
         self.layout.addWidget(self.metadata_footer)
         
@@ -118,11 +141,11 @@ class HoverPreviewPopup(QWidget):
         # 只有在没有实际数据时才刷新默认文本
         if not hasattr(self, 'current_category_str') or not self.current_category_str:
             self.category_label.setText(f"{t('无分类')}")
-            self.keyword_label.setText(f"{t('无关键词')}")
+            self.keyword_label.setText(f"{t('无标签')}")
         else:
             # 如果有数据，重新翻译并显示
             self.category_label.setText(f"{t('分类')}: {self.current_category_str}")
-            self.keyword_label.setText(f"{t('关键词')}: {self.current_keyword_str}")
+            self.keyword_label.setText(f"{t('标签')}: {self.current_keyword_str}")
 
     def update_identity(self, info):
         """File identity as low-weight text under the image."""
@@ -141,6 +164,7 @@ class HoverPreviewPopup(QWidget):
         text_style = f"color: {palette['text_primary']};"
         self.category_label.setStyleSheet(text_style)
         self.keyword_label.setStyleSheet(text_style)
+        self.ocr_label.setStyleSheet(text_style)
         self.setStyleSheet(f"QWidget#PreviewPopup {{ {visual.surface_style('popover')} "
                            f"border: 1px solid {palette['border']}; "
                            f"border-radius: {visual.PANEL_RADIUS}px; }}")
@@ -165,7 +189,12 @@ class HoverPreviewPopup(QWidget):
         self.current_keyword_str = keyword_str
 
         self.category_label.setText(f"{t('分类')}: {category_str}")
-        self.keyword_label.setText(f"{t('关键词')}: {keyword_str}")
+        self.keyword_label.setText(f"{t('标签')}: {keyword_str}")
+        ocr=str(info.get('ocr_text') or '').strip()
+        self.ocr_label.setText(t('图片文字')+': '+ocr)
+        self.ocr_label.setVisible(bool(ocr))
+        for label in (self.category_label,self.keyword_label,self.ocr_label):
+            label.setWordWrap(True)
 
         # 1. 停止清理上一次的动图
         if self.current_movie:
@@ -184,18 +213,13 @@ class HoverPreviewPopup(QWidget):
         screen_rect = screen.availableGeometry()
 
         gap = 15
-        metadata_height = max(self.metadata_footer.sizeHint().height(),
-                              4*self.fontMetrics().height()+6)
         max_popup_width = max(1, screen_rect.width() - gap * 2)
-        max_image_size = max(
-            1,
-            screen_rect.height() - gap * 2 - metadata_height - 24,
-        )
-        display_size = min(
-            int(size_config),
-            max_popup_width,
-            max_image_size,
-        )
+        display_size=min(int(size_config),max_popup_width)
+        for _ in range(2):
+            self.metadata_footer.setFixedWidth(max(1,display_size-8))
+            metadata_height=max(1,self.meta_layout.heightForWidth(max(1,display_size-8)))
+            display_size=min(display_size,max(1,screen_rect.height()-gap*2-metadata_height-24))
+        self.metadata_footer.setFixedHeight(metadata_height)
         total_height = display_size + metadata_height + 4
         self.setFixedSize(display_size, total_height)
         
@@ -262,7 +286,6 @@ class HoverPreviewPopup(QWidget):
 
         # 3. 移动并无焦点显示窗口
         self.move(target_x, target_y)
-        self.show()
 
         # 4. 根据文件格式渲染
         if image_path.lower().endswith(('.gif', '.webp')):
@@ -285,6 +308,7 @@ class HoverPreviewPopup(QWidget):
             if not image.isNull():
                 pixmap = QPixmap.fromImage(image)
                 self.image_label.setPixmap(pixmap)
+        self.show()
 
     def hide_preview(self):
         """隐藏预览并清理资源释放文件锁"""

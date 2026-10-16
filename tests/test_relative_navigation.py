@@ -236,7 +236,7 @@ def test_header_geometry_rail_scrub_and_render(hierarchy, monkeypatch):
     # Commands now share the inset search row inside the connected content sheet.
     assert g.search_box.width() < g.tab_row.width()
     assert g.search_box.parent() is g.search_surface
-    assert g.tab_row.isAncestorOf(g.btn_content_sort)
+    assert g.view_commands.isAncestorOf(g.btn_content_sort)
     assert g.top_bar.isAncestorOf(g.search_surface)
     assert not g.context_strip.isVisible()
     from fluent_ui.components.navigation import TabStrip

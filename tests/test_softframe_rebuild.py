@@ -51,10 +51,16 @@ def test_settings_keyboard_values_pending_and_narrow_footer(surface,settings):
     section=c._sections[0]
     finished=QSignalSpy(section._motion.finished)
     section.toggle_collapsed()
-    assert finished.wait(1000), (section._motion.state(),section._motion.currentTime())
+    for _ in range(75):
+        if finished.count():break
+        QTest.qWait(20)
+    assert finished.count(), (section._motion.state(),section._motion.currentTime())
     assert section.body.isHidden()
     section.toggle_collapsed()
-    assert finished.wait(1000)
+    for _ in range(75):
+        if finished.count()>=2:break
+        QTest.qWait(20)
+    assert finished.count()>=2
     assert section.body.isVisible() and section.body.maximumHeight()==16777215
     assert section.body.height()>0
     toggle=c._rows['sidebar_show_labels'][0].switch

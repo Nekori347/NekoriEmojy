@@ -7,10 +7,11 @@ outer window is never touched. Tag data, sort, search and selection survive it.
 import json
 import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
-from PySide6.QtCore import QMimeData, QPoint, Qt
+from PySide6.QtCore import QMimeData, QPoint, QRect, Qt
 from PySide6.QtGui import QDragEnterEvent, QDragMoveEvent
 from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 import pytest
+from fluent_ui import visual
 
 
 def settle(app, rounds=6):
@@ -78,7 +79,7 @@ def test_collapse_hands_the_extent_to_the_content_and_restores_it(scene):
     assert not host.expanded and panel.collapsed
     assert not panel.index_body.isVisible()
     assert extent_of(host, panel) == panel.collapsed_extent()
-    assert content_extent(host) - content_before == expanded - extent_of(host, panel) + 16 - host.splitter.handleWidth()
+    assert content_extent(host) - content_before == expanded - extent_of(host, panel) + visual.COMPACT_CONTROLS.splitter_extent - host.splitter.handleWidth()
     # The user's extent is remembered, not replaced by the collapsed one.
     assert config.get('tag_panel_horizontal_extent') == 154
     assert config.get('tag_panel_expanded') is False
@@ -105,7 +106,7 @@ def test_each_placement_collapses_on_its_own_axis(scene, placement, horizontal):
     host.set_expanded(False)
     settle(app)
     assert extent_of(host, panel) == panel.collapsed_extent()
-    assert content_extent(host) - content_before == expanded - extent_of(host, panel) + 16 - host.splitter.handleWidth()
+    assert content_extent(host) - content_before == expanded - extent_of(host, panel) + visual.COMPACT_CONTROLS.splitter_extent - host.splitter.handleWidth()
     # The other axis keeps its own value untouched.
     assert config.get('tag_panel_horizontal_extent') == 154
     assert config.get('tag_panel_vertical_extent') == 240
@@ -183,8 +184,9 @@ def test_compact_chrome_fits_and_index_stays_on_outer_edge(scene, placement):
     panel.set_sort(SortProjection.A_Z)
     settle(app)
     margins=panel.header_row.contentsMargins()
-    assert panel.header.height() <= visual.COMPACT_CONTROLS.action_extent+margins.top()+margins.bottom()
-    index, body = panel.index_view.geometry(), panel.expanded_body.geometry()
+    assert panel.header.height() <= 30
+    index = QRect(panel.axis_strip.mapTo(panel,QPoint()),panel.axis_strip.size())
+    body = QRect(panel.scroll.mapTo(panel,QPoint()),panel.scroll.size())
     if placement == 'top':
         assert index.bottom() < body.top()
     elif placement == 'bottom':

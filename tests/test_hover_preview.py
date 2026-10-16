@@ -23,7 +23,7 @@ class Popup(QWidget):
         super().__init__()
         self.calls = []
 
-    def show_preview(self, *args):
+    def show_preview(self, *args, **kwargs):
         self.calls.append(args)
         self.show()
 
@@ -39,6 +39,7 @@ class HoverPreviewTests(unittest.TestCase):
     def setUp(self):
         self.owner = QWidget()
         self.owner.get_preview_metadata = Mock(return_value=('分类', '关键词'))
+        self.owner.get_preview_info = Mock(return_value={'name':'test.png','path':'test.png'})
         self.owner.get_preview_size = Mock(return_value=320)
         self.owner.resize(400, 320)
         layout = QVBoxLayout(self.owner)

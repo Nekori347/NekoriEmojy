@@ -84,7 +84,7 @@ def test_root_header_and_owner_feedback_layout(surface):
     g.feedback_host.notice('Needs attention', 'Persistent detail', action=lambda: None)
     settle(s.app)
     assert before == [w.mapTo(g, QPoint()) for w in (g.search_box, g.command_bar, g.tag_panel_host)]
-    assert g.workspace_layout.indexOf(g.feedback_host.strip) < g.workspace_layout.indexOf(g.scroll_area)
+    assert g.workspace_layout.indexOf(g.feedback_host.strip)==-1
     g.feedback_host.toast('Copied')
     g.feedback_host.toast('Copied')
     for i in range(5):g.feedback_host.toast(str(i))
@@ -234,7 +234,7 @@ def test_titlebar_icon_service_geometry_and_hit_area(surface, monkeypatch):
         assert w.accent_line.testAttribute(Qt.WA_TransparentForMouseEvents)
         if w.accent_line.isVisible():
             assert w.accent_line.geometry().bottom()<gear.geometry().top()
-            assert w.accent_line.geometry().left()==10
+            assert w.accent_line.geometry().left()>w.titleBar.iconLabel.geometry().right()
             assert w.accent_line.geometry().right()<w.width()-8
     w.app_icon.set_from_image(surface.paths[0]);MainWindow.reload_application_icon(w)
     assert w.windowIcon().cacheKey()==QApplication.instance().windowIcon().cacheKey()

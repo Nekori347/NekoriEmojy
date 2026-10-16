@@ -135,9 +135,9 @@ def description(feature, categories):
     return text + '\n' + (', '.join(categories.get(feature.path, [])) or t('无分类'))
 
 
-class GroupPreview(QDialog):
+class GroupPreview(dialogs.NekoriDialog):
     def __init__(self, group, index, categories, parent):
-        super().__init__(parent)
+        super().__init__(parent,t('相似图片预览'))
         self.owner = parent
         self.categories = categories
         self.entries = [(g, i, feature) for g, items in enumerate(parent.groups)
@@ -145,7 +145,7 @@ class GroupPreview(QDialog):
         self.index = next(n for n, (_, _, feature) in enumerate(self.entries)
                           if feature.path == group[index].path)
         self.setWindowTitle(t('相似图片预览'))
-        self.layout = QVBoxLayout(self)
+        self.layout = self.body
         self.picture = None
         self.details = BodyLabel(self)
         self.details.setWordWrap(True)
@@ -162,6 +162,7 @@ class GroupPreview(QDialog):
         row.addWidget(self.selection)
         self.layout.addLayout(row)
         self.layout.addWidget(CaptionLabel(t('← / ↑ 上一张，→ / ↓ 下一张；跨组浏览，Del 切换删除勾选。'), self))
+        self.add_button('关闭',on_click=self.accept)
         for key, step in ((Qt.Key_Left, -1), (Qt.Key_Up, -1),
                           (Qt.Key_Right, 1), (Qt.Key_Down, 1)):
             shortcut = QShortcut(QKeySequence(key), self)
@@ -211,7 +212,7 @@ class SimilarityDialog(QDialog):
     def __init__(self, gallery):
         super().__init__(gallery)
         self.gallery, self.storage = gallery, gallery.storage
-        self.setWindowTitle(t('感知哈希去重'))
+        self.setWindowTitle(t('相似图片'))
         self.setWindowModality(Qt.WindowModal)
         self.resize(960, 720)
         self.setMinimumSize(660, 480)
@@ -376,7 +377,8 @@ class SimilarityDialog(QDialog):
         layout = QVBoxLayout(container)
         layout.setAlignment(Qt.AlignTop)
         section, grid, column = None, None, 0
-        columns = max(1, (self.scroll.viewport().width() - 24) // 191)
+        layout.setContentsMargins(4,4,4,4);layout.setSpacing(8)
+        columns = max(1, (self.scroll.viewport().width() - 8) // 174)
         page_entries = self.entries[self.page * self.PAGE_SIZE:(self.page + 1) * self.PAGE_SIZE]
         for group_index, item_index in page_entries:
             group = self.groups[group_index]
@@ -386,14 +388,17 @@ class SimilarityDialog(QDialog):
                 label = f'{t("相似组")} {group_index + 1} · {t("动图" if feature.animated else "静态图")} · {len(group)} {t("张")}'
                 if item_index:
                     label += ' · ' + t('续')
-                layout.addWidget(SubtitleLabel(label, container))
+                from fluent_ui.presentation.surfaces import RuleHeading
+                layout.addWidget(RuleHeading(label,container))
                 grid = QGridLayout()
                 grid.setAlignment(Qt.AlignLeft)
                 layout.addLayout(grid)
-            card = QWidget(container)
-            card.setFixedWidth(185)
+            from fluent_ui.presentation.surfaces import Surface
+            card = Surface('raised',container,radius=8)
+            card.setFixedWidth(168)
             card_layout = QVBoxLayout(card)
-            picture = ImageLabel(feature, QSize(165, 140), card)
+            card_layout.setContentsMargins(6,6,6,6);card_layout.setSpacing(4)
+            picture = ImageLabel(feature, QSize(154, 132), card)
             picture.clicked.connect(lambda g=group, i=item_index: self.preview(g, i))
             self.pictures.append(picture)
             card_layout.addWidget(picture)

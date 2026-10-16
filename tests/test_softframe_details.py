@@ -83,7 +83,8 @@ def test_settings_decisions_colour_and_window_edge_picker(surface,settings):
     assert row.value()=='left' and c.pending['tag_panel_placement']=='left'
     assert row.buttons['left'].parentWidget().__class__.__name__=='DockPositionPicker'
     c._select_page(3);c._show_tab(0);settle(surface.app)
-    assert not c.library_info.value_label.wordWrap()
+    assert c.library_info.value_label.text()==c._library_path()
+    assert c.library_info.value_label.width()>c.library_info.width()*.8
 
 
 def test_settings_decisions_share_one_row_when_they_fit(surface,settings):

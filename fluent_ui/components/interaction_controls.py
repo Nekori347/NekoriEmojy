@@ -13,7 +13,7 @@ class SegmentOption(QAbstractButton):
     def __init__(self,text,parent):
         super().__init__(parent);self.setText(text);self.setFont(visual.font())
         self.setCheckable(True);self.setCursor(Qt.PointingHandCursor)
-        self.setFocusPolicy(Qt.StrongFocus)
+        self.setFocusPolicy(Qt.TabFocus)
     def sizeHint(self):return QSize(self.fontMetrics().horizontalAdvance(self.text())+28,36)
     def minimumSizeHint(self):return self.sizeHint()
     def paintEvent(self,event):

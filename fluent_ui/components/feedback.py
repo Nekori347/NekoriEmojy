@@ -1,10 +1,20 @@
 """Owner-local feedback: transient overlays and one layout-based task/notice lane."""
 from PySide6.QtCore import QObject, Qt, QTimer, QEvent, QPoint, Signal, QPropertyAnimation
-from PySide6.QtWidgets import QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, QPlainTextEdit, QGraphicsOpacityEffect
+from PySide6.QtGui import QPainter, QPalette
+from PySide6.QtWidgets import QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, QPlainTextEdit, QGraphicsOpacityEffect, QSizePolicy
 from fluent_ui.components.controls import PushButton, TransparentToolButton
 from fluent_ui.icons import Icon as FIF
 from services.i18n import t, bind_text
 from fluent_ui import visual
+
+
+class FeedbackTitle(QLabel):
+    def paintEvent(self,event):
+        if self.wordWrap():return super().paintEvent(event)
+        painter=QPainter(self);painter.setFont(self.font())
+        painter.setPen(self.palette().color(QPalette.WindowText))
+        painter.drawText(self.contentsRect(),Qt.AlignVCenter,
+                         self.fontMetrics().elidedText(self.text(),Qt.ElideRight,self.contentsRect().width()))
 
 
 class Toast(QFrame):
@@ -74,7 +84,8 @@ class FeedbackHost(QObject):
         outer.setContentsMargins(10, 6, 10, 6)
         outer.setSpacing(4)
         line = QHBoxLayout()
-        self.title_label = QLabel(self.strip)
+        self.command_line = line
+        self.title_label = FeedbackTitle(self.strip)
         self.title_label.setWordWrap(True)
         self.count_label = QLabel(self.strip)
         self.count_label.setFont(visual.font('data'))
@@ -128,9 +139,37 @@ class FeedbackHost(QObject):
     def refresh_theme(self):
         c = visual.colors()
         style = f'background: {c["elevated"]}; color: {c["text"]}; border: 1px solid {c["border"]}; border-radius: 8px;'
-        self.strip.setStyleSheet(f'QFrame#FeedbackStrip {{ {style} }} QLabel {{ border: none; background: transparent; }}')
-        self.toast_layer.setStyleSheet(f'QFrame {{ {style} }} QLabel {{ border: none; }}')
+        strip_style = 'background: transparent; border: none;' if hasattr(self,'_caption_window') else style
+        self.strip.setStyleSheet(f'QFrame#FeedbackStrip {{ {strip_style} }} QLabel {{ color:{c["text"]}; border: none; background: transparent; }}')
+        self.toast_layer.setStyleSheet(f'QFrame {{ {style} }} QLabel {{ color:{c["text"]};border: none;background:transparent; }}')
         self.hint_label.setStyleSheet(style + 'padding: 8px;')
+
+    def dock_to_caption(self,window):
+        """A compact overlay lane below the identity line; never reflow images."""
+        old_layout=self.owner.layout()
+        if old_layout:old_layout.removeWidget(self.strip)
+        self._caption_window=window;window.installEventFilter(self)
+        self.strip.setParent(window);self.toast_layer.setParent(window)
+        outer=self.strip.layout()
+        outer.setContentsMargins(0,0,0,0);outer.setSpacing(0)
+        outer.removeWidget(self.progress)
+        self.command_line.insertWidget(1,self.progress)
+        self.command_line.setStretch(0,0)
+        self.command_line.addStretch(1)
+        self.command_line.setSpacing(8)
+        self.strip.setFixedHeight(24)
+        self.title_label.setMinimumWidth(0)
+        self.title_label.setMaximumWidth(180)
+        self.title_label.setSizePolicy(QSizePolicy.Preferred,QSizePolicy.Preferred)
+        self.progress.setFixedWidth(160)
+        self.title_label.setWordWrap(False)
+        self.title_label.setFont(visual.font('secondary'))
+        self.close_button.setFixedSize(20,20);self.action_button.setFixedHeight(22)
+        self.action_button.ghost=True
+        self.action_button.setSizePolicy(QSizePolicy.Maximum,QSizePolicy.Fixed)
+        self.content_label.hide()
+        self.refresh_theme()
+        self.reposition()
 
     def toast(self, title, content='', *, warning=False):
         message = str(title) + ('\n'+str(content) if content else '')
@@ -193,7 +232,8 @@ class FeedbackHost(QObject):
         self.title_label.setStyleSheet(f'color: {visual.colors()["danger"]};' if error else '')
         short_content = '\n'.join(content.splitlines()[:3])[:240]
         self.content_label.setText(short_content)
-        self.content_label.setVisible(bool(content))
+        self.content_label.setVisible(bool(content) and not hasattr(self,'_caption_window'))
+        self.strip.setToolTip(title+('\n'+content if content else ''))
         self.count_label.setText(f'+{len(self.notices)-1}' if len(self.notices) > 1 else '')
         self.count_label.setToolTip('\n'.join(n[0]+': '+n[1] for n in self.notices))
         self._action = action or (self.show_details if len(self.notices) > 1 or short_content != content else None)
@@ -202,6 +242,7 @@ class FeedbackHost(QObject):
         self.close_button.show()
         self.progress.hide()
         self.strip.show()
+        self.reposition();self.strip.raise_()
 
     def task(self, title, content='', *, total=None, cancel=None):
         self.finish_timer.stop()
@@ -212,7 +253,8 @@ class FeedbackHost(QObject):
         self.title_label.setStyleSheet('')
         self.count_label.clear()
         self.content_label.setText(content)
-        self.content_label.setVisible(bool(content))
+        self.content_label.setVisible(bool(content) and not hasattr(self,'_caption_window'))
+        self.strip.setToolTip(title+('\n'+content if content else ''))
         self.progress.setRange(0, total if total and total > 0 else 0)
         self.progress.setValue(0)
         self.progress.show()
@@ -221,15 +263,19 @@ class FeedbackHost(QObject):
         self.action_button.setVisible(cancel is not None)
         self.close_button.hide()
         self.strip.show()
+        self.reposition();self.strip.raise_()
 
     def update_task(self, current=None, total=None, content=None):
         if total is not None:
             self.progress.setRange(0, max(0, total))
         if current is not None:
             self.progress.setValue(current)
+            if hasattr(self,'_caption_window') and self.progress.maximum()>0:
+                self.count_label.setText(f'{current} / {self.progress.maximum()}')
         if content is not None:
             self.content_label.setText(content)
-            self.content_label.setVisible(bool(content))
+            self.content_label.setVisible(bool(content) and not hasattr(self,'_caption_window'))
+            self.strip.setToolTip(self.title_label.text()+'\n'+content)
 
     def finish(self, title='', content='', *, outcome='success'):
         self.task_active = False
@@ -238,9 +284,13 @@ class FeedbackHost(QObject):
             self.notice(title, content, error=outcome == 'error')
         else:
             self.title_label.setText(title)
+            self.count_label.clear()
             self.content_label.setText(content)
             self.progress.hide()
             self.action_button.hide()
+            self.content_label.setVisible(bool(content) and not hasattr(self,'_caption_window'))
+            self.strip.setToolTip(title+('\n'+content if content else ''))
+            self.reposition()
             self.finish_timer.start(600)
 
     def _restore_notice(self):
@@ -281,12 +331,19 @@ class FeedbackHost(QObject):
             self.hint_label.hide()
 
     def reposition(self):
+        caption=getattr(self,'_caption_window',None)
+        if caption:
+            x=96 if hasattr(caption,'titleBar') else 8
+            width=max(100,min(500,caption.width()-x-112))
+            self.strip.setFixedWidth(width);self.strip.adjustSize()
+            self.strip.move(x,max(5,(36-self.strip.height())//2));self.strip.raise_()
         if not self.toasts:
             return
-        width = max(40, min(320, self.overlay_parent.width()-24))
+        area=caption or self.overlay_parent
+        width = max(40, min(320, area.width()-24))
         self.toast_layer.setFixedWidth(width)
         self.toast_layer.adjustSize()
-        self.toast_layer.move(max(0, self.overlay_parent.width()-width-12), 12)
+        self.toast_layer.move(96 if caption else max(0, self.overlay_parent.width()-width-12),38 if caption else 12)
         # Reserve the bottom lane for BackToTop / fixed preview. Tiny viewports
         # temporarily hide overlays; they never cover controls outside the pane.
         fits = self.toast_layer.height() <= max(0, self.overlay_parent.height()-72)

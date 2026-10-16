@@ -471,7 +471,7 @@ class NavigationItem(QStyledItemDelegate):
         rect = QRectF(option.rect).adjusted(4, 3, -4, -3)
         painter.setPen(Qt.NoPen)
         fill=QColor(c['selected'] if selected else c['hover'])
-        fill.setAlpha(110 if selected else 70 if option.state & QStyle.State_MouseOver else 0)
+        fill.setAlpha(180 if selected else 255 if option.state & QStyle.State_MouseOver else 0)
         painter.setBrush(fill)
         painter.drawRoundedRect(rect, 4, 4)
         self._paint_indicator(painter,rect,selected)

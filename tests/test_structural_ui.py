@@ -55,18 +55,17 @@ def test_counts_follow_title_and_long_titles_yield_counts_first(hierarchy, monke
         settle(app)
         assert rail.height() == visual.HIERARCHY_HEADER_HEIGHT
         assert g.content_count.parent() is rail
-        font = rail.font()
-        font.setPointSizeF(visual.TYPOGRAPHY['page_title']['size'])
-        font.setBold(True)
+        font = visual.font('page_title')
         expected_x = rail.current_rect().left() + QFontMetrics(font).horizontalAdvance('Leaf') + 2*visual.COMPACT_CONTROLS.spacing
         assert g.content_count.x() == expected_x
         assert abs(g.content_count.geometry().center().y()-rail.current_rect().center().y()) <= 1
         assert rail.rect().contains(g.content_count.geometry())
         # All four toolbar actions remain disjoint and inside the same header.
-        buttons = [g.btn_filter, g.btn_manage, g.btn_paste, g.btn_view_more]
-        assert all(g.top_bar.rect().contains(w.geometry()) for w in buttons)
-        assert all(not left.geometry().intersects(right.geometry()) for left, right in zip(buttons, buttons[1:]))
-        assert rail.geometry().right() < buttons[0].x()
+        from PySide6.QtCore import QRect
+        buttons = [g.btn_filter, g.btn_manage, g.btn_paste, g.btn_content_sort]
+        rects = [QRect(w.mapTo(g.top_bar,QPoint()),w.size()) for w in buttons]
+        assert all(g.top_bar.rect().contains(r) for r in rects)
+        assert all(not left.intersects(right) for i,left in enumerate(rects) for right in rects[i+1:])
     g.set_node(a)
     settle(app)
     assert rail.height() == visual.HIERARCHY_HEADER_HEIGHT
@@ -95,7 +94,7 @@ def test_sidebar_and_tag_use_the_same_outer_index(surface):
             index = g.sidebar.index_view
             assert index.isVisible() == (sort != 'manual')
             if sort != 'manual':
-                assert index.x() == 0
+                assert index.geometry().right() == index.parentWidget().width()-1
                 assert index.width() == visual.SECTION_INDEX_COMPACT_EXTENT
                 assert index.model.projection is g.sidebar.tree.section_projection
     g.tag_panel.set_sort(SortProjection.A_Z)
@@ -161,7 +160,7 @@ def test_long_tag_name_keeps_its_full_hit_rect_inside_content(scene, placement):
             assert panel.flow.rect().contains(rect)
         index = next(i for i, item in enumerate(panel.flow._items) if item.name == name)
         point = panel.flow._rects[index].center()
-        QTest.mouseMove(panel.flow, point)
+        app.sendEvent(panel.flow,QMouseEvent(QMouseEvent.MouseMove,point,panel.flow.mapToGlobal(point),Qt.NoButton,Qt.NoButton,Qt.NoModifier))
         assert panel.flow.toolTip() == name
 
 

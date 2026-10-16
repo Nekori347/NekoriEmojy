@@ -266,6 +266,7 @@ class EmojiCard(QLabel):
 
         self.is_selectable = False
         self.is_selected = False
+        self._hovered = False
 
         self.setFixedSize(self.current_size, self.current_size)
         self.setCursor(QCursor(Qt.PointingHandCursor))
@@ -326,12 +327,9 @@ class EmojiCard(QLabel):
             q=image.adjusted(18,18,-18,-28)
             p.drawLine(q.topLeft(),q.bottomRight());p.drawLine(q.topRight(),q.bottomLeft())
             p.setFont(visual.font('data'));p.drawText(image,Qt.AlignBottom|Qt.AlignHCenter,'MISSING')
-        if self.is_selected or self.underMouse():
-            p.setBrush(Qt.NoBrush);p.setPen(QPen(QColor(c['accent'] if self.is_selected else c['border']),1.5))
+        if self.is_selected or self._hovered:
+            p.setBrush(Qt.NoBrush);p.setPen(QPen(QColor(c['accent'] if self.is_selected else c['text_secondary']),1))
             p.drawRoundedRect(r.adjusted(1,1,-1,-1),9,9)
-        if self.is_selected:
-            p.setPen(QPen(QColor(c['accent']),3,Qt.SolidLine,Qt.RoundCap))
-            p.drawLine(12,3,32,3)
 
     def needs_reload(self, target_size):
         target_img_size = max(10, target_size - 8)
@@ -620,6 +618,8 @@ class EmojiCard(QLabel):
         super().mouseReleaseEvent(event)
 
     def enterEvent(self, event):
+        self._hovered = True
+        self.update()
         self.hover_started.emit(self.image_path)
         super().enterEvent(event)
 
@@ -638,5 +638,11 @@ class EmojiCard(QLabel):
         super().keyPressEvent(event)
 
     def leaveEvent(self, event):
+        self._hovered = False
+        self.update()
         self.hover_ended.emit()
         super().leaveEvent(event)
+
+    def hideEvent(self,event):
+        self._hovered=False
+        super().hideEvent(event)

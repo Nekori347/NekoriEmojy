@@ -46,9 +46,13 @@ class Cancelled(Exception):
 
 
 class UpdateService:
-    def __init__(self, root=None):
+    def __init__(self, root=None, *, repository=None, asset_name=None):
         self.root = Path(root or install_root()).resolve()
         self.cancel = threading.Event()
+        self.channel_available = repository is None or bool(repository)
+        self.releases_url = f'https://github.com/{repository}/releases' if repository else RELEASES_URL if repository is None else ''
+        self.api_url = f'https://api.github.com/repos/{repository}/releases/latest' if repository else API_URL if repository is None else ''
+        self.asset_name = asset_name or ASSET_NAME
 
     @property
     def workspace(self):
@@ -64,7 +68,9 @@ class UpdateService:
 
     def check(self):
         self._cancelled()
-        with requests.get(API_URL, headers={"User-Agent": "SuzuEmojy-Updater", "Accept": "application/vnd.github+json"}, timeout=(8, 15)) as response:
+        if not self.channel_available:return None
+        with requests.get(self.api_url, headers={"User-Agent": "NekoriEmojy-Updater", "Accept": "application/vnd.github+json"}, timeout=(8, 15)) as response:
+            if getattr(response,'status_code',200)==404:return None
             response.raise_for_status()
             release = response.json()
         self._cancelled()
@@ -73,15 +79,18 @@ class UpdateService:
         latest = release["tag_name"]
         if version_key(latest) <= version_key(current_version(self.root)):
             return None
-        assets = [a for a in release.get("assets", []) if a["name"] == ASSET_NAME and a.get("state") == "uploaded"]
+        assets = [a for a in release.get("assets", []) if a["name"] == self.asset_name and a.get("state") == "uploaded"]
+        if not assets and self.asset_name.startswith('NekoriEmojy'):
+            return {'version':latest.lstrip('v'),'notes':release.get('body') or '',
+                    'date':release.get('published_at',''),'size':0,'manual_only':True}
         if len(assets) != 1:
-            raise ValueError("Release does not contain " + ASSET_NAME)
+            raise ValueError("Release does not contain " + self.asset_name)
         asset = assets[0]
         digest = asset.get("digest") or ""
         if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
             raise ValueError("Release asset has no SHA-256 digest; use the release page")
         url = asset["browser_download_url"]
-        if not url.startswith(RELEASES_URL + "/download/"):
+        if not url.startswith(self.releases_url + "/download/"):
             raise ValueError("Unexpected release download URL")
         if not 0 < asset["size"] <= MAX_DOWNLOAD:
             raise ValueError("Invalid release size")

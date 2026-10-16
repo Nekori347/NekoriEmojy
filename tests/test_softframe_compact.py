@@ -157,8 +157,8 @@ def test_settings_and_brand_use_the_same_version(surface,settings):
         label=row.value_label
         assert label.isVisible() and label.width()>0
         assert label.fontMetrics().horizontalAdvance(label.text())<=label.contentsRect().width()
-    assert version_info()['version']==current_version()=='0.1.1'
-    assert surface.g.sidebar.findChild(BrandLockup).version=='v0.1.1'
+    assert version_info()['version']==current_version()
+    assert surface.g.sidebar.findChild(BrandLockup).version=='v'+current_version()
 
 
 def test_info_value_resizes_without_wrapping_or_losing_its_full_path(surface):

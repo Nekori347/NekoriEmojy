@@ -29,8 +29,7 @@ class AboutInterface(QWidget):
         names=QVBoxLayout();name=QLabel('NekoriEmojy',self.sheet);name.setFont(visual.font('page_title'));name.setProperty('role','title')
         names.addWidget(name);self.summary=QLabel(self.sheet);bind_text(self.summary,'本地图片与表情资源管理')
         self.summary.setProperty('role','hint');names.addWidget(self.summary);brand.addLayout(names,1)
-        from services.version_info import build_label
-        self.version=QLabel('v'+current_version(),self.sheet);self.version.setProperty('role','data');self.version.setToolTip(build_label());brand.addWidget(self.version)
+        self.version=QLabel('v'+current_version(),self.sheet);self.version.setProperty('role','data');brand.addWidget(self.version)
         sheet.addLayout(brand)
         self.scroll=QScrollArea(self.sheet);self.scroll.setWidgetResizable(True);self.scroll.setFrameShape(QScrollArea.NoFrame)
         self.scroll.setStyleSheet('QScrollArea {border:none;background:transparent;}')
@@ -43,7 +42,7 @@ class AboutInterface(QWidget):
             label=QLabel(details);bind_text(label,text);info.addWidget(label)
         content.addWidget(details)
         title=RuleHeading('',body);bind_text(title.label,'来源与致谢');content.addWidget(title)
-        self._entry(content,'SuzuEmojy · IxinorTyan','上游项目与原始实现','https://github.com/IxinorTyan/SuzuEmojy')
+        self._entry(content,'SuzuEmojy · IxinorTyan','兼容来源与原始代码致谢','https://github.com/IxinorTyan/SuzuEmojy')
         self._entry(content,'Nekori Softframe','界面设计规范','https://github.com/Nekori347/Nekori-Softframe')
         self._entry(content,'QQFavoriteExtract · VanillaNahida','QQ 表情提取参考','https://github.com/VanillaNahida/QQFavoriteExtract')
         resources=QLabel('Sarasa UI SC  /  Rajdhani  /  JetBrains Mono\nTabler Icons  ·  PySide6',body)
@@ -54,6 +53,11 @@ class AboutInterface(QWidget):
         self.btnReleases=PushButton(Icon.CLOUD_DOWNLOAD,t('检查更新'),self.sheet)
         self.btnReleases.clicked.connect(self._open_updates);footer.addWidget(self.btnReleases);sheet.addLayout(footer)
         visual.apply_typography(self);i18n_engine.language_changed.connect(self.update_texts)
+        visual.theme.changed.connect(self.refresh_theme);self.refresh_theme()
+
+    def refresh_theme(self):
+        c=visual.colors()
+        self.setStyleSheet(f'QLabel {{color:{c["text"]};background:transparent;}} QLabel[role="hint"],QLabel[role="data"] {{color:{c["text_secondary"]};}}')
     def _entry(self,layout,title,description,url):
         row=Surface('raised',self,radius=12,edge=False);box=QHBoxLayout(row);box.setContentsMargins(18,16,14,16)
         text=QVBoxLayout();name=QLabel(title,row);name.setFont(visual.font('section_title'));text.addWidget(name)
@@ -61,8 +65,8 @@ class AboutInterface(QWidget):
         button=TransparentToolButton(Icon.LINK,row);button.setFixedSize(32,32);button.setToolTip(url)
         button.clicked.connect(lambda:QDesktopServices.openUrl(QUrl(url)));box.addWidget(button);layout.addWidget(row)
     def _open_updates(self):
-        from fluent_ui.components import dialogs
-        dialogs.message(self.window(),t('更新信息'),t('当前为 Nekori 开发版本；正式更新渠道尚未开放。'))
+        from fluent_ui.components.update_center import update_center
+        update_center().open(self.window())
     def update_texts(self,*_):
         self.btnReleases.setText(t('检查更新'));visual.apply_typography(self)
     def shutdown(self):

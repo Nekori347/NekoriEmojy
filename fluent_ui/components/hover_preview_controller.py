@@ -1,5 +1,6 @@
 import ctypes
 import sys
+import time
 from ctypes import wintypes
 
 from PySide6.QtCore import QObject, QTimer, QEvent, Qt, QPoint, QRect
@@ -41,6 +42,7 @@ class HoverPreviewController(QObject):
         self.current_hover_path = None
         self.hover_generation = 0
         self.delay = 500
+        self._warm_until = 0
 
         self.hover_timer = QTimer(self)
         self.hover_timer.setSingleShot(True)
@@ -112,6 +114,7 @@ class HoverPreviewController(QObject):
             self.cancel()
             return
 
+        warm=self.popup.isVisible() or time.monotonic()<self._warm_until
         self._cancel_timers_and_popup()
         self.hover_generation += 1
         generation = self.hover_generation
@@ -125,14 +128,17 @@ class HoverPreviewController(QObject):
             card.destroyed.connect(lambda _obj=None, card=card:
                                    self._on_card_destroyed(card, self.hover_generation))
             card._preview_destroy_connected = True
-        self.hover_timer.start(self.delay)
+        self.hover_timer.start(min(self.delay,70) if warm else self.delay)
 
     def leave(self, card):
         # A 的延迟 leave 不能清理后来进入的 B。
         if card is self.current_hover_card:
+            warm=self.popup.isVisible()
             self.cancel()
+            if warm:self._warm_until=time.monotonic()+.4
 
     def cancel(self):
+        self._warm_until = 0
         self.hover_generation += 1
         self.settle_timer.stop()
         self._cancel_timers_and_popup()
@@ -276,6 +282,7 @@ class HoverPreviewController(QObject):
                 anchor_rect=anchor_rect,
                 container_rect=container_rect,
             )
+            self._warm_until=time.monotonic()+.4
         except RuntimeError:
             self.cancel()
             return

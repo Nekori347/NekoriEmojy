@@ -5,9 +5,31 @@ Qt's built-in wake-up delay is far longer than that. Every widget keeps using
 plain ``setToolTip``; a single application-level filter supplies one short,
 consistent delay instead of per-button configuration.
 """
-from PySide6.QtCore import QEvent, QObject, QPoint, QTimer
-from PySide6.QtWidgets import QAbstractItemView, QApplication, QWidget
-from qfluentwidgets import ToolTip, ToolTipPosition
+from PySide6.QtCore import QEvent, QObject, QPoint, QTimer, Qt, QRectF
+from PySide6.QtGui import QPainter, QColor, QPen
+from PySide6.QtWidgets import QAbstractItemView, QApplication, QWidget, QLabel, QVBoxLayout, QToolTip
+
+
+class TooltipSurface(QWidget):
+    """One alpha-safe painted popup; no second Fluent/native tooltip window."""
+    def __init__(self, owner):
+        super().__init__(owner,Qt.ToolTip | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.label=QLabel(self);self.label.setWordWrap(True);self.label.setMaximumWidth(380)
+        layout=QVBoxLayout(self);layout.setContentsMargins(10,7,10,7);layout.addWidget(self.label)
+        self.expiry=QTimer(self);self.expiry.setSingleShot(True);self.expiry.timeout.connect(self.hide)
+
+    def text(self):return self.label.text()
+
+    def paintEvent(self,event):
+        from fluent_ui import visual
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
+        p.setCompositionMode(QPainter.CompositionMode_Source);p.fillRect(self.rect(),Qt.transparent)
+        p.setCompositionMode(QPainter.CompositionMode_SourceOver)
+        c=visual.colors();p.setPen(QPen(QColor(c['border']),1));p.setBrush(QColor(c['surface_overlay']))
+        p.drawRoundedRect(QRectF(self.rect()).adjusted(.5,.5,-.5,-.5),8,8)
 
 try:
     from shiboken6 import isValid as _is_alive
@@ -49,9 +71,12 @@ class GlobalToolTipFilter(QObject):
             # Widgets with a tooltip are already served by the fast timer; item
             # views carry their text on the item, so keep Qt's delivery there
             # but render it through the same Fluent surface.
-            text = self._item_tooltip(obj, event)
-            if text:
-                self._show_text(obj, text, event.globalPos())
+            if isinstance(obj,QWidget):
+                QToolTip.hideText()
+                text = self._item_tooltip(obj, event) or obj.toolTip()
+                if text:
+                    self._timer.stop();self._pending=None
+                    self._show_text(obj, text, event.globalPos())
                 return True
             return False
 
@@ -72,9 +97,10 @@ class GlobalToolTipFilter(QObject):
 
     @staticmethod
     def _item_tooltip(obj, event):
-        if not isinstance(obj, QAbstractItemView) or obj.toolTip():
+        view=obj if isinstance(obj,QAbstractItemView) else obj.parentWidget() if isinstance(obj,QWidget) else None
+        if not isinstance(view, QAbstractItemView) or view.toolTip():
             return ''
-        index = obj.indexAt(event.pos())
+        index = view.indexAt(view.viewport().mapFromGlobal(event.globalPos()))
         if not index.isValid():
             return ''
         return index.data(3) or ''  # Qt.ToolTipRole
@@ -94,34 +120,34 @@ class GlobalToolTipFilter(QObject):
         if not _is_alive(widget):
             return
         window = widget.window()
-        if self._tooltip is None or self._owner_window is not window:
-            if self._tooltip is not None:
+        if self._tooltip is None or not _is_alive(self._tooltip) or self._owner_window is not window:
+            if self._tooltip is not None and _is_alive(self._tooltip):
                 self._tooltip.hide()
-            self._tooltip = ToolTip('', window)
+                self._tooltip.deleteLater()
+            self._tooltip = TooltipSurface(window)
             self._owner_window = window
-        self._tooltip.setText(text)
+        self._tooltip.label.setText(text)
         from fluent_ui import visual
         c=visual.colors()
         self._tooltip.label.setFont(visual.font('tooltip'))
-        self._tooltip.container.setStyleSheet(f'background:{c["surface_overlay"]};border:1px solid {c["border_soft"]};border-radius:8px;')
         self._tooltip.label.setStyleSheet(f'color:{c["text"]};background:transparent;border:none;')
-        self._tooltip.opacityAni.setDuration(visual.MOTION.feedback)
-        self._tooltip.setDuration(duration)
-        if position is not None:
-            self._tooltip.adjustPos(widget, ToolTipPosition.BOTTOM
-                                    if isinstance(widget, QAbstractItemView) else ToolTipPosition.TOP)
-            self._tooltip.move(position + QPoint(12, 20)
-                               if isinstance(widget, QAbstractItemView) else self._tooltip.pos())
-        else:
-            self._tooltip.adjustPos(widget, ToolTipPosition.TOP)
-        self._shown_for = self._shown_for or widget
+        self._tooltip.adjustSize()
+        anchor=position or widget.mapToGlobal(widget.rect().topLeft())
+        screen=QApplication.screenAt(anchor) or widget.screen();area=screen.availableGeometry()
+        x=anchor.x()+12 if position else anchor.x()+(widget.width()-self._tooltip.width())//2
+        y=anchor.y()+20 if position else anchor.y()-self._tooltip.height()-5
+        if y<area.top():y=anchor.y()+widget.height()+5
+        self._tooltip.move(max(area.left(),min(x,area.right()-self._tooltip.width()+1)),max(area.top(),min(y,area.bottom()-self._tooltip.height()+1)))
+        self._shown_for = widget
+        self._tooltip.expiry.start(duration if duration>0 else 6000)
         self._tooltip.show()
 
     def _hide(self):
+        QToolTip.hideText()
         self._timer.stop()
         self._pending = None
         self._shown_for = None
-        if self._tooltip is not None:
+        if self._tooltip is not None and _is_alive(self._tooltip):
             self._tooltip.hide()
 
 

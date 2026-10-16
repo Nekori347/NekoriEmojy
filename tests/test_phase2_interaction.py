@@ -88,7 +88,7 @@ def test_sidebar_visible_segment_persistence_sort_and_formal_new(surface, monkey
     QTest.mouseClick(toggle, Qt.LeftButton)
     assert s.config.get('sidebar_mode') == 'categorized_icons'
     assert g.sidebar.icons.isVisible() and not g.sidebar.tree.isVisible()
-    assert toggle.toolTip() == '切换到分类树'
+    assert toggle.toolTip() == '分类图标'
     assert ConfigService(s.tmp / 'app').get('sidebar_mode') == 'categorized_icons'
     QTest.mouseClick(toggle, Qt.LeftButton)
     assert g.sidebar.tree.isVisible() and not g.sidebar.icons.isVisible()
@@ -126,7 +126,7 @@ def test_split_regions_and_clipboard_availability(surface, monkeypatch):
     QTest.mouseClick(split.button, Qt.LeftButton)
     paste.assert_called_once()
     assert not g.import_menu.isVisible()
-    assert split.text() == '粘贴'
+    assert split.text() == ''
     data = QMimeData()
     data.setUrls([QUrl.fromLocalFile(str(s.tmp / 'alpha.png'))])
     s.clipboard.clipboard.setMimeData(data)
@@ -157,7 +157,7 @@ def test_folder_import_secondary_preserves_structure(surface, monkeypatch):
     imported = next(n for n in s.storage.child_nodes(s.child) if n['name'] == 'Imported')
     nested_node = next(n for n in s.storage.child_nodes(imported['id']) if n['name'] == 'Nested')
     assert len(s.storage.index.content(nested_node['id'])) == 1
-    assert g.btn_paste.text() == '粘贴'
+    assert g.btn_paste.text() == ''
 
 
 def test_filter_continuous_checkbox_clear_and_context_sync(surface):
@@ -207,7 +207,7 @@ def test_selection_bar_layout_shared_mode_and_resource_only_count(surface):
     assert g.selected_count_label.text() == '已选 2 项'
     layout = g.content_pane.content_layout
     assert [layout.itemAt(i).widget() for i in range(layout.count())] == [
-        g.search_box, g.context_strip, shared, g.tag_panel_host]
+        g.context_strip, shared, g.tag_panel_host]
     assert g.tag_panel_host.y() >= shared.y() + shared.height()
     g.set_mode('manage')
     assert g.command_bar is shared and g.btn_manage.isChecked()
@@ -246,14 +246,13 @@ def test_projection_intersection_sort_preservation_and_manual_guard(surface):
     original = set(g.selected_keys)
     canonical = s.storage.index.content(s.parent)
     for mode in ('recent_added', 'oldest_added', 'manual'):
-        g.resource_sort_actions[mode].trigger()
+        g.btn_content_sort.click()
         assert g.selected_keys == original
         assert s.config.get('resource_sort') == mode
-        assert sum(a.isChecked() for a in g.resource_sort_actions.values()) == 1
-        assert g.resource_sort_actions[mode].isChecked()
+        assert g.content_sort == mode
         assert g.btn_arrange.isEnabled() == (mode == 'manual')
-        g.resource_sort_actions[mode].trigger()  # Re-selecting the active mode keeps its check.
-        assert g.resource_sort_actions[mode].isChecked()
+        g.set_content_sort(mode)  # Re-selecting retains the active projection.
+        assert g.content_sort == mode
     assert s.storage.index.content(s.parent) == canonical
     g._update_filter('no_tag', True)
     assert s.paths[0] not in g.selected_keys
@@ -354,4 +353,4 @@ def test_narrow_bar_overflow_and_dropdown_elision(surface):
     button = g.btn_content_sort
     assert button.width() == button.height() == visual.COMPACT_CONTROLS.action_extent
     assert button.toolTip().startswith('资源显示排序')
-    assert len(button.dropMenu.actions()) == 3
+    old=g.content_sort;button.click();assert g.content_sort!=old

@@ -1,6 +1,17 @@
-from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtCore import QPoint, QRect, Qt, QSize
 from qfluentwidgets import RoundMenu, MenuAnimationType
 from qfluentwidgets.common.screen import getCurrentScreenGeometry
+from qfluentwidgets.components.widgets.menu import SubMenuItemWidget
+
+
+class _BranchHit(SubMenuItemWidget):
+    def paintEvent(self,event):
+        from PySide6.QtGui import QPainter
+        from PySide6.QtCore import QRectF
+        from fluent_ui.icons import Icon
+        from fluent_ui import visual
+        p=QPainter(self)
+        Icon.CHEVRON_RIGHT.render(p,QRectF(self.width()-14,(self.height()-12)/2,12,12),fill=visual.colors()['text_secondary'])
 
 
 class SafeRoundMenu(RoundMenu):
@@ -38,6 +49,21 @@ class SafeRoundMenu(RoundMenu):
         self.show()
         if self.isSubMenu:
             self.menuItem.setSelected(True)
+
+    def _adjustItemText(self,item,action):
+        from fluent_ui import visual
+        from PySide6.QtGui import QFontMetrics
+        fm=QFontMetrics(visual.font())
+        shortcut=action.shortcut().toString()
+        width=fm.horizontalAdvance(action.text())+64+(fm.horizontalAdvance(shortcut)+18 if shortcut else 0)
+        item.setText(action.text());item.setSizeHint(QSize(width,32))
+        return width
+
+    def _createSubMenuItem(self,menu):
+        item,old=super()._createSubMenuItem(menu)
+        hit=_BranchHit(menu,item,self);hit.showMenuSig.connect(self._showSubMenu);hit.resize(item.sizeHint())
+        old.hide();old.deleteLater()
+        return item,hit
 
     def refresh_theme(self):
         from fluent_ui.visual import menu_style

@@ -23,7 +23,7 @@ from fluent_ui.components.navigation import NavigationItem, TabStrip, ContentPan
 from fluent_ui.components import dialogs
 from fluent_ui.components.setting_rows import (
     ActionRow, AccentRow, ChoiceRow, InfoRow, HotkeyRow, RangeRow, SettingSection, SwitchRow,
-    apply_row_theme, ModeRow, SpatialRow,
+    apply_row_theme, ModeRow, SpatialRow, FullPathRow,
 )
 from fluent_ui.theme import THEMES
 from services.autostart import AutostartService
@@ -206,6 +206,7 @@ class SettingsCenter(QWidget):
     def _track(self, row, key, default, handler=None):
         self._rows[key] = (row, default)
         self._all_rows[key] = (row, default)
+        row.set_pending(key in self.pending)
         row.changed.connect(handler or (lambda r=row, k=key: self._stage(k, r.value())))
         return row
 
@@ -280,7 +281,8 @@ class SettingsCenter(QWidget):
 
     def _page_library(self):
         section = self._section("CURRENT LIBRARY")
-        self.library_info = InfoRow("当前资源库", "保存后重启切换资源库。", self._library_path(), self)
+        self.library_info = FullPathRow("当前资源库", "图片和分类保存在以下目录；可选中文字复制完整路径。", self._library_path(), self)
+        self._all_rows['library_path']=(self.library_info,'')
         section.add_row(self.library_info)
         section.add_row(ActionRow(
             "选择 / 重新连接资源库",
@@ -307,7 +309,7 @@ class SettingsCenter(QWidget):
             return
         self._stage("library_path", directory)
         self.library_info.set_value(directory)
-        self.library_info.set_hint(t('保存设置并重启后连接：{value_0}').format(value_0=directory))
+        self.library_info.set_hint(t('保存并重启后，将使用下面的资源库。'))
 
     def _check_library(self):
         if not self.storage:
@@ -356,7 +358,7 @@ class SettingsCenter(QWidget):
                      "sidebar_icon_size", self.config.get("sidebar_icon_size", 20), 14, 48, 1, self),
             "sidebar_icon_size", 20))
         section.add_row(self._track(SpatialRow(
-            "标签面板位置", "上下分别使用高度，左右分别使用宽度。", 'tag_panel_placement',
+            "标签面板位置", "点击示意窗口的边缘，将标签栏放到对应一侧。", 'tag_panel_placement',
             self.config.get('tag_panel_placement', 'bottom'), self),
             'tag_panel_placement', 'bottom'))
 
@@ -381,14 +383,13 @@ class SettingsCenter(QWidget):
     def _page_app_icon(self):
         section = self._section("APPLICATION ICON")
         self.icon_preview = QLabel(self)
-        self.icon_preview.setFixedSize(96, 96)
+        self.icon_preview.setFixedSize(56, 56)
         self.icon_preview.setAlignment(Qt.AlignCenter)
         self.icon_preview.setStyleSheet(
             f"border: 1px solid {visual.colors()['border']};")
         self._refresh_icon_preview()
         from fluent_ui.components.setting_rows import SettingRow
-        row = SettingRow("当前程序图标", "自定义图标会同步到主窗口、任务栏与托盘；"
-                                         "GIF 使用第一帧，自动生成 Windows 所需尺寸。", self)
+        row = SettingRow("当前程序图标", "主窗口、任务栏和托盘共用此图标。动图使用第一帧。", self)
         row.add_control(self.icon_preview)
         section.add_row(row)
         from fluent_ui.components.interaction_controls import DropDownButton
@@ -511,7 +512,7 @@ class SettingsCenter(QWidget):
             "读取 Suzu 导出的平面分享压缩包（不含 Nekori 节点树与混排顺序）。",
             [("导入…", self.import_suzu_share, False)], self))
 
-        section.add_row(ActionRow('导出 Suzu 分享包', '导出上游兼容格式，不包含完整 Nekori 整理信息。',
+        section.add_row(ActionRow('导出 Suzu 分享包', '导出为兼容 Suzu 的分享格式，不包含完整 NekoriEmojy 分类和排序信息。',
             [('导出全部…', lambda: self._legacy_share('all')), ('选择分类…', lambda: self._legacy_share('categories'))], self))
         section.add_row(ActionRow('拆分资源包', '将资源 ZIP 拆分为不超过 100MB 的分享包。',
             [('拆分…', lambda: self._legacy_share('split'))], self))
@@ -573,13 +574,11 @@ class SettingsCenter(QWidget):
         self.show_success(t("导入完成"), t('新增 {value_0} 项，跳过 {value_1} 项').format(value_0=saved, value_1=skipped))
 
     def _page_migration(self):
-        section = self._section("SUZU → NEKORI")
+        section = self._section("Suzu 数据兼容")
         section.add_row(ActionRow(
             "Suzu 迁移",
-            "选择运行中的 Suzu 实例，预览其实际图片、分类、图标、Tag 与排序后导入。",
+            "将 Suzu 实例或资源包中的图片、分类与标签复制到 NekoriEmojy。导入前可预览，原数据保持不变。",
             [("开始迁移", self._start_migration, True)], self))
-        section.add_row(InfoRow("迁移方向", "单向 Suzu → Nekori；迁移后按 Nekori 数据结构正常使用。",
-                                "Suzu → Nekori", self))
 
     def _start_migration(self):
         source, accepted = dialogs.choose_item(self.window(), t('开始迁移'), t('选择迁移来源'),
@@ -648,13 +647,31 @@ class SettingsCenter(QWidget):
         self._set_dirty(bool(self.pending))
 
     def _page_about(self):
-        from services.version_info import version_info,build_label
+        from services.update_service import current_version
         section = self._section("APPLICATION")
-        section.add_row(InfoRow('版本','NekoriEmojy','v'+version_info()['version']))
-        section.add_row(InfoRow('构建','',build_label()))
+        self.version_row=InfoRow('版本','NekoriEmojy','v'+current_version())
+        self.btn_update=PushButton(FIF.CLOUD_DOWNLOAD,t('检查更新'),self.version_row)
+        self.btn_update.clicked.connect(self._open_updates);self.version_row.add_control(self.btn_update)
+        section.add_row(self.version_row)
+        self.update_badge=TransparentToolButton(FIF.CLOUD_DOWNLOAD,self.version_row)
+        self.update_badge.setFixedSize(22,22);self.version_row.add_control(self.update_badge)
+        self.update_badge.clicked.connect(self._open_updates);self.update_badge.hide()
+        from fluent_ui.components.update_center import update_center
+        state=update_center();state.changed.connect(self._sync_update_status);self._sync_update_status()
         section.add_row(ActionRow(
             "关于 NekoriEmojy", "查看版本、作者与项目信息。",
             [("查看详情", self.about_requested.emit, True)], self))
+
+    def _open_updates(self):
+        from fluent_ui.components.update_center import update_center
+        update_center().open(self.window())
+
+    def _sync_update_status(self):
+        if not hasattr(self,'update_badge'):return
+        from fluent_ui.components.update_center import update_center
+        release=update_center().release
+        self.update_badge.setVisible(bool(release))
+        self.update_badge.setToolTip(t('可用更新')+(' · v'+release['version'] if release else ''))
 
     # ==================================================================
     # Save / discard / defaults / settings file
@@ -718,6 +735,7 @@ class SettingsCenter(QWidget):
 
     def _set_dirty(self, dirty):
         self._dirty = bool(dirty)
+        for key,(row,_) in self._all_rows.items():row.set_pending(key in self.pending)
         self.dirty_label.setText(t("未保存的修改") if dirty else "")
         valid = self._hotkeys_valid(self.pending)
         self.btn_save.setEnabled(dirty and valid)

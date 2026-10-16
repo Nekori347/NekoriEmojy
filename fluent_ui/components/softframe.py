@@ -64,6 +64,7 @@ class DisclosureButton(QToolButton):
     """One chevron rotates without changing its hit area or layout."""
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setFocusPolicy(Qt.TabFocus)
         self._angle = 90.0
         self.setFixedSize(28,28)
         self.setCursor(Qt.PointingHandCursor)

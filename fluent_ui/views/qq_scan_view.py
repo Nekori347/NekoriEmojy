@@ -591,6 +591,7 @@ class QQScanInterface(QWidget):
         self.log(t("💬 QQNT表情包批量提取工具启动成功"))
         self.log(t("💡建议在使用前提前打开要提取表情包的账户，随便选择一个聊天窗口，将表情全部加载出来，这样提取的表情包更齐全。"))
         self.populateUserComboBox()
+        self._sync_result_actions()
         disable_wheel_scroll_adjustment(self)
 
     def resizeEvent(self, event):
@@ -604,15 +605,19 @@ class QQScanInterface(QWidget):
 
     def _set_busy(self, busy: bool):
         """设置操作中的繁忙状态，禁用/启用操作按钮以防重入"""
-        self.exportSelectedButton.setEnabled(not busy)
-        self.exportAllButton.setEnabled(not busy)
-        self.importSelectedButton.setEnabled(not busy)
-        self.importAllButton.setEnabled(not busy)
+        self._busy=busy
+        self._sync_result_actions()
         self.scanButton.setEnabled(not busy)
         self.selectReadDirButton.setEnabled(not busy)
         self.selectDirButton.setEnabled(not busy)
         self.userComboBox.setEnabled(not busy)
         self.emojiFolderComboBox.setEnabled(not busy)
+
+    def _sync_result_actions(self):
+        ready=bool(self.emoji_file_paths) and not getattr(self,'_busy',False)
+        selected=ready and bool(self.previewListWidget.selectedItems())
+        for button in (self.exportSelectedButton,self.importSelectedButton,self.clearSelectionButton):button.setEnabled(selected)
+        for button in (self.exportAllButton,self.importAllButton,self.selectAllButton):button.setEnabled(ready)
 
     def _on_back_clicked(self):
         """点击返回按钮：若有后台任务运行则弹窗确认中断"""
@@ -649,6 +654,8 @@ class QQScanInterface(QWidget):
             self.expand_config()
 
     def collapse_config(self, animated=True):
+        if hasattr(self,'presentation'):
+            self.presentation.set_config_expanded(False);return
         """收起配置面板"""
         if not self.configCard.isVisible() and self.summaryRow.isVisible():
             return
@@ -670,6 +677,8 @@ class QQScanInterface(QWidget):
         )
 
     def expand_config(self, animated=True):
+        if hasattr(self,'presentation'):
+            self.presentation.set_config_expanded(True);return
         """展开配置面板"""
         if self.configCard.isVisible() and not self.summaryRow.isVisible():
             return
@@ -1036,6 +1045,7 @@ class QQScanInterface(QWidget):
         self.is_loading = False
 
     def onItemSelectionChanged(self):
+        self._sync_result_actions()
         current_item = self.previewListWidget.currentItem()
 
         if hasattr(self, 'detail_movie') and self.detail_movie:
@@ -1078,7 +1088,9 @@ class QQScanInterface(QWidget):
                 name=file_name, format=format_display, size=file_size_kb,
                 path=file_path_str
             )
-            self.detailInfoLabel.setText(info_text)
+            self.detailInfoLabel.setTextFormat(Qt.PlainText)
+            self.detailInfoLabel.setText(f'{file_name}\n{format_display} · {file_size_kb:.1f} KB')
+            self.detailInfoLabel.setToolTip(file_path_str)
         except Exception as e:
             self.detailInfoLabel.setText(_tf("获取信息失败: {error}", error=e))
 
@@ -1097,17 +1109,17 @@ class QQScanInterface(QWidget):
                 reader = QImageReader(play_path)
                 orig_size = reader.size()
                 if orig_size.isValid():
-                    scaled_size = orig_size.scaled(240, 240, Qt.KeepAspectRatio)
+                    scaled_size = orig_size.scaled(self.detailPreviewLabel.size(), Qt.KeepAspectRatio)
                     self.detail_movie.setScaledSize(scaled_size)
                 else:
-                    self.detail_movie.setScaledSize(QSize(240, 240))
+                    self.detail_movie.setScaledSize(self.detailPreviewLabel.size())
 
                 self.detailPreviewLabel.setMovie(self.detail_movie)
                 self.detail_movie.start()
             else:
                 pixmap = QPixmap()
                 if pixmap.load(file_path_str):
-                    scaled_pixmap = pixmap.scaled(240, 240, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    scaled_pixmap = pixmap.scaled(self.detailPreviewLabel.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     self.detailPreviewLabel.setPixmap(scaled_pixmap)
                 else:
                     self.detailPreviewLabel.setText(t("图片加载失败"))
@@ -1176,6 +1188,7 @@ class QQScanInterface(QWidget):
         self._set_busy(False)
         self._current_worker = None
         self.emoji_file_paths = paths
+        self._sync_result_actions()
         total_valid = len(self.emoji_file_paths)
 
         if total_valid == 0:

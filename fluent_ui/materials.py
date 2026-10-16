@@ -72,10 +72,13 @@ def shell_fill(window):
 def sync_native_clip(window):
     """One 14px contour clips both the native material and the Qt contents."""
     if sys.platform != 'win32' or QApplication.platformName() in ('offscreen', 'minimal'): return
+    key=(int(window.winId()),window.width(),window.height(),window.devicePixelRatioF(),window.isMaximized())
+    if getattr(window,'_native_clip_key',None)==key:return
     user = ctypes.windll.user32; gdi = ctypes.windll.gdi32
     user.SetWindowRgn.argtypes = [wintypes.HWND, wintypes.HRGN, wintypes.BOOL]
     gdi.CreateRoundRectRgn.argtypes = [ctypes.c_int] * 6; gdi.CreateRoundRectRgn.restype = wintypes.HRGN
     scale = window.devicePixelRatioF(); r = round(visual.WINDOW_RADIUS * 2 * scale)
     if window.isMaximized(): r = 0
     region = gdi.CreateRoundRectRgn(0, 0, round(window.width()*scale)+1, round(window.height()*scale)+1, r, r)
-    if not user.SetWindowRgn(wintypes.HWND(int(window.winId())), region, True): gdi.DeleteObject(region)
+    if not user.SetWindowRgn(wintypes.HWND(int(window.winId())), region, True):gdi.DeleteObject(region)
+    else:window._native_clip_key=key

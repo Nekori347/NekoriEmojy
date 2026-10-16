@@ -126,6 +126,7 @@ def build_workbench(g):
     from fluent_ui.components.feedback import FeedbackHost
     from fluent_ui.components.state_tool_tip_manager import StateToolTipManager
     g.feedback_host=FeedbackHost(g.workspace,g.workspace_layout,before=g.scroll_area,overlay_parent=g.scroll_area.viewport())
+    g.feedback_host.dock_to_caption(g.window())
     g.workspace.feedback_host=g.feedback_host
     g.task_status=StateToolTipManager(g.workspace,closable=False)
     g.splitter.addWidget(g.right_container)
@@ -141,7 +142,12 @@ def build_workbench(g):
     # The app menu is the footer of the navigation, in the same continuous face.
     footer=QWidget(g.sidebar);foot=QHBoxLayout(footer);foot.setContentsMargins(6,2,2,0);foot.setSpacing(2)
     from fluent_ui.presentation.glyphs import BrandLockup
-    foot.addWidget(BrandLockup(footer),0,Qt.AlignBottom);foot.addStretch()
+    g.brand_lockup=BrandLockup(footer);foot.addWidget(g.brand_lockup,0,Qt.AlignBottom)
+    from fluent_ui.components.update_center import UpdateBadge
+    g.btn_update=UpdateBadge(footer)
+    foot.addWidget(g.btn_update,0,Qt.AlignVCenter);g.btn_update.hide()
+    g.btn_update.refresh()
+    foot.addStretch()
     g.btn_settings=TransparentToolButton(I.SETTING,footer);g.btn_settings.setFixedSize(24,24)
     bind_text(g.btn_settings,'设置','setToolTip');g.btn_settings.clicked.connect(g.setting_requested);foot.addWidget(g.btn_settings,0,Qt.AlignBottom)
     g.btn_tools=TransparentToolButton(ToolboxIcon(),footer);g.btn_tools.setFixedSize(24,24)

@@ -2778,7 +2778,9 @@ class GalleryInterface(QWidget):
             relative = self.storage.index.relative_path(image_path)
         except ValueError:
             relative = os.path.basename(image_path)
-        return {'name': os.path.basename(image_path), 'path': relative}
+        record=self.storage.index.resource(image_path) or {}
+        return {'name': os.path.basename(image_path), 'path': relative,
+                'ocr_text':record.get('ocr_text','')}
 
     def apply_preview_position(self):
         """Fixed preview overlays the gallery workspace; floating stays a tool window.

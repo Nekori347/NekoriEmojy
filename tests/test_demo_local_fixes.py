@@ -147,7 +147,7 @@ def test_theme_cycle_settings_preview_pending_save_discard_and_geometry(surface,
     row.set_value('dark');row.changed.emit();assert c.save()
     assert ConfigService(s.tmp/'app').get('appearance_mode')=='dark'
     settle(s.app)
-    assert b.geometry().right()<w.titleBar.settingsButton.geometry().left()
+    assert w.gallery_interface.btn_settings.isVisible()
     assert b.geometry().right()<w.titleBar.minBtn.geometry().left()
     assert not w.titleBar.canDrag(b.geometry().center())
     assert w.accent_line.geometry().bottom()<b.geometry().top()

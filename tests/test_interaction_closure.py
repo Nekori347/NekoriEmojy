@@ -4,6 +4,7 @@ import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 import pytest
+from fluent_ui import visual
 from PySide6.QtCore import Qt, QPoint, QPointF, QMimeData, QEvent
 from PySide6.QtGui import QDragEnterEvent, QDragMoveEvent, QDragLeaveEvent, QDropEvent, QMouseEvent, QWheelEvent
 from PySide6.QtWidgets import QApplication
@@ -200,7 +201,7 @@ def test_projection_headers_orientation_density_no_queries(scene, monkeypatch, t
         app.processEvents()
         horizontal = position in ('top', 'bottom')
         assert panel.index_view.orientation == (Qt.Horizontal if horizontal else Qt.Vertical)
-        assert (panel.index_view.height() if horizontal else panel.index_view.width()) == 24
+        assert (panel.index_view.height() if horizontal else panel.index_view.width()) == visual.SECTION_INDEX_COMPACT_EXTENT
     config.set('sidebar_mode', 'categorized_icons')
     sidebar.apply_presentation()
     app.processEvents()
@@ -256,7 +257,7 @@ def test_cold_panel_placement_is_horizontal(tmp_path, monkeypatch, placement):
     try:
         assert panel.index_view.orientation == Qt.Horizontal
         assert panel.index_view.size().width() == 66
-        assert panel.index_view.size().height() == 24
+        assert panel.index_view.size().height() == visual.SECTION_INDEX_COMPACT_EXTENT
     finally:
         host.close()
 

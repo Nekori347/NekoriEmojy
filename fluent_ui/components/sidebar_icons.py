@@ -75,6 +75,7 @@ class IconCanvas(QWidget):
         self.host = host
         self.items, self.rects = [], []
         self._press = None
+        self._hovered = -1
         self._dragged = False
         self._anchor = None
         self._pending_collapse = None
@@ -176,8 +177,8 @@ class IconCanvas(QWidget):
             rect = self.rects[index]
             if not event.rect().intersects(rect):
                 continue
-            if node_id in selected:
-                painter.fillRect(rect, QColor(palette['selected']))
+            if node_id in selected or index == self._hovered:
+                painter.fillRect(rect, QColor(palette['hover'] if index == self._hovered else palette['selected']))
                 painter.setPen(QPen(QColor(palette['accent']),2))
                 painter.drawLine(rect.left()+3,rect.top()+7,rect.left()+3,rect.bottom()-7)
             painter.setPen(QColor(palette['text']))
@@ -228,6 +229,8 @@ class IconCanvas(QWidget):
 
     def mouseMoveEvent(self, event):
         index = self.index_at(event.position().toPoint())
+        if index != self._hovered:
+            self._hovered=index;self.update()
         self.setToolTip(self.items[index][1] if index >= 0 else '')
         if self._press is None or not event.buttons() & Qt.LeftButton:
             return
@@ -243,6 +246,10 @@ class IconCanvas(QWidget):
         finally:
             self._press = None
             self._pending_collapse = None
+
+    def leaveEvent(self,event):
+        self._hovered=-1;self.update()
+        super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event):
         index = self.index_at(event.position().toPoint())

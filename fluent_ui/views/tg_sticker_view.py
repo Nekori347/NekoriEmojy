@@ -1064,6 +1064,8 @@ class TGStickerInterface(QWidget):
         self.tooltip.reposition()
 
     def _update_detail_preview_visibility(self):
+        if hasattr(self,'presentation'):
+            self.presentation.update_detail_visibility();return
         should_show = self.width() >= self.DETAIL_PREVIEW_HIDE_WIDTH
         # isVisible() 会受尚未显示的父窗口影响；isHidden() 才能反映控件自身状态。
         currently_shown = not self.detailWidget.isHidden()
@@ -1091,9 +1093,10 @@ class TGStickerInterface(QWidget):
 
     def _set_pack_actions_enabled(self, enabled: bool):
         """统一设置依赖贴纸包解析结果的操作按钮状态。"""
-        self.exportSelectedButton.setEnabled(enabled)
+        selected=enabled and bool(self.previewListWidget.selectedItems())
+        self.exportSelectedButton.setEnabled(selected)
         self.exportAllButton.setEnabled(enabled)
-        self.importSelectedButton.setEnabled(enabled)
+        self.importSelectedButton.setEnabled(selected)
         self.importAllButton.setEnabled(enabled)
         self.exportPackageButton.setEnabled(enabled)
         self.selectAllButton.setEnabled(enabled)
@@ -1201,6 +1204,8 @@ class TGStickerInterface(QWidget):
             self.expand_config()
 
     def collapse_config(self, animated=True):
+        if hasattr(self,'presentation'):
+            self.presentation.set_config_expanded(False);return
         if not self.configCard.isVisible() and self.summaryRow.isVisible():
             return
         self._update_summary_label()
@@ -1220,6 +1225,8 @@ class TGStickerInterface(QWidget):
         )
 
     def expand_config(self, animated=True):
+        if hasattr(self,'presentation'):
+            self.presentation.set_config_expanded(True);return
         if self.configCard.isVisible() and not self.summaryRow.isVisible():
             return
         self.configCard.setVisible(True)
@@ -1311,6 +1318,8 @@ class TGStickerInterface(QWidget):
         dlg.exec()
 
     def toggleAdvancedSettings(self):
+        if hasattr(self,'presentation'):
+            self.presentation.open_network();return
         """切换高级配置面板并同步旋转箭头状态。"""
         will_show = not self.advWidget.isVisible()
         self.advWidget.setVisible(will_show)
@@ -1633,6 +1642,7 @@ class TGStickerInterface(QWidget):
     # ==========================================
 
     def onItemSelectionChanged(self):
+        self._set_pack_actions_enabled(bool(self.current_pack) and not getattr(self,'_busy',False))
         if not self.detailWidget.isVisible():
             return
 
@@ -1686,7 +1696,8 @@ class TGStickerInterface(QWidget):
             file_id=sticker.file_id[:26],
             muted=colors()['text_muted'],
         )
-        self.detailInfoLabel.setText(info_text)
+        self.detailInfoLabel.setTextFormat(Qt.PlainText)
+        self.detailInfoLabel.setText(f'{sticker.emoji or t("贴纸")} · {sticker.width} × {sticker.height}\n{(sticker.file_size or 0)/1024:.1f} KB')
 
         if sticker_idx in self._detail_cache:
             file_path, is_gif = self._detail_cache[sticker_idx]
@@ -1696,7 +1707,7 @@ class TGStickerInterface(QWidget):
 
         if sticker_idx in self._thumb_pixmaps:
             thumb = self._thumb_pixmaps[sticker_idx]
-            scaled = thumb.scaled(240, 240, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            scaled = thumb.scaled(self.detailPreviewLabel.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.detailPreviewLabel.setPixmap(scaled)
         else:
             self.detailPreviewLabel.setText(t("正在加载预览..."))
@@ -1726,16 +1737,16 @@ class TGStickerInterface(QWidget):
                 reader = QImageReader(file_path)
                 orig_size = reader.size()
                 if orig_size.isValid():
-                    scaled_size = orig_size.scaled(240, 240, Qt.KeepAspectRatio)
+                    scaled_size = orig_size.scaled(self.detailPreviewLabel.size(), Qt.KeepAspectRatio)
                     self.detail_movie.setScaledSize(scaled_size)
                 else:
-                    self.detail_movie.setScaledSize(QSize(240, 240))
+                    self.detail_movie.setScaledSize(self.detailPreviewLabel.size())
                 self.detailPreviewLabel.setMovie(self.detail_movie)
                 self.detail_movie.start()
             else:
                 pixmap = QPixmap()
                 if pixmap.load(file_path):
-                    scaled = pixmap.scaled(240, 240, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    scaled = pixmap.scaled(self.detailPreviewLabel.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     self.detailPreviewLabel.setPixmap(scaled)
                 else:
                     self.detailPreviewLabel.setText(t("图片解析失败"))

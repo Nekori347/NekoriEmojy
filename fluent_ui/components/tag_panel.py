@@ -162,8 +162,8 @@ class TagFlow(QWidget):
             painter.setBrush(QColor(c['selected'] if active else c['hover'] if hovered else c['surface']))
             painter.setPen(QPen(QColor(c['accent'] if active else c['border']),1))
             r=QRectF(rect).adjusted(.5,.5,-.5,-.5)
-            path=QPainterPath();path.moveTo(r.left()+7,r.top());path.lineTo(r.right(),r.top())
-            path.lineTo(r.right(),r.bottom());path.lineTo(r.left()+7,r.bottom());path.lineTo(r.left(),r.center().y());path.closeSubpath()
+            from fluent_ui.presentation.tag_shape import tag_path
+            path=tag_path(r)
             painter.drawPath(path)
             if active:
                 painter.setPen(QPen(QColor(c['accent']),2,Qt.SolidLine,Qt.RoundCap))
@@ -253,8 +253,8 @@ class TagFlow(QWidget):
         hovered = self._index_at(pos)
         if hovered != self._hovered:
             self._hovered = hovered
-            self.setToolTip(self._items[hovered].name if hovered >= 0 else '')
             self.update()
+        self.setToolTip(self._items[hovered].name if hovered >= 0 else '')
         if not (event.buttons() & Qt.LeftButton) or self._press_pos is None:
             return super().mouseMoveEvent(event)
         if (pos-self._press_pos).manhattanLength() < QApplication.startDragDistance():

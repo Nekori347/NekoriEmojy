@@ -46,6 +46,8 @@ class LibraryTree(QTreeWidget):
         from fluent_ui.components.navigation import NavigationItem
         self.setItemDelegate(NavigationItem(self))
         self.setMouseTracking(True)
+        self._hovered_index = None
+        self.setFocusPolicy(Qt.TabFocus)
         self.setHeaderHidden(True)
         self.setRootIsDecorated(False)
         self.setItemsExpandable(False)
@@ -106,7 +108,9 @@ class LibraryTree(QTreeWidget):
             depth += 1
             ancestor = ancestor.parent()
         row = QStyleOptionViewItem(option)
-        row.state &= ~(QStyle.State_Selected | QStyle.State_HasFocus)
+        row.state &= ~(QStyle.State_Selected | QStyle.State_HasFocus | QStyle.State_MouseOver)
+        if self._hovered_index == index.siblingAtColumn(0):
+            row.state |= QStyle.State_MouseOver
         if self.selectionModel().isSelected(index.siblingAtColumn(0)):
             row.state |= QStyle.State_Selected
         if self.hasFocus() and self.currentIndex().siblingAtColumn(0) == index.siblingAtColumn(0):
@@ -114,6 +118,17 @@ class LibraryTree(QTreeWidget):
         row.rect = QRect(min(depth*6, 24), option.rect.top(),
                          self.viewport().width()-min(depth*6, 24), option.rect.height())
         self.itemDelegate().paint(painter, row, index.siblingAtColumn(0))
+
+    def mouseMoveEvent(self,event):
+        index=self.indexAt(event.position().toPoint()).siblingAtColumn(0)
+        if index!=self._hovered_index:
+            self._hovered_index=index;self.viewport().update()
+        super().mouseMoveEvent(event)
+
+    def viewportEvent(self,event):
+        if event.type()==QEvent.Leave:
+            self._hovered_index=None;self.viewport().update()
+        return super().viewportEvent(event)
 
     def _span_rows(self):
         from PySide6.QtWidgets import QTreeWidgetItemIterator
@@ -159,6 +174,7 @@ class LibraryTree(QTreeWidget):
         return (item.data(0, Qt.UserRole) if item else None) or ALL_RESOURCES
 
     def refresh(self, select=None):
+        self._hovered_index = None
         target = select or self._pending_select or ALL_RESOURCES
         expanded = self._expanded_ids() if self.topLevelItemCount() else set(self.sidebar.gallery_view._saved_view_state.get('sidebar_expanded', []))
         self.end_drag_session()

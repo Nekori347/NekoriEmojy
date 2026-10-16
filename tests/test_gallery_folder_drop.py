@@ -7,6 +7,7 @@ from PIL import Image
 
 from fluent_ui.views.gallery_view import GalleryInterface, ImportThread
 from test_storage_single_frame_gif import _make_storage
+from test_phase2_interaction import surface
 
 
 def make_view(current_node="__library__"):
@@ -33,7 +34,7 @@ def drop_event(mime):
     return event
 
 
-def test_drop_multiple_folders_and_file_as_one_batch(tmp_path):
+def test_drop_multiple_folders_and_file_as_one_batch(surface, tmp_path, monkeypatch):
     folders = [tmp_path / 'First', tmp_path / 'Second']
     for folder in folders:
         folder.mkdir()
@@ -41,8 +42,22 @@ def test_drop_multiple_folders_and_file_as_one_batch(tmp_path):
     loose.touch()
     mime = QMimeData()
     mime.setUrls([QUrl.fromLocalFile(str(p)) for p in [*folders, loose]])
-    view = make_view()
-    GalleryInterface.dropEvent(view, drop_event(mime))
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QDragEnterEvent, QDropEvent
+    from PySide6.QtWidgets import QApplication
+    from services.library_index import ROOT
+    view=surface.g
+    view.set_node(ROOT)
+    surface.app.processEvents()
+    monkeypatch.setattr(view,'import_paths_to',Mock())
+    viewport=view.scroll_area.viewport()
+    point=QPoint(viewport.width()//2,viewport.height()-5)
+    enter=QDragEnterEvent(point,Qt.CopyAction,mime,Qt.LeftButton,Qt.NoModifier)
+    QApplication.sendEvent(viewport,enter)
+    assert enter.isAccepted()
+    event=QDropEvent(QPointF(point),Qt.CopyAction,mime,Qt.LeftButton,Qt.NoModifier)
+    QApplication.sendEvent(viewport,event)
+    assert event.isAccepted()
     view.import_paths_to.assert_called_once()
     args, kwargs = view.import_paths_to.call_args
     assert [os.path.normpath(p) for p in args[0]] == [*map(str, folders), str(loose)]

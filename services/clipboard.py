@@ -136,10 +136,22 @@ class ClipboardService(QObject):
         # clipboard notification, before the user has chosen to import it.
         mime=self.clipboard.mimeData()
         if mime is None:return False
-        if mime.hasUrls() or mime.hasImage() or mime.hasHtml():return True
+        if mime.hasImage():return True
+        if mime.hasUrls():
+            for url in mime.urls():
+                if url.isLocalFile():
+                    path=url.toLocalFile()
+                    if os.path.isdir(path) or (os.path.isfile(path) and path.lower().endswith(supported_formats)):return True
+                elif url.isValid() and url.scheme() in ('http','https') and url.host():return True
+        if mime.hasHtml():
+            match=re.search(r'<img[^>]+src=["\']([^"\'>]+)["\']',mime.html(),re.IGNORECASE)
+            if match:
+                url=QUrl(html.unescape(match.group(1)))
+                if url.isValid() and url.scheme() in ('http','https') and url.host():return True
         if mime.hasText():
             text=mime.text().strip()
-            return text.startswith(('https://','http://'))
+            url=QUrl(text)
+            return bool(url.isValid() and url.scheme() in ('http','https') and url.host())
         return False
 
     def copy_image_to_clipboard(self, image_path):

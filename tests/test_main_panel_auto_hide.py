@@ -47,7 +47,7 @@ class MainPanelAutoHideTests(unittest.TestCase):
         with patch('fluent_ui.views.settings_center.AutostartService') as startup:
             startup.return_value.is_enabled.return_value = False
             view = SettingInterface(config)
-            view._show_tab(1)  # Startup/window settings are built on demand.
+            view._show_tab(0)  # Startup/window settings are built on demand.
             row = view._rows['hide_main_after_paste'][0]
             self.assertFalse(row.value())
 

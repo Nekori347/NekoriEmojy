@@ -4,11 +4,12 @@ from services.i18n import t, i18n_engine, bind_text, translated
 Only Nekori's own rename / edit / confirm / status surfaces use these. Real
 Windows tools such as the file picker keep their native presentation.
 """
-from PySide6.QtCore import Qt, QPoint, QObject, QEvent
+from PySide6.QtCore import Qt, QPoint, QObject, QEvent, QSize, QRectF
 from PySide6.QtGui import QFont, QGuiApplication, QPainter, QColor
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QPushButton, QSlider, QVBoxLayout, QWidget,
+    QListWidgetItem, QPushButton, QSlider, QVBoxLayout, QWidget, QAbstractButton,
+    QScrollArea, QTreeWidget, QTreeWidgetItem, QAbstractItemView,
 )
 
 from services.i18n import t, i18n_engine, bind_text, translated
@@ -134,19 +135,13 @@ class NekoriDialog(OwnerCenteredDialog):
         self.header.setObjectName("DialogHeader")
         self.header_layout = QHBoxLayout(self.header)
         self.header_layout.setContentsMargins(16, 12, 16, 12)
-        header_font = visual.font('page_title')
-        header_font.setBold(True)
+        header_font = visual.font('section_title')
         self.title_label = translated(QLabel, title, self.header)
         self.title_label.setFont(header_font)
         self.header_layout.addWidget(self.title_label)
         self.header_layout.addStretch()
-        if code:
-            self.code_label = QLabel(code, self.header)
-            mono = QFont(DATA_FONT.split(",")[0].strip())
-            mono.setPixelSize(10)
-            self.code_label.setFont(mono)
-            self.code_label.setProperty("role", "data")
-            self.header_layout.addWidget(self.code_label)
+        # Technical operation ids are never user-facing dialog subtitles.
+        self.operation_code = code
         self.root.addWidget(self.header)
         self._title_drag = DialogTitleDrag(self.header)
 
@@ -269,6 +264,10 @@ def choose_item(parent, title, label, items, ok_text="确定", code="", *,
     path as a tooltip, so a deep tree stays usable without turning the picker
     into a very long flat list.
     """
+    if paths:
+        dialog=CategoryPickerDialog(parent,title,label,items,paths,ok_text)
+        accepted=dialog.exec()==QDialog.Accepted
+        return dialog.selected_value,accepted and dialog.selected_value is not None
     dialog = NekoriDialog(parent, title, code=code)
     dialog.add_widget(translated(QLabel, label, dialog))
     paths = paths or {}
@@ -279,6 +278,9 @@ def choose_item(parent, title, label, items, ok_text="确定", code="", *,
         bind_text(search, t("搜索分类名或路径"), 'setPlaceholderText')
         dialog.add_widget(search)
     listing = QListWidget(dialog)
+    from fluent_ui.presentation.menu import MenuDelegate
+    listing.setItemDelegate(MenuDelegate(listing))
+    listing.setFont(__import__('fluent_ui.visual',fromlist=['font']).font())
     listing.setMinimumHeight(240)
     listing.setMaximumHeight(360)
     for value, display in items:
@@ -330,61 +332,134 @@ def choose_item(parent, title, label, items, ok_text="确定", code="", *,
     return result["value"], accepted
 
 
+class CategoryPickerDialog(NekoriDialog):
+    """Compact real hierarchy instead of indentation spaces in a tiny list."""
+    def __init__(self,parent,title,label,items,paths,ok_text='确定'):
+        super().__init__(parent,title)
+        from fluent_ui import visual
+        from fluent_ui.icons import Icon
+        from fluent_ui.components.controls import SearchLineEdit
+        from fluent_ui.components.navigation import NavigationItem
+        self.selected_value=None
+        self.add_hint(label)
+        self.search=SearchLineEdit(self);self.search.setPlaceholderText(t('搜索分类名或路径'));self.add_widget(self.search)
+        self.tree=QTreeWidget(self);self.tree.setHeaderHidden(True);self.tree.setColumnCount(1)
+        self.tree.setIndentation(12);self.tree.setRootIsDecorated(False);self.tree.setUniformRowHeights(True)
+        self.tree.setSelectionMode(QAbstractItemView.SingleSelection);self.tree.setMouseTracking(True)
+        self.tree.setItemDelegate(NavigationItem(self.tree));self.tree.setMinimumHeight(300)
+        self.tree.setStyleSheet('QTreeWidget {background:'+visual.colors()['surface']+';border:1px solid '+visual.colors()['border_soft']+';border-radius:8px;}')
+        self.items=[];stack=[]
+        for value,display in items:
+            depth=(len(display)-len(display.lstrip()))//4
+            while len(stack)>depth:stack.pop()
+            item=QTreeWidgetItem([display.strip()]);item.setData(0,Qt.UserRole,value)
+            item.setIcon(0,Icon.FOLDER.icon());item.setToolTip(0,paths.get(value,display.strip()))
+            if stack:stack[-1].addChild(item)
+            else:self.tree.addTopLevelItem(item)
+            stack.append(item);self.items.append(item)
+        self.tree.expandAll();self.add_widget(self.tree)
+        self.add_button('取消',on_click=self.reject)
+        self.confirm_button=self.add_button(ok_text,role='primary',on_click=self._choose)
+        self.tree.itemDoubleClicked.connect(lambda *_:self._choose())
+        self.search.textChanged.connect(self._filter)
+        self.resize(600,490);self.setMinimumWidth(440)
+        if self.items:self.tree.setCurrentItem(self.items[0])
+
+    def _filter(self,text):
+        needle=text.casefold().strip()
+        for item in reversed(self.items):
+            matched=not needle or needle in (item.text(0)+' '+item.toolTip(0)).casefold()
+            item.setHidden(not matched and all(item.child(i).isHidden() for i in range(item.childCount())))
+        if needle:self.tree.expandAll()
+        visible=next((item for item in self.items if not item.isHidden()),None)
+        self.tree.setCurrentItem(visible);self.confirm_button.setEnabled(visible is not None)
+
+    def _choose(self):
+        item=self.tree.currentItem()
+        if item and not item.isHidden():self.selected_value=item.data(0,Qt.UserRole);self.accept()
+
+
+class TagChoiceButton(QAbstractButton):
+    def __init__(self,tag,count,total,parent):
+        super().__init__(parent)
+        from fluent_ui import visual
+        self.tag=tag;self.initial=Qt.Checked if count==total else Qt.PartiallyChecked if count else Qt.Unchecked
+        self.state=self.initial;self.count=count;self.total=total
+        self.setText(tag);self.setFont(visual.font());self.setFocusPolicy(Qt.TabFocus);self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip(t('部分资源已有此标签') if self.state==Qt.PartiallyChecked else tag)
+        self.clicked.connect(self._toggle)
+        self.setFixedSize(self.sizeHint())
+
+    def sizeHint(self):return QSize(self.fontMetrics().horizontalAdvance(self.tag)+58,26)
+
+    def _toggle(self):
+        self.state=Qt.Unchecked if self.state==Qt.Checked else Qt.Checked;self.update()
+
+    def enterEvent(self,event):super().enterEvent(event);self.update()
+    def leaveEvent(self,event):super().leaveEvent(event);self.update()
+
+    def paintEvent(self,event):
+        from fluent_ui import visual
+        from fluent_ui.icons import Icon
+        from fluent_ui.presentation.tag_shape import tag_path
+        from PySide6.QtGui import QPen
+        c=visual.colors();p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QPen(QColor(c['accent'] if self.state!=Qt.Unchecked else c['border']),1))
+        p.setBrush(QColor(c['selected'] if self.state==Qt.Checked else c['hover'] if self.underMouse() else c['surface']))
+        p.drawPath(tag_path(QRectF(self.rect()).adjusted(.5,.5,-.5,-.5)))
+        p.setFont(self.font());p.setPen(QColor(c['text']));p.drawText(self.rect().adjusted(12,0,-26,0),Qt.AlignVCenter,self.tag)
+        if self.state!=Qt.Unchecked:
+            (Icon.REMOVE if self.state==Qt.PartiallyChecked else Icon.ACCEPT).render(p,QRectF(self.width()-22,6,14,14),fill=c['text'])
+
+
 class TagEditorDialog(NekoriDialog):
-    """Add / remove / replace tags on one or many resources."""
+    """Explicit tag presence changes; untouched mixed tags stay per-resource."""
 
     def __init__(self, parent, storage, paths):
-        super().__init__(parent, "标签编辑", code=f"TAG/{len(paths)}")
+        super().__init__(parent, "编辑标签")
         self.storage = storage
         self.paths = list(paths)
-        self.add_hint(t('将以下标签应用到选中的 {value_0} 个资源。').format(value_0=len(paths)))
-
-        self.mode_box = QComboBox(self)
-        self.mode_box.addItem(t("追加标签"), "add")
-        self.mode_box.addItem(t("移除标签"), "remove")
-        self.mode_box.addItem(t("覆盖为"), "replace")
-        self.add_widget(self.mode_box)
-        i18n_engine.language_changed.connect(self.refresh_texts)
-
+        self.add_hint(t('编辑选中的 {value_0} 个资源的标签。').format(value_0=len(paths)))
+        self.add_hint(t('勾选表示全部已有，短线表示部分已有；未操作的标签保持原样。'))
+        entry=QWidget(self);entry_row=QHBoxLayout(entry);entry_row.setContentsMargins(0,0,0,0)
         self.editor = QLineEdit(self)
-        bind_text(self.editor, t("多个标签用空格分隔"), 'setPlaceholderText')
-        self.add_widget(self.editor)
+        self.editor.setPlaceholderText(t('输入新标签，按 Enter 添加'))
+        entry_row.addWidget(self.editor,1)
+        add=QPushButton(t('添加'),self);add.clicked.connect(self._add_entered);entry_row.addWidget(add)
+        self.editor.returnPressed.connect(self._add_entered);self.add_widget(entry)
+        from qfluentwidgets import FlowLayout
+        self.scroll=QScrollArea(self);self.scroll.setWidgetResizable(True);self.scroll.setMinimumHeight(240)
+        self.scroll.setFrameShape(QFrame.NoFrame);self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.chip_body=QWidget();self.scroll.setWidget(self.chip_body)
+        self.flow=FlowLayout(self.chip_body,isTight=True);self.flow.setContentsMargins(4,4,4,4)
+        self.flow.setHorizontalSpacing(6);self.flow.setVerticalSpacing(6)
+        self.chips={}
+        from collections import Counter
+        counts=Counter(tag for path in self.paths for tag in set(storage.parse_tags(storage.get_image_keywords(path))))
+        for tag in sorted(set(storage.all_tags())|set(storage.tag_order())|set(counts),key=lambda x:(not bool(counts[x]),x.casefold())):
+            self._add_chip(tag,counts[tag])
+        self.add_widget(self.scroll)
+        self.add_button('取消',on_click=self.reject)
+        self.apply_button=self.add_button('应用',role='primary',on_click=self._apply)
+        self.resize(600,440);self.setMinimumWidth(440)
 
-        known = list(storage.all_tags())[:80]
-        if known:
-            self.add_hint(t("已有标签（点击追加）"))
-            listing = QListWidget(self)
-            listing.setMaximumHeight(130)
-            listing.addItems(known)
-            listing.itemClicked.connect(lambda item: self._append(item.text()))
-            self.add_widget(listing)
+    def _add_chip(self,tag,count=0):
+        chip=TagChoiceButton(tag,count,len(self.paths),self.chip_body)
+        self.chips[tag]=chip;self.flow.addWidget(chip)
+        return chip
 
-        current = sorted({tag for path in self.paths
-                          for tag in storage.parse_tags(storage.get_image_keywords(path))})
-        if current:
-            self.add_hint(t("当前标签：{tags}").format(tags=" / ".join(current)))
-
-        self.add_button(t("取消"), on_click=self.reject)
-        self.add_button(t("应用"), role="primary", on_click=self._apply)
-        self.setMinimumWidth(430)
-
-    def refresh_texts(self, *_):
-        for i, label in enumerate(('追加标签', '移除标签', '覆盖为')):
-            self.mode_box.setItemText(i, t(label))
-
-    def _append(self, tag):
-        existing = self.storage.parse_tags(self.editor.text())
-        if tag not in existing:
-            existing.append(tag)
-        self.editor.setText(self.storage.serialize_tags(existing))
+    def _add_entered(self):
+        for tag in self.storage.parse_tags(self.editor.text()):
+            chip=self.chips.get(tag) or self._add_chip(tag)
+            chip.state=Qt.Checked;chip.update()
+        self.editor.clear();self.flow.invalidate()
 
     def _apply(self):
-        tags = self.storage.parse_tags(self.editor.text())
-        mode = self.mode_box.currentData()
-        if not tags and mode != "replace":
-            self.reject()
-            return
-        self.storage.apply_tags(self.paths, tags, mode)
+        if self.editor.text().strip():self._add_entered()
+        additions=[tag for tag,chip in self.chips.items() if chip.state==Qt.Checked and chip.initial!=Qt.Checked]
+        removals=[tag for tag,chip in self.chips.items() if chip.state==Qt.Unchecked and chip.initial!=Qt.Unchecked]
+        if additions:self.storage.apply_tags(self.paths,additions,'add')
+        if removals:self.storage.apply_tags(self.paths,removals,'remove')
         self.accept()
 
 

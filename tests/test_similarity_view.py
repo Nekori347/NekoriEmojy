@@ -303,14 +303,14 @@ class SimilarityViewTests(unittest.TestCase):
             paths.append(saved)
             storage.add_image_to_category(saved, '分类一')
             storage.add_image_to_category(saved, '分类二')
-        gallery = GalleryInterface(storage, None, {})
+        from services.config import ConfigService
+        from services.clipboard import ClipboardService
+        config=ConfigService(Path(self.temp.name,'app'))
+        gallery = GalleryInterface(storage, ClipboardService(config), config)
         gallery.focus_timer.stop()
         dialog = SimilarityDialog(gallery)
         self.assertIsNone(dialog.worker)
-        self.assertLess(gallery.top_bar_layout.indexOf(gallery.btn_filter),
-                        gallery.top_bar_layout.indexOf(gallery.btn_similarity))
-        self.assertLess(gallery.top_bar_layout.indexOf(gallery.btn_similarity),
-                        gallery.top_bar_layout.indexOf(gallery.btn_exchange))
+        self.assertTrue(hasattr(gallery,'btn_tools'))
         dialog.start_scan()
         deadline = time.monotonic() + 10
         while dialog.worker and time.monotonic() < deadline:

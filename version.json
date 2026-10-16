@@ -1,6 +1,8 @@
 {
-  "version": "0.1.1",
+  "version": "0.1.2",
   "channel": "development",
+  "update_repository": "Nekori347/NekoriEmojy",
+  "update_asset": "NekoriEmojy_Release.zip",
   "upstream_version": "1.13.0",
   "upstream_commit": "0152f075a5595f12cf71512321b84fa76755820e"
 }

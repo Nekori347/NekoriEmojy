@@ -53,9 +53,10 @@ def active_tasks():
     return tasks
 
 
-class UpdateDialog(dialogs.OwnerCenteredDialog):
+class UpdateDialog(dialogs.NekoriDialog):
+    release_changed=Signal(object)
     def __init__(self, parent=None, service=None):
-        super().__init__(parent)
+        super().__init__(parent,t('软件更新'))
         self.service = service or UpdateService()
         self.worker = None
         self.release = None
@@ -65,10 +66,9 @@ class UpdateDialog(dialogs.OwnerCenteredDialog):
         self.setObjectName("updateDialog")
         self.setStyleSheet("QDialog#updateDialog { background: " + colors()['window_base'] + "; }")
         self.resize(700, 470)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(16)
-        self.status = BodyLabel(t("当前版本") + "：v" + current_version(self.service.root))
+        layout = self.body
+        from PySide6.QtWidgets import QLabel
+        self.status = QLabel(t("当前版本") + "：v" + current_version(self.service.root))
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         self.notes = TextEdit()
@@ -92,7 +92,9 @@ class UpdateDialog(dialogs.OwnerCenteredDialog):
         self.check_button.clicked.connect(self.check)
         self.action_button.clicked.connect(self.action)
         self.cancel_button.clicked.connect(self.service.cancel.set)
-        self.page_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(RELEASES_URL)))
+        channel_url=getattr(self.service,'releases_url',RELEASES_URL)
+        self.page_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(channel_url)))
+        self.page_button.setEnabled(bool(channel_url))
         self.later_button.clicked.connect(self.close)
         QApplication.instance().aboutToQuit.connect(self.shutdown)
 
@@ -150,13 +152,18 @@ class UpdateDialog(dialogs.OwnerCenteredDialog):
     def check(self):
         if self.worker is not None:
             return
+        if not getattr(self.service,'channel_available',True):
+            self.status.setText(t('当前为开发版，暂未提供公开更新。'));self.notes.clear()
+            self.release_changed.emit(None)
+            return
         self.release = None
         self.status.setText(t("正在检查更新…"))
         self._run(lambda progress: self.service.check(), self._checked)
 
     def _checked(self, release):
+        self.release_changed.emit(release)
         if not release:
-            self.status.setText(t("当前已是最新版本"))
+            self.status.setText(t('暂未发现可用更新'))
             self.notes.clear()
             return
         self.release = release
@@ -164,8 +171,9 @@ class UpdateDialog(dialogs.OwnerCenteredDialog):
         self.status.setText(t("当前版本") + "：v" + current_version(self.service.root) + " → v" + release["version"] + " · " + release["date"][:10] + " · %.1f MB" % (release["size"] / 1024 ** 2))
         self.notes.setPlainText(release["notes"])
         self.action_button.setText(t("下载更新"))
-        self.action_button.setEnabled((self.service.root / MANIFEST).is_file())
+        self.action_button.setEnabled(True)
         if not (self.service.root / MANIFEST).is_file():
+            self.action_button.setText(t('前往更新'))
             self.status.setText(self.status.text() + "\n" + t("源码运行仅支持检查，请使用正式发布包进行更新"))
 
     def _prepared(self, item):
@@ -188,6 +196,8 @@ class UpdateDialog(dialogs.OwnerCenteredDialog):
             self.setWindowModality(Qt.ApplicationModal)
             self.status.setText(t("正在准备重启更新…"))
             self._run(lambda progress: self.service.launch_installer(), self._quit)
+        elif self.release and (self.release.get('manual_only') or not (self.service.root / MANIFEST).is_file()):
+            QDesktopServices.openUrl(QUrl(self.service.releases_url))
         elif self.release:
             self.progress.setValue(0)
             self.progress.show()

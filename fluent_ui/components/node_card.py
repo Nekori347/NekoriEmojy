@@ -64,6 +64,7 @@ class NodeCard(QLabel):
         self.current_size = size
         self.is_selectable = False
         self.is_selected = False
+        self._hovered = False
         self._drag_start = None
         self._dragging = False
         # Set by the gallery: returns every node id that travels with one drag.
@@ -74,7 +75,7 @@ class NodeCard(QLabel):
         self._motion.setDuration(visual.MOTION.expand)
         self._motion.setEasingCurve(visual.MOTION.easing)
         self._motion.valueChanged.connect(self._rotate)
-        self.setFocusPolicy(Qt.StrongFocus)
+        self.setFocusPolicy(Qt.TabFocus)
         self.setFixedHeight(40)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setCursor(Qt.PointingHandCursor)
@@ -131,11 +132,12 @@ class NodeCard(QLabel):
     def paintEvent(self, event):
         c=colors();p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
         p.setPen(Qt.NoPen)
-        if self.is_selected or self.underMouse():
+        if self.is_selected or self._hovered:
             p.setBrush(QColor(c['selected'] if self.is_selected else c['hover']))
             p.drawRoundedRect(QRectF(self.rect()).adjusted(0,2,0,-2),8,8)
         p.setPen(QPen(QColor(accent()),2))
         p.drawLine(8,12,8,self.height()-12)
+
         if self._icon is not None:p.drawPixmap(24,(self.height()-self._icon.height())//2,self._icon)
         font=visual.font();font.setWeight(QFont.Medium);p.setFont(font)
         summary=f"{self.entry.get('children',0)}/{self.entry.get('total',0)}"
@@ -152,12 +154,25 @@ class NodeCard(QLabel):
         p.save();p.translate(x,y);p.rotate(self._angle)
         Icon.CHEVRON_RIGHT.render(p,QRectF(-7,-7,14,14),fill=c['text_secondary'])
         p.restore()
-        if self.hasFocus():
+        if self.hasFocus() and getattr(self,'_keyboard_focus',False):
             p.setBrush(Qt.NoBrush);p.setPen(QPen(QColor(c['border']),1,Qt.DotLine))
             p.drawRoundedRect(QRectF(self.rect()).adjusted(2,5,-2,-5),6,6)
         p.end()
 
     # -- interaction --------------------------------------------------
+    def enterEvent(self,event):
+        self._hovered=True;self.update();super().enterEvent(event)
+
+    def leaveEvent(self,event):
+        self._hovered=False;self.update();super().leaveEvent(event)
+
+    def hideEvent(self,event):
+        self._hovered=False;super().hideEvent(event)
+
+    def focusInEvent(self,event):
+        self._keyboard_focus=event.reason() in (Qt.TabFocusReason,Qt.BacktabFocusReason,Qt.ShortcutFocusReason)
+        super().focusInEvent(event);self.update()
+
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.setFocus(Qt.MouseFocusReason)

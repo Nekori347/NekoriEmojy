@@ -87,6 +87,13 @@ class SettingRow(QWidget):
         from PySide6.QtCore import QRectF
         painter=QPainter(self)
         paint_setting_surface(painter,QRectF(self.rect()))
+        if self.property('pending'):
+            from PySide6.QtGui import QPen
+            painter.setPen(QPen(QColor(visual.accent()),3))
+            painter.drawLine(8,16,8,self.height()-16)
+
+    def set_pending(self,pending):
+        self.setProperty('pending',bool(pending));self.update()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -370,6 +377,21 @@ class ActionRow(SettingRow):
             button.setStyleSheet(_button_style())
             button.clicked.connect(callback)
             self.add_control(button)
+
+
+class FullPathRow(SettingRow):
+    """Full-width selectable directory below its title, without elision."""
+    def __init__(self,title,hint,value,parent=None):
+        super().__init__(title,hint,parent)
+        self.layout().setDirection(QBoxLayout.TopToBottom)
+        self.value_label=QLabel(str(value),self);self.value_label.setWordWrap(True)
+        self.value_label.setTextFormat(Qt.PlainText)
+        self.value_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.value_label.setFont(visual.font('data'))
+        self.layout().addWidget(self.value_label)
+    def set_value(self,value):self.value_label.setText(str(value))
+    def value(self):return self.value_label.text()
+    def resizeEvent(self,event):QWidget.resizeEvent(self,event)
 
 
 class _InfoValueLabel(QLabel):
