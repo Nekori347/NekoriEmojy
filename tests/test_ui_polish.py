@@ -245,4 +245,3 @@ def test_enter_on_a_category_keeps_existing_navigation(surface,monkeypatch):
     assert not g._view_shortcuts[Qt.Key_Return].isEnabled()
     QTest.keyClick(node,Qt.Key_Return);settle(surface.app)
     assert g.current_node==surface.child;send.assert_not_called()
-
