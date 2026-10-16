@@ -30,7 +30,7 @@ class FlowIndex:
             first = bisect_left(self.tops, self.tops[first-1])
         y = self.tops[first] if first < len(self.tops) else self.height-20
         if first == 0:
-            y = 6
+            y = 4
         rects = self.rects[:first]
         index = first
         while index < len(entries):
@@ -40,13 +40,12 @@ class FlowIndex:
             if entry['kind'] == 'node':
                 rects.append(QRect(12+indent, y, available, 40))
                 index += 1
-                y += 48
+                y += 44
                 continue
-            capacity = max(1, (available+6)//(size+6))
+            capacity = max(1, (available+4)//(size+4))
             left = 12+indent
-            # Distribute the remainder through the columns, rather than leaving
-            # one unused strip at the right. The configured image size stays exact.
-            gap=min(16,(available-capacity*size)/(capacity-1)) if capacity>1 else 8
+            # Keep the inter-image gap dense; balance unused width at both edges.
+            gap=4
             left+=round(max(0,available-capacity*size-(capacity-1)*gap)/2)
             stride=size+gap
             parent = entry.get('_parent')
@@ -61,7 +60,7 @@ class FlowIndex:
                 row_height = max(row_height, height)
                 column += 1
                 index += 1
-            y += row_height+6
+            y += row_height+4
         self.rects = rects
         self.tops = [r.top() for r in rects]
         bottom = 0
@@ -204,8 +203,8 @@ class VirtualGallery:
         self.loader.request([self.active[key] for key in ordered])
         # A small/empty category must not discard the viewport's reusable bank.
         # Its bound depends on visible geometry, never the library item count.
-        columns=max(1,(self.index.width+6)//(self.index.size+6))
-        capacities={'resource':max(32,columns*((height*3+self.index.size+5)//(self.index.size+6))),
+        columns=max(1,(self.index.width+4)//(self.index.size+4))
+        capacities={'resource':max(32,columns*((height*3+self.index.size+3)//(self.index.size+4))),
                     'node':max(32,(height*3+47)//48)}
         for kind,pool in self.pool.items():
             while len(pool) > capacities[kind]:

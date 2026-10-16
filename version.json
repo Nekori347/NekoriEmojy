@@ -1,6 +1,6 @@
 {
-  "version": "0.1.0",
-  "channel": "framework",
+  "version": "0.1.1",
+  "channel": "development",
   "upstream_version": "1.13.0",
   "upstream_commit": "0152f075a5595f12cf71512321b84fa76755820e"
 }

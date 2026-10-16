@@ -171,8 +171,17 @@ class ResizeHandle(QSplitterHandle):
         return super().event(event)
 
     def paintEvent(self, event):
+        if self.dock_host and not self.dock_host.expanded:
+            return
         painter = QPainter(self)
         active = self.isEnabled() and self.underMouse()
+        if not self.dock_host:
+            painter.setPen(QPen(QColor(visual.accent() if active else visual.colors()['border_soft']),1))
+            if self.orientation()==Qt.Horizontal:
+                painter.drawLine(self.width()//2,0,self.width()//2,self.height())
+            else:
+                painter.drawLine(0,self.height()//2,self.width(),self.height()//2)
+            return
         painter.setPen(QPen(QColor(visual.accent() if active else visual.colors()['border']),
                            2 if self.isEnabled() else visual.LINE_WIDTH))
         middle=self.rect().center()

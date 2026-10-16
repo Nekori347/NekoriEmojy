@@ -83,7 +83,7 @@ class SettingsCenter(QWidget):
         actions=QWidget(footer);action_layout=WrapCommands(actions);action_layout.setContentsMargins(0,0,0,0);action_layout.setSpacing(8)
         self.btn_defaults=translated(MetaButton,'本页默认',actions);self.btn_defaults.clicked.connect(self._restore_page_defaults)
         self.btn_discard=translated(MetaButton,'放弃修改',actions);self.btn_discard.setProperty('command','discard');self.btn_discard.clicked.connect(self.discard)
-        self.btn_save=translated(MetaButton,'保存',actions);self.btn_save.setProperty('command','save');self.btn_save.setProperty('role','primary');self.btn_save.clicked.connect(self.save)
+        self.btn_save=translated(MetaButton,'保存',actions);self.btn_save.setProperty('command','save');self.btn_save.clicked.connect(self.save)
         for button in (self.btn_defaults,self.btn_discard,self.btn_save):action_layout.addWidget(button)
         self.btn_import=translated(PushButton,'导入设置',footer);self.btn_import.clicked.connect(self._import_settings);self.btn_import.hide()
         self.btn_export=translated(PushButton,'导出设置',footer);self.btn_export.clicked.connect(self._export_settings);self.btn_export.hide()
@@ -95,7 +95,6 @@ class SettingsCenter(QWidget):
             visual.apply_typography(self);self._typography_initialized=True
         self.setStyleSheet(visual.settings_style())
         apply_row_theme(self)
-        self.btn_save.setStyleSheet(dialogs._button_style())
         self.sticky.setStyleSheet(f"background: {visual.colors()['surface']}; color: {visual.colors()['text_secondary']}; padding: 6px 12px; border: none; border-radius: 0;")
         if hasattr(self, "_tabs"):
             self._style_tabs()
@@ -145,12 +144,13 @@ class SettingsCenter(QWidget):
                 self.scroll.setWidgetResizable(True)
                 self.scroll.setFrameShape(QFrame.NoFrame)
                 self.scroll.setStyleSheet('QScrollArea { border: none; background: transparent; }')
+                self.scroll.viewport().setObjectName('SettingsViewport')
                 self.scroll.verticalScrollBar().valueChanged.connect(self._update_sticky_header)
                 self.body_widget = QWidget()
                 self.body_widget.setObjectName('SettingsBody')
                 self.body_layout = QVBoxLayout(self.body_widget)
-                self.body_layout.setContentsMargins(20, 16, 20, 24)
-                self.body_layout.setSpacing(22)
+                self.body_layout.setContentsMargins(10,12,10,10)
+                self.body_layout.setSpacing(12)
                 self.scroll.setWidget(self.body_widget)
                 self.page_stack.addWidget(self.scroll)
                 self.sticky = QLabel('', self.scroll.viewport())
@@ -648,7 +648,10 @@ class SettingsCenter(QWidget):
         self._set_dirty(bool(self.pending))
 
     def _page_about(self):
+        from services.version_info import version_info,build_label
         section = self._section("APPLICATION")
+        section.add_row(InfoRow('版本','NekoriEmojy','v'+version_info()['version']))
+        section.add_row(InfoRow('构建','',build_label()))
         section.add_row(ActionRow(
             "关于 NekoriEmojy", "查看版本、作者与项目信息。",
             [("查看详情", self.about_requested.emit, True)], self))
@@ -699,10 +702,9 @@ class SettingsCenter(QWidget):
     def _on_preview_toggled(self, enabled):
         self._accent_commit_timer.stop()
         self.preview_enabled = bool(enabled)
-        if self.preview_enabled == bool(self.config.config.get('settings_preview', True)):
-            self.pending.pop('settings_preview', None)
-        else:
-            self.pending['settings_preview'] = self.preview_enabled
+        # This is a preference of the editor itself, not an unsaved setting.
+        self.config.set('settings_preview',self.preview_enabled)
+        self.pending.pop('settings_preview',None)
         for key, value in self._preview_backup.items():
             self.config.preview_values[key] = self.pending.get(key, value) if enabled else value
             if not enabled:

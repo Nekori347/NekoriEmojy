@@ -36,7 +36,7 @@ class CompactControlMetrics:
     padding: int = 2
     spacing: int = 4
     icon: int = 14
-    action_extent: int = 28
+    action_extent: int = 24
     top_inset: int = 2
     index_extent: int = 20
     index_step: int = 22
@@ -101,6 +101,7 @@ TYPOGRAPHY = {
     'body': {'family': BODY_FONT, 'size': 13, 'weight': 400},
     'secondary': {'family': BODY_FONT, 'size': 12, 'weight': 400, 'color': 'text_secondary'},
     'data': {'family': DATA_FONT, 'size': 13, 'weight': 400, 'color': 'text_muted'},
+    'data_small': {'family': DATA_FONT, 'size': 10, 'weight': 400, 'color': 'text_muted'},
     'tooltip': {'family': BODY_FONT, 'size': 12, 'weight': 400},
 }
 

@@ -139,7 +139,7 @@ class MetaButton(PushButton):
         p.setPen(QPen(QColor(c['border'] if self.isEnabled() else c['border_soft']),1));p.setBrush(Qt.NoBrush)
         p.drawRoundedRect(r,r.height()/2,r.height()/2)
         if self.isEnabled():
-            p.setBrush(QColor(c['accent'] if self.property('role')=='primary' else c['hover'] if self.underMouse() else c['control']));p.setPen(Qt.NoPen)
+            p.setBrush(QColor('#ffffff'));p.setPen(Qt.NoPen)
             inside=r.adjusted(4,4,-4,-4)
             p.drawRoundedRect(inside,inside.height()/2,inside.height()/2)
             from fluent_ui.components.softframe import _contours,paint_setting_surface
@@ -149,15 +149,17 @@ class MetaButton(PushButton):
                 p.setClipPath(clip);p.setOpacity(.25)
                 p.drawPixmap(self.width()-135,-68,next(iter(_contours.values())))
                 p.restore()
-        p.setFont(visual.font());p.setPen(QColor(c['text'] if self.isEnabled() else c['muted']))
+        ink='#222720' if self.isEnabled() else c['muted']
+        p.setFont(visual.font());p.setPen(QColor(ink))
         p.drawText(r.adjusted(46,0,-34,0),Qt.AlignCenter,self.text())
         p.setPen(QPen(QColor(c['border']),1));p.drawLine(15,self.height()//2,36,self.height()//2)
         p.drawPoint(15,self.height()//2);p.drawPoint(36,self.height()//2)
         ring=QRectF(self.width()-33,self.height()/2-11,22,22)
-        p.setPen(Qt.NoPen);p.setBrush(QColor(c['text_secondary']));p.drawEllipse(ring)
-        p.setPen(QPen(QColor(c['surface']),2.5,Qt.SolidLine,Qt.RoundCap));p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(QColor(ink),1));p.setBrush(QColor(ink) if self.isEnabled() else Qt.NoBrush);p.drawEllipse(ring)
+        symbol='#ffffff' if self.isEnabled() else c['muted']
+        p.setPen(QPen(QColor(symbol),2.5,Qt.SolidLine,Qt.RoundCap));p.setBrush(Qt.NoBrush)
         if self.property('command') in ('save','discard'):
-            Icon.ACCEPT.render(p,ring.adjusted(4,4,-4,-4),fill=c['surface']) if self.property('command')=='save' else Icon.CANCEL.render(p,ring.adjusted(4,4,-4,-4),fill=c['surface'])
+            Icon.ACCEPT.render(p,ring.adjusted(4,4,-4,-4),fill=symbol) if self.property('command')=='save' else Icon.CANCEL.render(p,ring.adjusted(4,4,-4,-4),fill=symbol)
         else:
             for start in (10,100,190,280):p.drawArc(ring.adjusted(5,5,-5,-5),start*16,56*16)
 
@@ -167,7 +169,7 @@ class TransparentToolButton(ButtonPaint, FluentTool):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._init_surface()
-        self.setIconSize(QSize(16, 16))
+        self.setIconSize(QSize(14,14))
 
 
 class DropDownPushButton(ButtonPaint, FluentDropDown):

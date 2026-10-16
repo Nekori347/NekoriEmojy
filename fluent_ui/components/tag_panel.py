@@ -616,13 +616,17 @@ class TagPanel(QWidget):
         self.index_view.set_orientation(Qt.Horizontal if horizontal else Qt.Vertical)
         self.axis_layout.removeWidget(self.index_view);self.axis_layout.removeWidget(self.btn_new)
         self.axis_layout.setDirection(QBoxLayout.LeftToRight if horizontal else QBoxLayout.TopToBottom)
+        extent=visual.SECTION_INDEX_COMPACT_EXTENT
+        self.axis_strip.setMinimumSize(0,0);self.axis_strip.setMaximumSize(self.UNBOUNDED,self.UNBOUNDED)
+        self.btn_new.setFixedSize(extent,extent)
         if horizontal:
-            self.axis_strip.setMaximumWidth(self.UNBOUNDED);self.axis_strip.setFixedHeight(28)
+            self.axis_strip.setFixedHeight(extent)
             self.axis_layout.insertWidget(0,self.index_view);self.axis_layout.addWidget(self.btn_new)
         else:
-            self.axis_strip.setMaximumHeight(self.UNBOUNDED);self.axis_strip.setFixedWidth(28)
+            self.axis_strip.setFixedWidth(extent)
             self.axis_layout.insertWidget(0,self.btn_new);self.axis_layout.insertWidget(1,self.index_view)
-        self.axis_layout.setAlignment(self.index_view,Qt.AlignLeft if horizontal else Qt.AlignTop)
+        self.axis_layout.setAlignment(self.index_view,Qt.AlignLeft|Qt.AlignVCenter if horizontal else Qt.AlignTop|Qt.AlignHCenter)
+        self.axis_layout.setAlignment(self.btn_new,Qt.AlignVCenter if horizontal else Qt.AlignTop|Qt.AlignHCenter)
 
     def _show_position_menu(self,pos):
         menu=SafeRoundMenu(parent=self)

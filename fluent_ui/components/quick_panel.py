@@ -189,7 +189,7 @@ class QuickPanel(QWidget):
     def _update_i18n_texts(self, lang):
         from services.i18n import t
         if hasattr(self, 'search_box'):
-            self.search_box.setPlaceholderText(t("搜索关键词..."))
+            self.search_box.setPlaceholderText(t('搜索名称、标签或关键词…'))
         keyword = self.search_box.text().strip() if hasattr(self, 'search_box') else ""
         if hasattr(self, 'empty_label'):
             self.empty_label.setText(t("没有找到匹配的表情") if keyword else t("暂无最近使用记录"))

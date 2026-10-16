@@ -1022,5 +1022,12 @@
     "开": "On",
     "关": "Off",
     "搜索当前分类及子分类": "Search this category and descendants",
-    "剪贴板中没有可导入的图片": "No importable images in the clipboard"
+    "剪贴板中没有可导入的图片": "No importable images in the clipboard",
+    "搜索名称、标签或关键词…": "Search names, tags or keywords…",
+    "支持文件名、标签、分类名称和已保存的图片文字。": "Search file names, tags, category names and saved image text.",
+    "构建": "Build",
+    "版本": "Version",
+    "最小化": "Minimize",
+    "最大化": "Maximize",
+    "还原": "Restore"
 }

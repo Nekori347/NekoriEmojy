@@ -111,7 +111,7 @@ class SoftframeSlider(QSlider):
     def __init__(self, orientation=Qt.Horizontal, parent=None):
         super().__init__(orientation,parent)
         self.setMinimumSize(60,28)
-        self.setStyleSheet('QSlider::groove:horizontal { height: 2px; } QSlider::handle:horizontal { width: 28px; margin: -10px 0; }')
+        self.setStyleSheet('QSlider {background:transparent;} QSlider::groove:horizontal {background:transparent; height:2px; margin:0 4px;} QSlider::handle:horizontal {background:transparent; border:none; width:28px; margin:-8px 0;} QSlider::groove:vertical {background:transparent; width:2px; margin:4px 0;} QSlider::handle:vertical {background:transparent; border:none; height:24px; margin:0 -8px;}')
         visual.theme.changed.connect(self.update)
         visual.theme.accent_changed.connect(self.update)
 
@@ -120,7 +120,7 @@ class SoftframeSlider(QSlider):
         c=visual.colors();opt=QStyleOptionSlider();self.initStyleOption(opt)
         handle=self.style().subControlRect(QStyle.CC_Slider,opt,QStyle.SC_SliderHandle,self)
         horizontal=self.orientation()==Qt.Horizontal
-        center=handle.center()
+        center=QRectF(handle).center()
         p.setOpacity(1 if self.isEnabled() else .4)
         p.setPen(QPen(QColor(c['track']),2,Qt.SolidLine,Qt.RoundCap))
         if horizontal:

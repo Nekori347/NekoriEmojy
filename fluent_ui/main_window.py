@@ -266,7 +266,7 @@ class MainWindow(NekoriWindow):
         from fluent_ui import visual
         self.main_layout = QVBoxLayout(self)
         
-        self.main_layout.setContentsMargins(0, 46, 0, 0)
+        self.main_layout.setContentsMargins(0,38,0,0)
         self.main_layout.setSpacing(0)
         
         from fluent_ui.window_shell import add_shell_accent
@@ -277,10 +277,11 @@ class MainWindow(NekoriWindow):
         from fluent_ui.components.controls import TransparentToolButton
         from fluent_ui.icons import Icon as FIF
         self.titleBar.themeButton = TransparentToolButton(self.titleBar)
-        self.titleBar.themeButton.setFixedSize(28, 28)
+        self.titleBar.themeButton.setFixedSize(24,24)
         self.titleBar.themeButton.clicked.connect(self._cycle_theme_mode)
-        self.titleBar.hBoxLayout.insertSpacing(3,18)
+        self.titleBar.hBoxLayout.insertSpacing(3,12)
         self.titleBar.hBoxLayout.insertWidget(4,self.titleBar.themeButton)
+        self.titleBar.hBoxLayout.setAlignment(self.titleBar.themeButton,Qt.AlignBottom)
         visual.theme.changed.connect(self._sync_theme_button)
         from services.i18n import i18n_engine
         i18n_engine.language_changed.connect(self._sync_theme_button)

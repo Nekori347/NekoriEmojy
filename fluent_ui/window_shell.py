@@ -9,7 +9,7 @@ from PySide6.QtCore import QEvent, Qt, QRectF, QPoint, QPropertyAnimation
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QPalette, QPainter, QPen,QIcon
 from PySide6.QtWidgets import QApplication, QWidget, QStackedWidget, QVBoxLayout
 from qframelesswindow import FramelessWindow, StandardTitleBar
-from qframelesswindow.titlebar.title_bar_buttons import TitleBarButtonState
+from qframelesswindow.titlebar.title_bar_buttons import TitleBarButtonState,TitleBarButton
 
 from fluent_ui import visual
 from fluent_ui.components.dialogs import center_on_owner
@@ -63,22 +63,66 @@ def apply_shell_theme(window):
         button.setPressedColor(QColor(c['text']))
         button.setHoverBackgroundColor(QColor(c['hover']))
         button.setPressedBackgroundColor(QColor(c['selected']))
-        button.setFixedSize(36, 30)
+        button.setFixedSize(28,24)
     window.titleBar.closeBtn.setHoverColor(QColor('white'))
     window.titleBar.closeBtn.setHoverBackgroundColor(QColor(c['danger']))
     window.titleBar.closeBtn.setPressedBackgroundColor(QColor(c['danger']))
 
 
+class CaptionButton(TitleBarButton):
+    """One centre and one rounded hit surface for every window command."""
+    def __init__(self,kind,parent):
+        super().__init__(parent);self.kind=kind;self._maximized=False
+        self.setFixedSize(28,24)
+        bind_text(self,{'minimize':'最小化','maximize':'最大化','close':'关闭'}[kind],'setToolTip')
+        self.setAccessibleName(self.toolTip())
+
+    def setMaxState(self,maximized):
+        self._maximized=bool(maximized);self.update()
+        if self.kind=='maximize':
+            bind_text(self,'还原' if maximized else '最大化','setToolTip');self.setAccessibleName(self.toolTip())
+
+    def icon_rect(self):
+        return QRectF((self.width()-14)/2,(self.height()-14)/2,14,14)
+
+    def highlight_rect(self):
+        return QRectF(self.rect()).adjusted(1,1,-1,-1)
+
+    def paintEvent(self,event):
+        from fluent_ui.icons import Icon
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
+        foreground,background=self._getColors()
+        p.setPen(Qt.NoPen);p.setBrush(background);p.drawRoundedRect(self.highlight_rect(),6,6)
+        r=self.icon_rect()
+        if self.kind in ('minimize','close'):
+            (Icon.REMOVE if self.kind=='minimize' else Icon.CLOSE).render(p,r,fill=foreground)
+        else:
+            p.setPen(QPen(foreground,1.3,Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin));p.setBrush(Qt.NoBrush)
+            if self._maximized:
+                p.drawRect(r.adjusted(4,1,-1,-4))
+                p.setBrush(background);p.drawRect(r.adjusted(1,4,-4,-1))
+            else:p.drawRect(r.adjusted(2,2,-2,-2))
+
+    def mouseReleaseEvent(self,event):
+        super().mouseReleaseEvent(event)
+        self.setState(TitleBarButtonState.HOVER if self.rect().contains(event.position().toPoint()) else TitleBarButtonState.NORMAL)
+
+
 class NekoriTitleBar(StandardTitleBar):
     def __init__(self,parent):
         super().__init__(parent)
+        from qframelesswindow.utils import toggleMaxState
+        for attr,kind,callback in [('minBtn','minimize',self.window().showMinimized),('maxBtn','maximize',lambda:toggleMaxState(self.window())),('closeBtn','close',self.window().close)]:
+            old=getattr(self,attr);button=CaptionButton(kind,self)
+            self.hBoxLayout.replaceWidget(old,button);old.hide();old.deleteLater();setattr(self,attr,button)
+            button.clicked.connect(callback)
         self.setAutoFillBackground(False)
         self.titleLabel.setStyleSheet('background: transparent; padding: 0 5px;')
         self.titleLabel.setFont(visual.font('brand'))
 
     def setIcon(self,icon):
-        self.iconLabel.setFixedSize(32,32)
-        self.iconLabel.setPixmap(QIcon(icon).pixmap(32,32))
+        self.iconLabel.setFixedSize(22,22)
+        self.iconLabel.setPixmap(QIcon(icon).pixmap(22,22))
 
     def setTitle(self,title):
         self.titleLabel.setFont(visual.font('body' if any(ord(ch)>127 for ch in title) else 'brand'))
@@ -122,8 +166,11 @@ class AccentDecoration(QWidget):
 
 
 def add_shell_accent(window):
-    window.titleBar.setFixedHeight(42)
-    window.titleBar.hBoxLayout.setContentsMargins(8, 6, 8, 0)
+    window.titleBar.setFixedHeight(34)
+    window.titleBar.hBoxLayout.setContentsMargins(8,7,6,2)
+    window.titleBar.hBoxLayout.setSpacing(2)
+    for button in (window.titleBar.iconLabel,window.titleBar.minBtn,window.titleBar.maxBtn,window.titleBar.closeBtn):
+        window.titleBar.hBoxLayout.setAlignment(button,Qt.AlignBottom)
     window.titleBar.titleLabel.setProperty('role', 'brand')
     window.titleBar.titleLabel.setFont(visual.font('brand'))
     window.titleBar.iconLabel.show()
@@ -278,7 +325,7 @@ class NekoriOwnedWindow(NekoriWindow):
             bind_text(self, t(self.window_title), 'setWindowTitle')
             bind_text(self.titleBar.titleLabel, t(self.window_title))
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6,48,6,6)
+        layout.setContentsMargins(6,40,6,6)
         layout.setSpacing(0)
         self.body_layout = layout
         self.setMinimumSize(*self.minimum_size)

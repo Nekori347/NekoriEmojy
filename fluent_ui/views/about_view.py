@@ -29,7 +29,8 @@ class AboutInterface(QWidget):
         names=QVBoxLayout();name=QLabel('NekoriEmojy',self.sheet);name.setFont(visual.font('page_title'));name.setProperty('role','title')
         names.addWidget(name);self.summary=QLabel(self.sheet);bind_text(self.summary,'本地图片与表情资源管理')
         self.summary.setProperty('role','hint');names.addWidget(self.summary);brand.addLayout(names,1)
-        self.version=QLabel('v'+current_version(),self.sheet);self.version.setProperty('role','data');brand.addWidget(self.version)
+        from services.version_info import build_label
+        self.version=QLabel('v'+current_version(),self.sheet);self.version.setProperty('role','data');self.version.setToolTip(build_label());brand.addWidget(self.version)
         sheet.addLayout(brand)
         self.scroll=QScrollArea(self.sheet);self.scroll.setWidgetResizable(True);self.scroll.setFrameShape(QScrollArea.NoFrame)
         self.scroll.setStyleSheet('QScrollArea {border:none;background:transparent;}')
