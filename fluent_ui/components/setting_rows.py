@@ -4,7 +4,7 @@ Every row edits one key. Rows never write the config directly: the Settings
 Center collects pending values so Save / Discard stay meaningful.
 """
 from services.i18n import t, bind_text, translated, i18n_engine
-from PySide6.QtCore import Qt, Signal, QTimer, QPropertyAnimation
+from PySide6.QtCore import Qt, Signal, QTimer, QPropertyAnimation, QSize
 from PySide6.QtGui import QFont, QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QLineEdit, QSizePolicy, QVBoxLayout, QWidget, QGridLayout, QBoxLayout,
@@ -372,35 +372,56 @@ class ActionRow(SettingRow):
             self.add_control(button)
 
 
+class _InfoValueLabel(QLabel):
+    """Reserve space using the full value, even when its visible text is elided."""
+
+    def __init__(self, value, parent):
+        super().__init__(parent)
+        self._full_value = str(value)
+        self.setWordWrap(False)
+        self.setMaximumWidth(260)
+        self.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self.set_value(value)
+
+    def sizeHint(self):
+        metrics = self.fontMetrics()
+        return QSize(min(260, metrics.horizontalAdvance(self._full_value)), metrics.height())
+
+    def minimumSizeHint(self):
+        hint = self.sizeHint()
+        hint.setWidth(min(150, hint.width()))
+        return hint
+
+    def set_value(self, value):
+        self._full_value = str(value)
+        self.setToolTip(self._full_value)
+        self._elide()
+        self.updateGeometry()
+
+    def _elide(self):
+        self.setText(self.fontMetrics().elidedText(self._full_value, Qt.ElideMiddle, self.contentsRect().width()))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._elide()
+
+
 class InfoRow(SettingRow):
     """Read-only value display in the data typeface."""
 
     def __init__(self, title, hint, value="", parent=None):
         super().__init__(title, hint, parent)
-        self.value_label = QLabel(value, self)
-        self.value_label.setWordWrap(False)
-        self.value_label.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred)
-        self.value_label.setMinimumWidth(150)
-        self.value_label.setMinimumWidth(0)
-        self.value_label.setMaximumWidth(260)
-        self.value_label.setToolTip(value)
+        self.value_label = _InfoValueLabel(value, self)
         mono = QFont(DATA_FONT.split(",")[0].strip())
         mono.setPixelSize(11)
         self.value_label.setFont(mono)
         self.value_label.setProperty("role", "data")
         self.value_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.add_control(self.value_label)
-        self._full_value=value
 
     def set_value(self, value):
-        self._full_value=str(value);self.value_label.setToolTip(str(value));self._elide_value()
-
-    def _elide_value(self):
-        self.value_label.setText(self.value_label.fontMetrics().elidedText(self._full_value,Qt.ElideMiddle,max(150,self.value_label.width())))
-
-    def resizeEvent(self,event):
-        super().resizeEvent(event)
-        if hasattr(self,'_full_value'):self._elide_value()
+        self.value_label.set_value(value)
 
 
 class SettingSection(QWidget):

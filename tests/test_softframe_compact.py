@@ -151,6 +151,38 @@ def test_settings_and_brand_use_the_same_version(surface,settings):
     from fluent_ui.components.setting_rows import InfoRow
     from fluent_ui.presentation.glyphs import BrandLockup
     c=settings;c._select_page(4);settle(surface.app)
-    assert 'v'+current_version() in [r.value_label.text() for r in c.body_widget.findChildren(InfoRow)]
+    rows=c.body_widget.findChildren(InfoRow)
+    assert 'v'+current_version() in [r.value_label.text() for r in rows]
+    for row in rows:
+        label=row.value_label
+        assert label.isVisible() and label.width()>0
+        assert label.fontMetrics().horizontalAdvance(label.text())<=label.contentsRect().width()
     assert version_info()['version']==current_version()=='0.1.1'
     assert surface.g.sidebar.findChild(BrandLockup).version=='v0.1.1'
+
+
+def test_info_value_resizes_without_wrapping_or_losing_its_full_path(surface):
+    from fluent_ui.components.setting_rows import InfoRow
+    path='F:/Library/'+('long-folder-name/'*12)+'NekoriEmojy'
+    row=InfoRow('当前资源库','保存后重启切换资源库。',path)
+    row.resize(720,86);row.show();settle(surface.app)
+    for width in (720,310,720):
+        row.resize(width,row.height());settle(surface.app)
+        label=row.value_label
+        assert label.width()>=100 and not label.wordWrap()
+        assert label.toolTip()==path and '…' in label.text()
+        assert label.fontMetrics().horizontalAdvance(label.text())<=label.contentsRect().width()
+    row.set_value('v0.1.1');settle(surface.app)
+    assert row.value_label.text()=='v0.1.1'
+    row.close();row.deleteLater();settle(surface.app)
+
+
+@pytest.mark.parametrize('dark',[False,True])
+def test_tag_title_paint_tracks_the_surface_theme(surface,dark):
+    from PySide6.QtGui import QColor
+    setTheme(Theme.DARK if dark else Theme.LIGHT);visual.theme.refresh();settle(surface.app)
+    image=painted(surface.g.tag_panel.title_label);expected=QColor(visual.colors()['text'])
+    assert any((c:=image.pixelColor(x,y)).alpha()>180 and
+               max(abs(c.red()-expected.red()),abs(c.green()-expected.green()),abs(c.blue()-expected.blue()))<12
+               for y in range(image.height()) for x in range(image.width()))
+    setTheme(Theme.LIGHT);visual.theme.refresh()

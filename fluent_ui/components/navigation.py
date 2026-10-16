@@ -21,7 +21,7 @@ class CompactTitleLabel(QLabel):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setPen(self.palette().windowText().color())
+        painter.setPen(QColor(visual.colors()['text']))
         painter.drawText(self.contentsRect(), Qt.AlignVCenter,
                          self.fontMetrics().elidedText(self.text(), Qt.ElideRight, self.contentsRect().width()))
 
