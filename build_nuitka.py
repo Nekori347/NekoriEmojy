@@ -81,6 +81,7 @@ def main():
         "--enable-plugin=pyside6",
         "--windows-icon-from-ico=ico.ico",
         "--include-data-file=ico.ico=ico.ico",
+        "--include-data-dir=fluent_ui/assets=fluent_ui/assets",
         "--output-dir=dist",
         "--output-filename=SuzuEmojy.exe",
         "--assume-yes-for-downloads",

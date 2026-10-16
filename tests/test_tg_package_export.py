@@ -125,12 +125,12 @@ class TGPackageExportTest(unittest.TestCase):
         worker.run()
         self.assertEqual(self.errors, [])
         with zipfile.ZipFile(self.output) as archive:
-            self.assertEqual(archive.read("TG.txt"), b"https://t.me/addemoji/TestEmoji\n")
+            self.assertEqual(archive.read("TG.txt"),
+                             b"https://t.me/addemoji/TestEmoji" + bytes([10]))
         destination = self.root / "roundtrip"
-        _make_storage(destination)
-        ExchangeImportService(str(destination)).import_zip(str(self.output))
-        self.assertEqual(len(list((destination / "data" / "images").iterdir())), 1)
-
+        target = _make_storage(destination)
+        ExchangeImportService(storage=target).import_zip(str(self.output))
+        self.assertEqual(len(target.get_all_images()), 1)
     def test_failed_cleaning_preserves_existing_output(self):
         self.output.write_bytes(b"existing")
         self.storage.save_file = lambda _, **kwargs: (None, False)
@@ -149,48 +149,39 @@ class TGPackageExportTest(unittest.TestCase):
         self.assertEqual(self.output.read_bytes(), b"existing")
         self.assertEqual(list(self.root.glob("tg_package_*")), [])
 
-    def test_transient_windows_lock_is_retried(self):
-        real_replace = os.replace
-        attempts = []
+    def test_transient_index_failure_is_repaired_on_retry(self):
+        real_save = self.storage._save_hashes
+        calls = []
 
-        def replace(source, target):
-            if str(target) == self.storage.hashes_file:
-                attempts.append(target)
-                if len(attempts) < 3:
-                    error = PermissionError("busy")
-                    error.winerror = 5
-                    raise error
-            return real_replace(source, target)
+        def flaky(strict=False):
+            calls.append(strict)
+            if len(calls) == 1:
+                raise PermissionError("busy")
+            return real_save(strict=strict)
 
-        with patch("services.storage.os.replace", side_effect=replace), patch("services.storage.time.sleep"):
+        with patch.object(self.storage, "_save_hashes", side_effect=flaky):
             self.worker().run()
-        self.assertEqual(self.errors, [])
-        self.assertTrue(self.output.exists())
-        self.assertGreaterEqual(len(attempts), 3)
+        self.assertTrue(self.errors)
+        self.assertFalse(self.output.exists())
         self.assertEqual(len(list(Path(self.storage.images_dir).iterdir())), 1)
 
-    def test_persistent_lock_then_retry_repairs_orphan(self):
+        # The orphaned file is repaired into a normal duplicate instead of being
+        # written a second time.
+        self.worker().run()
+        self.assertEqual(self.errors, [])
+        self.assertTrue(self.output.exists())
+        self.assertEqual(len(list(Path(self.storage.images_dir).iterdir())), 1)
+    def test_persistent_index_failure_then_retry_repairs_orphan(self):
         self.output.write_bytes(b"existing")
-        real_replace = os.replace
-        attempts = []
-
-        def replace(source, target):
-            if str(target) == self.storage.hashes_file:
-                attempts.append(target)
-                error = PermissionError("busy")
-                error.winerror = 5
-                raise error
-            return real_replace(source, target)
-
-        with patch("services.storage.os.replace", side_effect=replace), patch("services.storage.time.sleep"):
+        with patch.object(self.storage, "_save_hashes", side_effect=PermissionError("busy")):
             self.worker().run()
         self.assertTrue(self.errors)
         self.assertIn("索引保存失败", self.errors[0])
-        self.assertEqual(len(attempts), 10)  # 两张贴纸各最多尝试五次
         self.assertEqual(self.output.read_bytes(), b"existing")
         self.assertEqual(len(list(Path(self.storage.images_dir).iterdir())), 1)
         self.assertFalse(self.storage.get_images_by_category("tg-001"))
         self.assertEqual(list(Path(self.storage.data_dir).glob("*.tmp")), [])
+
         self.worker().run()
         self.assertEqual(self.errors, [])
         self.assertEqual(len(self.storage.get_images_by_category("tg-001")), 1)
@@ -199,24 +190,28 @@ class TGPackageExportTest(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertTrue(rows[0][0])
         self.assertTrue(rows[0][1].startswith("p:"))
-
     def test_category_write_failure_is_not_success_and_retry_recovers(self):
-        real_save = self.storage.save_categories
+        from services.library_index import ROOT
+        real_add = self.storage.index.add_membership
+        state = {"failed": False}
 
-        def save(categories, strict=False):
-            if strict:
+        def add(resource_id, node_id, position=None):
+            # ROOT membership is the library registration and must keep working;
+            # only the user category relation fails.
+            if node_id != ROOT and not state["failed"]:
+                state["failed"] = True
                 raise OSError("category database unavailable")
-            return real_save(categories)
+            return real_add(resource_id, node_id, position)
 
-        with patch.object(self.storage, "save_categories", side_effect=save):
+        with patch.object(self.storage.index, "add_membership", side_effect=add):
             self.worker().run()
         self.assertTrue(self.errors)
         self.assertIn("加入收藏夹失败", self.errors[0])
         self.assertFalse(self.output.exists())
+
         self.worker().run()
         self.assertEqual(self.errors, [])
         self.assertEqual(len(self.storage.get_images_by_category("tg-001")), 1)
-
     def test_feature_db_initialization_does_not_migrate_live_json(self):
         from services.feature_db import FeatureDB
         with patch.object(FeatureDB, "check_and_migrate_from_json") as migrate:
@@ -250,17 +245,13 @@ class TGPackageExportTest(unittest.TestCase):
         source = self.root / "source.bmp"
         source.write_bytes(self.downloader.download_file_bytes(""))
         path, _ = self.storage.save_file(str(source), strict=True)
-        real_connect = sqlite3.connect
 
-        def connect(database, *args, **kwargs):
-            if str(database) == self.storage.categories_db_path:
-                raise sqlite3.OperationalError("locked")
-            return real_connect(database, *args, **kwargs)
+        def broken():
+            raise sqlite3.OperationalError("locked")
 
-        self.storage.get_all_categories()
-        with patch("services.storage.sqlite3.connect", side_effect=connect):
+        with patch.object(self.storage.index, "connect", side_effect=broken):
             with self.assertRaises(sqlite3.OperationalError):
-                self.storage.add_image_to_category(path, "recovered", strict=True)
-        self.storage.add_image_to_category(path, "recovered", strict=True)
-        with closing(real_connect(self.storage.categories_db_path)) as conn:
-            self.assertEqual(conn.execute("SELECT COUNT(*) FROM category_images").fetchone()[0], 1)
+                self.storage.add_image_to_category(path, "recovered")
+
+        self.storage.add_image_to_category(path, "recovered")
+        self.assertEqual(len(self.storage.get_images_by_category("recovered")), 1)

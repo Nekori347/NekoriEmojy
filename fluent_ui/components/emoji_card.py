@@ -1,11 +1,14 @@
+import os
+
 from PySide6.QtWidgets import QLabel, QApplication, QMenu
 from PySide6.QtGui import QCursor, QDrag, QPixmap, QImageReader, QPixmapCache
 from PySide6.QtCore import (
-    Qt, Signal, QMimeData, QPoint, QSize, QTimer, QEasingCurve,
+    Qt, Signal, QMimeData, QPoint, QSize, QTimer, QEasingCurve, QUrl,
     QPropertyAnimation, QObject, QRunnable, QThreadPool
 )
 from PySide6.QtWidgets import QGraphicsOpacityEffect
-from qfluentwidgets import TransparentToolButton, FluentIcon
+from fluent_ui.components.controls import TransparentToolButton
+from fluent_ui.icons import Icon as FluentIcon
 
 try:
     from shiboken6 import isValid as _is_qt_object_valid
@@ -21,11 +24,13 @@ class _ThumbnailLoadSignals(QObject):
 class _ThumbnailLoadTask(QRunnable):
     """在线程池中解码缩略图，只传递 QImage，不在线程中创建 QPixmap。"""
 
-    def __init__(self, image_path, target_size, request_id):
+    def __init__(self, image_path, target_size, request_id, frame=0, cache_file=None):
         super().__init__()
         self.image_path = image_path
         self.target_size = target_size
         self.request_id = request_id
+        self.frame = int(frame or 0)
+        self.cache_file = cache_file
         self._cancelled = False
         self.signals = _ThumbnailLoadSignals()
 
@@ -35,22 +40,41 @@ class _ThumbnailLoadTask(QRunnable):
             if self._cancelled:
                 return
 
-            reader = QImageReader(self.image_path)
-            original_size = reader.size()
+            if self.cache_file and os.path.isfile(self.cache_file):
+                cached = QImageReader(self.cache_file).read()
+                if not cached.isNull():
+                    self._emit_finished(self.image_path, cached, self.request_id, self.target_size)
+                    return
+            if self.frame:
+                # A requested frame goes through the shared frame decoder:
+                # QImageReader cannot step GIF frames here, so asking it for a
+                # frame silently produced frame 0 every time.
+                from services.image_frames import frame_at
+                loaded = frame_at(self.image_path, self.frame)
+                if loaded is not None and not loaded.isNull():
+                    loaded = loaded.scaled(self.target_size, self.target_size,
+                                           Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            else:
+                reader = QImageReader(self.image_path)
+                original_size = reader.size()
 
-            if original_size.isValid():
-                original_size.scale(
-                    self.target_size,
-                    self.target_size,
-                    Qt.KeepAspectRatio
-                )
-                reader.setScaledSize(original_size)
+                if original_size.isValid():
+                    original_size.scale(
+                        self.target_size,
+                        self.target_size,
+                        Qt.KeepAspectRatio
+                    )
+                    reader.setScaledSize(original_size)
 
-            loaded = reader.read()
+                loaded = reader.read()
             if self._cancelled:
                 return
             if loaded and not loaded.isNull():
                 image = loaded
+                if self.cache_file:
+                    temporary = self.cache_file + '.tmp'
+                    if image.save(temporary, 'PNG'):
+                        os.replace(temporary, self.cache_file)
         except Exception as e:
             print(
                 f"[Error] Async thumbnail failed: "
@@ -60,12 +84,25 @@ class _ThumbnailLoadTask(QRunnable):
         if self._cancelled:
             return
 
-        self.signals.finished.emit(
+        # The card can be gone by the time a decode finishes (shutdown, or a
+        # category switch that dropped it), which deletes the signals object.
+        self._emit_finished(
             self.image_path,
             image,
             self.request_id,
             self.target_size
         )
+
+    def _emit_finished(self, *args):
+        """Emit unless the receiving card already went away.
+
+        A decode can outlive its card (shutdown, or a category switch that
+        dropped it), and the signals object dies with the card.
+        """
+        try:
+            self.signals.finished.emit(*args)
+        except RuntimeError:
+            pass
 
 
 class ThumbnailCache:
@@ -79,8 +116,8 @@ class ThumbnailCache:
 
     def __init__(self):
         if not self._initialized:
-            self._normal_limit_kb = 16 * 1024  # 正常操作时 16MB
-            self._idle_limit_kb = 4 * 1024     # 空闲时 4MB
+            self._normal_limit_kb = 128 * 1024  # Bounded resource cache, independent of cards.
+            self._idle_limit_kb = self._normal_limit_kb
 
             QPixmapCache.setCacheLimit(self._normal_limit_kb)
 
@@ -99,18 +136,69 @@ class ThumbnailCache:
         self._idle_timer.start(60000)
 
     def _on_idle_timeout(self):
-        """空闲超时，清空未被控件引用的缓存图片并降低缓存上限。"""
-        QPixmapCache.setCacheLimit(self._idle_limit_kb)
-        QPixmapCache.clear()
+        """Qt's LRU limit evicts on pressure; idle does not invalidate resources."""
+        pass
 
-    def get_thumbnail(self, image_path, target_size):
-        cache_key = f"{image_path}|{target_size}x{target_size}"
+    _library_identity = None
+    _library_identity_source = None
+
+    @classmethod
+    def library_identity(cls):
+        """Library root used in cache keys, resolved once per library.
+
+        Resolving the path (a filesystem syscall) and re-reading the config on
+        every key made each lookup cost more than the decode it exists to
+        avoid, and produced unstable keys while the config was still unset.
+        Kept as an explicit cache invalidated by the configured source instead.
+        """
+        from services.app_paths import selected_library
+        from fluent_ui import visual
+        config = visual.theme.config
+        try:
+            source = os.environ.get('NEKORI_LIBRARY') or (
+                config.get('library_path') if config is not None else '') or ''
+        except Exception:
+            source = ''
+        if cls._library_identity is None or source != cls._library_identity_source:
+            cls._library_identity_source = source
+            try:
+                cls._library_identity = os.path.normcase(str(selected_library(config)))
+            except Exception:
+                cls._library_identity = ''
+        return cls._library_identity
+
+    @classmethod
+    def cache_key(cls, image_path, target_size, frame=0):
+        """Identity of one cached thumbnail.
+
+        The library root is part of the key so switching libraries without
+        restarting cannot hit another library's file under the same path.
+        """
+        return (f"{cls.library_identity()}|{image_path}"
+                f"|{target_size}x{target_size}|{int(frame or 0)}")
+
+    def get_thumbnail(self, image_path, target_size, frame=0):
+        cache_key = self.cache_key(image_path, target_size, frame)
 
         pixmap = QPixmap()
         if QPixmapCache.find(cache_key, pixmap):
             return pixmap
 
         try:
+            if frame:
+                # Same reason as the async path: the shared decoder is the only
+                # one that can actually reach a GIF frame here.
+                from services.image_frames import frame_at
+                image = frame_at(image_path, int(frame))
+                if image is None or image.isNull():
+                    return None
+                pixmap = QPixmap.fromImage(image)
+                if pixmap.width() > target_size or pixmap.height() > target_size:
+                    pixmap = pixmap.scaled(target_size, target_size,
+                                           Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                QPixmapCache.insert(cache_key, pixmap)
+                return pixmap
+
             reader = QImageReader(image_path)
             orig_size = reader.size()
 
@@ -146,18 +234,23 @@ class EmojiCard(QLabel):
     Fluent风格的图片组件，用于在网格中展示缩略图并支持点击事件和拖拽排序
     """
     clicked = Signal(str, Qt.KeyboardModifiers)  # 点击信号，传递图片路径和键盘修饰键状态
+    activated = Signal(str)
     delete_requested = Signal(object, str) # 请求删除的信号: (Widget实例, 路径)
     selection_changed = Signal(str, bool)  # 选中状态改变信号: (路径, 是否选中)
 
     hover_started = Signal(str) # 悬停进入
     hover_ended = Signal()      # 悬停离开
 
-    def __init__(self, image_path, size=120, parent=None, load_image=True):
+    def __init__(self, image_path, size=120, parent=None, load_image=True, frame=0, availability=None, status=None):
         super().__init__(parent)
         self.image_path = image_path
+        self.setFocusPolicy(Qt.StrongFocus)
         self._drag_start_pos = None
         self._is_dragging = False
         self.current_size = size
+        self.frame = int(frame or 0)
+        # Set by the gallery: returns every path that should travel with one drag.
+        self.drag_payload_provider = None
         self._loaded_size = 0  # 记录当前实际加载的图片尺寸
         self._is_loaded = False
         self._is_loading = False
@@ -181,6 +274,18 @@ class EmojiCard(QLabel):
         self.setAlignment(Qt.AlignCenter)
 
         self.setObjectName("EmojiCard")
+        from fluent_ui import visual
+        visual.theme.changed.connect(self.update_style)
+        visual.theme.accent_changed.connect(self.update)
+        import os
+        exists = status!='missing' if status is not None else availability.exists(image_path) if availability is not None else os.path.isfile(image_path)
+        self.setProperty("state", "normal" if exists else "missing")
+        from services.i18n import t, bind_text
+        # No tooltip on a healthy card: the hover preview already carries the
+        # file identity, and a full path tooltip on top of it was pure noise.
+        # A missing file still needs to say so, without repeating the path.
+        if not exists:
+            bind_text(self, t('资源文件缺失'), 'setToolTip')
         self.update_style()
         self.update_size(self.current_size, load_image=load_image)
 
@@ -197,82 +302,51 @@ class EmojiCard(QLabel):
         self.selection_changed.emit(self.image_path, selected)
 
     def update_style(self):
-        if self.is_selected:
-            from qfluentwidgets import themeColor, isDarkTheme
-            color = themeColor()
-            r, g, b = color.red(), color.green(), color.blue()
-            hex_color = color.name()
-
-            if isDarkTheme():
-                bg_color = f"rgba({r}, {g}, {b}, 0.28)"
-            else:
-                bg_color = f"rgba({r}, {g}, {b}, 0.12)"
-
-            self.setStyleSheet(f"""
-                QLabel#EmojiCard {{
-                    border-radius: 8px;
-                    background-color: {bg_color};
-                    border: 2px solid {hex_color};
-                }}
-            """)
-        else:
-            from qfluentwidgets import isDarkTheme
-            if isDarkTheme():
-                hover_bg = "rgba(255, 255, 255, 0.08)"
-                hover_border = "rgba(255, 255, 255, 0.15)"
-            else:
-                hover_bg = "rgba(0, 0, 0, 0.05)"
-                hover_border = "rgba(0, 0, 0, 0.12)"
-
-            self.setStyleSheet(f"""
-                QLabel#EmojiCard {{
-                    border-radius: 8px;
-                    background-color: transparent;
-                    border: 1px solid transparent;
-                }}
-                QLabel#EmojiCard:hover {{
-                    background-color: {hover_bg};
-                    border: 1px solid {hover_border};
-                }}
-            """)
+        if not self.styleSheet():
+            self.setStyleSheet('QLabel#EmojiCard {background:transparent;border:none;}')
+        self.update()
 
     def paintEvent(self, event):
-        super().paintEvent(event)
-        # 如果被选中，在右上角画一个打勾的圆圈
+        from PySide6.QtGui import QPainter, QPainterPath, QPen, QColor
+        from PySide6.QtCore import QRectF
+        from fluent_ui import visual
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);p.setRenderHint(QPainter.SmoothPixmapTransform)
+        c=visual.colors();r=QRectF(self.rect()).adjusted(.5,.5,-.5,-.5)
+        p.setPen(Qt.NoPen);p.setBrush(QColor(c['surface_alt']))
+        p.drawRoundedRect(r,10,10)
+        image=r.adjusted(2,2,-2,-2)
+        movie=self.movie();pix=movie.currentPixmap() if movie else self.pixmap()
+        if pix is not None and not pix.isNull():
+            clip=QPainterPath();clip.addRoundedRect(image,6,6);p.save();p.setClipPath(clip)
+            size=pix.size().toSizeF();size.scale(image.size(),Qt.KeepAspectRatio)
+            target=QRectF(0,0,size.width(),size.height());target.moveCenter(image.center())
+            p.drawPixmap(target,pix,QRectF(pix.rect()));p.restore()
+        if self.property('state')=='missing':
+            p.setPen(QPen(QColor(c['muted']),1))
+            q=image.adjusted(18,18,-18,-28)
+            p.drawLine(q.topLeft(),q.bottomRight());p.drawLine(q.topRight(),q.bottomLeft())
+            p.setFont(visual.font('data'));p.drawText(image,Qt.AlignBottom|Qt.AlignHCenter,'MISSING')
+        if self.is_selected or self.underMouse():
+            p.setBrush(Qt.NoBrush);p.setPen(QPen(QColor(c['accent'] if self.is_selected else c['border']),1.5))
+            p.drawRoundedRect(r.adjusted(1,1,-1,-1),9,9)
         if self.is_selected:
-            from PySide6.QtGui import QPainter, QColor, QPen
-            from PySide6.QtCore import QRect, QPoint
-            from qfluentwidgets import themeColor
-
-            painter = QPainter(self)
-            painter.setRenderHint(QPainter.Antialiasing)
-
-            # 画一个主题色底色的圆
-            painter.setBrush(themeColor())
-            painter.setPen(Qt.NoPen)
-            radius = 12
-            center = QPoint(self.width() - radius - 6, radius + 6)
-            painter.drawEllipse(center, radius, radius)
-
-            # 画白色的对号
-            pen = QPen(QColor("white"))
-            pen.setWidth(2)
-            pen.setCapStyle(Qt.RoundCap)
-            pen.setJoinStyle(Qt.RoundJoin)
-            painter.setPen(pen)
-
-            # 对号的坐标
-            p1 = QPoint(center.x() - 4, center.y() + 1)
-            p2 = QPoint(center.x() - 1, center.y() + 4)
-            p3 = QPoint(center.x() + 5, center.y() - 3)
-
-            painter.drawPolyline([p1, p2, p3])
+            p.setPen(QPen(QColor(c['accent']),3,Qt.SolidLine,Qt.RoundCap))
+            p.drawLine(12,3,32,3)
 
     def needs_reload(self, target_size):
-        target_img_size = max(10, target_size - 16)
+        target_img_size = max(10, target_size - 8)
         if self._is_loading and self._loading_size == target_img_size:
             return False
         return not self._is_loaded or self._loaded_size != target_size
+
+    def set_frame(self, frame):
+        self.frame = int(frame or 0)
+        self._is_loaded = False
+        self._loaded_size = 0
+        if hasattr(self, 'gallery_reload'):
+            self.gallery_reload(self.image_path)
+            return
+        self.update_size(self.current_size, load_image=True)
 
     def _stop_appear_animation(self):
         """停止入场动画并恢复正常绘制状态。"""
@@ -378,13 +452,18 @@ class EmojiCard(QLabel):
         self._loaded_size = 0
         self.setText("⋯")
 
+    def _cache_key(self, target_img_size):
+        # One key format for the whole app: the card and the shared cache must
+        # agree, and the key carries the library identity.
+        return ThumbnailCache.cache_key(self.image_path, target_img_size, self.frame)
+
     def _on_thumbnail_loaded(
         self, image_path, image, request_id, target_size
     ):
         if (
             request_id != self._load_request_id
             or image_path != self.image_path
-            or target_size != max(10, self.current_size - 16)
+            or target_size != max(10, self.current_size - 8)
         ):
             return
 
@@ -394,7 +473,8 @@ class EmojiCard(QLabel):
         if image is None or image.isNull():
             self._is_loaded = False
             self._loaded_size = 0
-            self.setText(" ")
+            import os
+            self.setText("?" if not os.path.isfile(self.image_path) else " ")
             return
 
         pixmap = QPixmap.fromImage(image)
@@ -404,13 +484,10 @@ class EmojiCard(QLabel):
             self.setText(" ")
             return
 
-        target_img_size = max(10, self.current_size - 16)
-        QPixmapCache.insert(
-            f"{self.image_path}|{target_img_size}x{target_img_size}",
-            pixmap
-        )
+        target_img_size = max(10, self.current_size - 8)
+        QPixmapCache.insert(self._cache_key(target_img_size), pixmap)
         self.setText("")
-        self.setPixmap(pixmap)
+        self.setPixmap(pixmap.scaled(target_img_size, target_img_size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         self._is_loaded = True
         self._loaded_size = self.current_size
 
@@ -418,11 +495,11 @@ class EmojiCard(QLabel):
         if self._is_loading and self._loading_size == target_size:
             return
 
-        cache_key = f"{self.image_path}|{target_size}x{target_size}"
+        cache_key = self._cache_key(target_size)
         cached = QPixmap()
         if QPixmapCache.find(cache_key, cached):
             self.setText("")
-            self.setPixmap(cached)
+            self.setPixmap(cached.scaled(target_size, target_size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
             self._is_loaded = True
             self._loaded_size = self.current_size
             return
@@ -436,14 +513,15 @@ class EmojiCard(QLabel):
         task = _ThumbnailLoadTask(
             self.image_path,
             target_size,
-            request_id
+            request_id,
+            self.frame,
         )
         task.signals.finished.connect(self._on_thumbnail_loaded)
         self._load_task = task
         _thumbnail_pool.start(task)
 
     def update_size(self, new_size, load_image=True):
-        target_img_size = max(10, new_size - 16)
+        target_img_size = max(10, new_size - 8)
         if (
             load_image
             and self._is_loading
@@ -468,7 +546,7 @@ class EmojiCard(QLabel):
                     self.setText("⋯")
             return
 
-        target_img_size = max(10, new_size - 16)
+        target_img_size = max(10, new_size - 8)
         self._is_loaded = False
         self._loaded_size = 0
         self.setText("⋯")
@@ -492,30 +570,41 @@ class EmojiCard(QLabel):
         if not (event.buttons() & Qt.LeftButton) or self._drag_start_pos is None:
             return super().mouseMoveEvent(event)
 
-        # 多选模式下禁用拖拽
-        if getattr(self, 'is_selectable', False):
+        if (event.pos() - self._drag_start_pos).manhattanLength() <= QApplication.startDragDistance():
             return super().mouseMoveEvent(event)
 
-        if (event.pos() - self._drag_start_pos).manhattanLength() > QApplication.startDragDistance():
-            self._is_dragging = True
+        self._is_dragging = True
+        payload = [self.image_path]
+        if self.drag_payload_provider is not None:
+            resolved = self.drag_payload_provider(self.image_path)
+            if resolved:
+                payload = list(resolved)
 
-            drag = QDrag(self)
-            mime_data = QMimeData()
-            mime_data.setData("application/x-emojy-reorder", self.image_path.encode('utf-8'))
-            drag.setMimeData(mime_data)
+        from fluent_ui.components.node_card import RESOURCE_MIME
+        import json
+        import os
 
-            pixmap = self.grab()
-            drag.setPixmap(pixmap.scaled(60, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-            drag.setHotSpot(QPoint(30, 30))
+        drag = QDrag(self)
+        mime_data = QMimeData()
+        mime_data.setData(RESOURCE_MIME, json.dumps(payload).encode('utf-8'))
+        # File URLs make the same drag usable by Explorer (copy out) and by chat
+        # clients that accept dropped files (send).
+        urls = [QUrl.fromLocalFile(path) for path in payload if os.path.isfile(path)]
+        if urls:
+            mime_data.setUrls(urls)
+            mime_data.setText(os.pathsep.join(payload))
+        drag.setMimeData(mime_data)
 
-            self.setCursor(QCursor(Qt.ClosedHandCursor))
-            drag.exec(Qt.MoveAction)
-            self.setCursor(QCursor(Qt.PointingHandCursor))
+        pixmap = self.grab()
+        drag.setPixmap(pixmap.scaled(60, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        drag.setHotSpot(QPoint(30, 30))
 
-            self._drag_start_pos = None
-            return
+        self.setCursor(QCursor(Qt.ClosedHandCursor))
+        drag.exec(Qt.CopyAction | Qt.MoveAction, Qt.CopyAction if urls else Qt.MoveAction)
+        self._is_dragging = False
+        self.setCursor(QCursor(Qt.PointingHandCursor))
 
-        super().mouseMoveEvent(event)
+        self._drag_start_pos = None
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -533,6 +622,20 @@ class EmojiCard(QLabel):
     def enterEvent(self, event):
         self.hover_started.emit(self.image_path)
         super().enterEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.activated.emit(self.image_path)
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self.activated.emit(self.image_path)
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def leaveEvent(self, event):
         self.hover_ended.emit()

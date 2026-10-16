@@ -1,3 +1,5 @@
+from fluent_ui.presentation.tools import WrapCommands, build_import_tool
+from fluent_ui.components import dialogs
 import os
 import sys
 import time
@@ -22,12 +24,12 @@ from PySide6.QtGui import (
     QIcon, QFont, QPixmap, QPainter, QColor, QMovie, QImageReader, QTextCursor,
     QGuiApplication
 )
-from qfluentwidgets import (
-    LineEdit, PushButton, PrimaryPushButton, ComboBox, CheckBox, ProgressBar,
-    TextEdit, FluentIcon as FIF, TransparentToolButton,
-    TitleLabel, BodyLabel, SubtitleLabel, ScrollArea, CardWidget, StrongBodyLabel,
-    MessageBoxBase
-)
+from fluent_ui.components.controls import LineEdit, PushButton, PrimaryPushButton, ComboBox, CheckBox, TransparentToolButton
+from qfluentwidgets import TitleLabel, BodyLabel, SubtitleLabel, ScrollArea, StrongBodyLabel, MessageBoxBase
+from fluent_ui.components.softframe import SoftframeProgress as ProgressBar
+from fluent_ui.components.controls import TextEdit
+from fluent_ui.components.controls import CardWidget
+from fluent_ui.icons import Icon as FIF
 
 from services.tg_downloader import (
     TGStickerDownloader,
@@ -42,6 +44,8 @@ from services.i18n import t, i18n_engine
 from fluent_ui.views.setting_view import disable_wheel_scroll_adjustment
 from fluent_ui.components.rotating_chevron_button import RotatingChevronButton
 from fluent_ui.components.state_tool_tip_manager import StateToolTipManager
+from fluent_ui.components.feedback import feedback_for, notify
+from fluent_ui.visual import colors
 
 # Cloudflare Worker 示例脚本
 CORS_WORKER_SAMPLE = """export default {
@@ -73,7 +77,7 @@ CORS_WORKER_SAMPLE = """export default {
 
 # ==================== 使用说明书与教程弹窗 ====================
 
-class TGHelpDialog(QDialog):
+class TGHelpDialog(dialogs.OwnerCenteredDialog):
     """详细使用说明书与高级配置教程窗口"""
 
     def __init__(self, parent=None):
@@ -87,22 +91,22 @@ class TGHelpDialog(QDialog):
     def _get_help_html(self, section):
         pages = {
             "links": {
-                "zh": """<div style="font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4;">📘 如何获取 Telegram 贴纸链接与包名？</h3><ol><li><b>在客户端中复制链接</b>：在 Telegram 中打开任意聊天，点击任一贴纸/表情，点击<b>「添加贴纸包」</b>进入详情页；</li><li><b>分享并复制链接</b>：点击右上角菜单，选择<b>「分享」</b>或<b>「复制链接」</b>；</li><li><b>支持的常见输入格式</b>：<ul><li><b>标准贴纸链接</b>：<code>https://t.me/addstickers/FunnyDogs</code></li><li><b>短链接格式</b>：<code>t.me/addstickers/FunnyDogs</code></li><li><b>自定义表情包链接</b>：<code>https://t.me/addemoji/MyEmojiPack</code></li><li><b>TG 协议链接</b>：<code>tg://resolve?domain=addstickers&set=FunnyDogs</code></li><li><b>直接输入包名</b>：直接输入末尾的短英文名称，例如 <code>FunnyDogs</code> 即可直接解析！</li></ul></li></ol><h3 style="color: #0078d4;">💡 格式转换说明</h3><ul><li><b>PNG</b>：通用静态图片格式。对于动图或视频贴纸，会智能提取其第一帧高清画面。</li><li><b>GIF</b>：动态图片格式。支持将 <b>TGS (Lottie矢量动画)</b> 与 <b>WebM (VP9高清视频贴纸)</b> 自动转码为可循环播放的 GIF。</li><li><b>原始格式</b>：不进行任何转换，原汁原味保存 Telegram 官方服务器原始文件（<code>.webp</code> / <code>.tgs</code> / <code>.webm</code>）。</li></ul></div>""",
-                "zh_TW": """<div style="font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4;">📘 如何取得 Telegram 貼圖連結與套組名稱？</h3><ol><li><b>在用戶端複製連結</b>：在 Telegram 開啟任意聊天，點選貼圖／表情，再點選<b>「加入貼圖套組」</b>進入詳細頁面；</li><li><b>分享並複製連結</b>：點選右上角選單，選擇<b>「分享」</b>或<b>「複製連結」</b>；</li><li><b>支援的常見輸入格式</b>：<ul><li><b>標準貼圖連結</b>：<code>https://t.me/addstickers/FunnyDogs</code></li><li><b>短連結格式</b>：<code>t.me/addstickers/FunnyDogs</code></li><li><b>自訂表情套組連結</b>：<code>https://t.me/addemoji/MyEmojiPack</code></li><li><b>TG 協定連結</b>：<code>tg://resolve?domain=addstickers&set=FunnyDogs</code></li><li><b>直接輸入套組名稱</b>：輸入末尾的英文名稱，例如 <code>FunnyDogs</code> 即可解析！</li></ul></li></ol><h3 style="color: #0078d4;">💡 格式轉換說明</h3><ul><li><b>PNG</b>：通用靜態圖片格式。動態或影片貼圖會智慧擷取第一幀高清畫面。</li><li><b>GIF</b>：動態圖片格式。支援將 <b>TGS（Lottie 向量動畫）</b>與 <b>WebM（VP9 高畫質影片貼圖）</b>轉碼為可循環播放的 GIF。</li><li><b>原始格式</b>：不進行轉換，保留 Telegram 官方伺服器的原始檔案（<code>.webp</code>／<code>.tgs</code>／<code>.webm</code>）。</li></ul></div>""",
-                "en": """<div style="font-family: 'Segoe UI', sans-serif; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4;">📘 How to get Telegram sticker links and pack names</h3><ol><li><b>Copy a link in the client</b>: Open any chat in Telegram, click a sticker or emoji, then click <b>“Add Sticker Pack”</b> to open its details.</li><li><b>Share and copy the link</b>: Open the top-right menu and choose <b>“Share”</b> or <b>“Copy Link”</b>.</li><li><b>Supported input formats</b>: <ul><li><b>Standard sticker link</b>: <code>https://t.me/addstickers/FunnyDogs</code></li><li><b>Short link</b>: <code>t.me/addstickers/FunnyDogs</code></li><li><b>Custom emoji pack link</b>: <code>https://t.me/addemoji/MyEmojiPack</code></li><li><b>TG protocol link</b>: <code>tg://resolve?domain=addstickers&set=FunnyDogs</code></li><li><b>Pack name</b>: Enter a short English name such as <code>FunnyDogs</code> to parse it directly.</li></ul></li></ol><h3 style="color: #0078d4;">💡 Format conversion</h3><ul><li><b>PNG</b>: A universal static image format. The first high-quality frame is extracted from animated or video stickers.</li><li><b>GIF</b>: Animated stickers and videos are converted to looping GIFs. TGS (Lottie vector animation) and WebM (VP9 video stickers) are supported.</li><li><b>Original format</b>: No conversion; the original Telegram files are preserved (<code>.webp</code> / <code>.tgs</code> / <code>.webm</code>).</li></ul></div>""",
-                "ja": """<div style="font-family: 'Segoe UI', 'Yu Gothic', sans-serif; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4;">📘 Telegram ステッカーのリンクとパック名を取得する方法</h3><ol><li><b>クライアントでリンクをコピー</b>：Telegram のチャットでステッカーまたは絵文字をクリックし、<b>「ステッカーパックを追加」</b>を選択します。</li><li><b>共有してリンクをコピー</b>：右上のメニューから<b>「共有」</b>または<b>「リンクをコピー」</b>を選択します。</li><li><b>対応する入力形式</b>：<ul><li><b>標準リンク</b>：<code>https://t.me/addstickers/FunnyDogs</code></li><li><b>短縮リンク</b>：<code>t.me/addstickers/FunnyDogs</code></li><li><b>カスタム絵文字パック</b>：<code>https://t.me/addemoji/MyEmojiPack</code></li><li><b>TG プロトコル</b>：<code>tg://resolve?domain=addstickers&set=FunnyDogs</code></li><li><b>パック名</b>：<code>FunnyDogs</code> のような短い英語名を直接入力できます。</li></ul></li></ol><h3 style="color: #0078d4;">💡 形式変換について</h3><ul><li><b>PNG</b>：静止画形式。アニメーションや動画ステッカーから最初の高画質フレームを抽出します。</li><li><b>GIF</b>：TGS（Lottie ベクターアニメーション）と WebM（VP9 動画ステッカー）をループ再生可能な GIF に変換します。</li><li><b>元の形式</b>：変換せず、Telegram サーバーの元ファイル（<code>.webp</code>／<code>.tgs</code>／<code>.webm</code>）を保存します。</li></ul></div>"""
+                "zh": """<div style="font-family: 'Sarasa UI SC', 'Microsoft YaHei UI'; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4;">📘 如何获取 Telegram 贴纸链接与包名？</h3><ol><li><b>在客户端中复制链接</b>：在 Telegram 中打开任意聊天，点击任一贴纸/表情，点击<b>「添加贴纸包」</b>进入详情页；</li><li><b>分享并复制链接</b>：点击右上角菜单，选择<b>「分享」</b>或<b>「复制链接」</b>；</li><li><b>支持的常见输入格式</b>：<ul><li><b>标准贴纸链接</b>：<code>https://t.me/addstickers/FunnyDogs</code></li><li><b>短链接格式</b>：<code>t.me/addstickers/FunnyDogs</code></li><li><b>自定义表情包链接</b>：<code>https://t.me/addemoji/MyEmojiPack</code></li><li><b>TG 协议链接</b>：<code>tg://resolve?domain=addstickers&set=FunnyDogs</code></li><li><b>直接输入包名</b>：直接输入末尾的短英文名称，例如 <code>FunnyDogs</code> 即可直接解析！</li></ul></li></ol><h3 style="color: #0078d4;">💡 格式转换说明</h3><ul><li><b>PNG</b>：通用静态图片格式。对于动图或视频贴纸，会智能提取其第一帧高清画面。</li><li><b>GIF</b>：动态图片格式。支持将 <b>TGS (Lottie矢量动画)</b> 与 <b>WebM (VP9高清视频贴纸)</b> 自动转码为可循环播放的 GIF。</li><li><b>原始格式</b>：不进行任何转换，原汁原味保存 Telegram 官方服务器原始文件（<code>.webp</code> / <code>.tgs</code> / <code>.webm</code>）。</li></ul></div>""",
+                "zh_TW": """<div style="font-family: 'Sarasa UI SC', 'Microsoft YaHei UI'; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4;">📘 如何取得 Telegram 貼圖連結與套組名稱？</h3><ol><li><b>在用戶端複製連結</b>：在 Telegram 開啟任意聊天，點選貼圖／表情，再點選<b>「加入貼圖套組」</b>進入詳細頁面；</li><li><b>分享並複製連結</b>：點選右上角選單，選擇<b>「分享」</b>或<b>「複製連結」</b>；</li><li><b>支援的常見輸入格式</b>：<ul><li><b>標準貼圖連結</b>：<code>https://t.me/addstickers/FunnyDogs</code></li><li><b>短連結格式</b>：<code>t.me/addstickers/FunnyDogs</code></li><li><b>自訂表情套組連結</b>：<code>https://t.me/addemoji/MyEmojiPack</code></li><li><b>TG 協定連結</b>：<code>tg://resolve?domain=addstickers&set=FunnyDogs</code></li><li><b>直接輸入套組名稱</b>：輸入末尾的英文名稱，例如 <code>FunnyDogs</code> 即可解析！</li></ul></li></ol><h3 style="color: #0078d4;">💡 格式轉換說明</h3><ul><li><b>PNG</b>：通用靜態圖片格式。動態或影片貼圖會智慧擷取第一幀高清畫面。</li><li><b>GIF</b>：動態圖片格式。支援將 <b>TGS（Lottie 向量動畫）</b>與 <b>WebM（VP9 高畫質影片貼圖）</b>轉碼為可循環播放的 GIF。</li><li><b>原始格式</b>：不進行轉換，保留 Telegram 官方伺服器的原始檔案（<code>.webp</code>／<code>.tgs</code>／<code>.webm</code>）。</li></ul></div>""",
+                "en": """<div style="font-family: 'Sarasa UI SC', 'Microsoft YaHei UI'; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4;">📘 How to get Telegram sticker links and pack names</h3><ol><li><b>Copy a link in the client</b>: Open any chat in Telegram, click a sticker or emoji, then click <b>“Add Sticker Pack”</b> to open its details.</li><li><b>Share and copy the link</b>: Open the top-right menu and choose <b>“Share”</b> or <b>“Copy Link”</b>.</li><li><b>Supported input formats</b>: <ul><li><b>Standard sticker link</b>: <code>https://t.me/addstickers/FunnyDogs</code></li><li><b>Short link</b>: <code>t.me/addstickers/FunnyDogs</code></li><li><b>Custom emoji pack link</b>: <code>https://t.me/addemoji/MyEmojiPack</code></li><li><b>TG protocol link</b>: <code>tg://resolve?domain=addstickers&set=FunnyDogs</code></li><li><b>Pack name</b>: Enter a short English name such as <code>FunnyDogs</code> to parse it directly.</li></ul></li></ol><h3 style="color: #0078d4;">💡 Format conversion</h3><ul><li><b>PNG</b>: A universal static image format. The first high-quality frame is extracted from animated or video stickers.</li><li><b>GIF</b>: Animated stickers and videos are converted to looping GIFs. TGS (Lottie vector animation) and WebM (VP9 video stickers) are supported.</li><li><b>Original format</b>: No conversion; the original Telegram files are preserved (<code>.webp</code> / <code>.tgs</code> / <code>.webm</code>).</li></ul></div>""",
+                "ja": """<div style="font-family: 'Sarasa UI SC', 'Microsoft YaHei UI'; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4;">📘 Telegram ステッカーのリンクとパック名を取得する方法</h3><ol><li><b>クライアントでリンクをコピー</b>：Telegram のチャットでステッカーまたは絵文字をクリックし、<b>「ステッカーパックを追加」</b>を選択します。</li><li><b>共有してリンクをコピー</b>：右上のメニューから<b>「共有」</b>または<b>「リンクをコピー」</b>を選択します。</li><li><b>対応する入力形式</b>：<ul><li><b>標準リンク</b>：<code>https://t.me/addstickers/FunnyDogs</code></li><li><b>短縮リンク</b>：<code>t.me/addstickers/FunnyDogs</code></li><li><b>カスタム絵文字パック</b>：<code>https://t.me/addemoji/MyEmojiPack</code></li><li><b>TG プロトコル</b>：<code>tg://resolve?domain=addstickers&set=FunnyDogs</code></li><li><b>パック名</b>：<code>FunnyDogs</code> のような短い英語名を直接入力できます。</li></ul></li></ol><h3 style="color: #0078d4;">💡 形式変換について</h3><ul><li><b>PNG</b>：静止画形式。アニメーションや動画ステッカーから最初の高画質フレームを抽出します。</li><li><b>GIF</b>：TGS（Lottie ベクターアニメーション）と WebM（VP9 動画ステッカー）をループ再生可能な GIF に変換します。</li><li><b>元の形式</b>：変換せず、Telegram サーバーの元ファイル（<code>.webp</code>／<code>.tgs</code>／<code>.webm</code>）を保存します。</li></ul></div>"""
             },
             "proxy": {
-                "zh": """<div style="font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4; margin-top:0;">☁️ 为什么需要 Cloudflare Workers 代理？</h3><p>由于部分地区网络无法直接访问 <code>api.telegram.org</code>，本工具内置了官方直连优先 + 备用 Worker 代理的智能路由。如果您想完全使用自己独立稳定的线路，可在 Cloudflare 上免费搭建 1 个 Worker 转发代理。</p><h3 style="color: #0078d4;">🚀 快速部署指引</h3><ol><li>登录 <a href="https://dash.cloudflare.com/">Cloudflare 控制台</a>，进入 <b>Workers & Pages</b>，点击 <b>Create Application</b> → <b>Create Worker</b>；</li><li>点击 <b>Deploy</b> 部署默认模板，然后点击 <b>Quick Edit（快速编辑）</b>；</li><li>清空编辑器中的代码，粘贴下方提供的 <b>Worker 代理脚本</b> 并点击 <b>Save and Deploy</b>；</li><li>部署完成后复制您的 Worker 域名（例如 <code>https://your-worker.workers.dev</code>），填入本软件的高级配置 <b>「CF 代理 URL」</b> 中，点击<b>「测试连通性」</b>即可。</li></ol></div>""",
-                "zh_TW": """<div style="font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4; margin-top:0;">☁️ 為什麼需要 Cloudflare Workers 代理？</h3><p>由於部分地區的網路無法直接存取 <code>api.telegram.org</code>，本工具內建官方直連優先與備用 Worker 代理的智慧路由。若您想完全使用獨立且穩定的線路，可以在 Cloudflare 免費建立一個 Worker 轉發代理。</p><h3 style="color: #0078d4;">🚀 快速部署指引</h3><ol><li>登入 <a href="https://dash.cloudflare.com/">Cloudflare 控制台</a>，進入 <b>Workers & Pages</b>，點選 <b>Create Application</b> → <b>Create Worker</b>；</li><li>點選 <b>Deploy</b> 部署預設範本，再點選 <b>Quick Edit（快速編輯）</b>；</li><li>清空編輯器中的程式碼，貼上方提供的 <b>Worker 代理腳本</b>，然後點選 <b>Save and Deploy</b>；</li><li>部署完成後複製 Worker 網域（例如 <code>https://your-worker.workers.dev</code>），填入本軟體進階設定的 <b>「CF 代理 URL」</b>，再點選<b>「測試連線」</b>即可。</li></ol></div>""",
-                "en": """<div style="font-family: 'Segoe UI', sans-serif; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4; margin-top:0;">☁️ Why use a Cloudflare Workers proxy?</h3><p>Some networks cannot access <code>api.telegram.org</code> directly. This tool uses direct access first and falls back to a Worker proxy through smart routing. To use your own stable route, you can deploy a free forwarding Worker on Cloudflare.</p><h3 style="color: #0078d4;">🚀 Quick deployment guide</h3><ol><li>Sign in to the <a href="https://dash.cloudflare.com/">Cloudflare dashboard</a>, open <b>Workers & Pages</b>, and click <b>Create Application</b> → <b>Create Worker</b>;</li><li>Click <b>Deploy</b> to deploy the default template, then click <b>Quick Edit</b>;</li><li>Clear the editor, paste the <b>Worker proxy script</b> provided below, and click <b>Save and Deploy</b>;</li><li>After deployment, copy your Worker domain, such as <code>https://your-worker.workers.dev</code>. Enter it in <b>CF Proxy URL</b> under this tool's advanced settings and click <b>Test Connection</b>.</li></ol></div>""",
-                "ja": """<div style="font-family: 'Segoe UI', 'Yu Gothic', sans-serif; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4; margin-top:0;">☁️ Cloudflare Workers プロキシが必要な理由</h3><p>一部のネットワークでは <code>api.telegram.org</code> に直接アクセスできません。本ツールは直接接続を優先し、必要に応じて Worker プロキシへフォールバックするスマートルーティングを使用します。独自の安定した経路を使う場合は、Cloudflare に無料の転送 Worker をデプロイできます。</p><h3 style="color: #0078d4;">🚀 簡単なデプロイ手順</h3><ol><li><a href="https://dash.cloudflare.com/">Cloudflare ダッシュボード</a>にログインし、<b>Workers & Pages</b>を開いて<b>Create Application</b> → <b>Create Worker</b>をクリックします。</li><li><b>Deploy</b>で既定のテンプレートをデプロイし、<b>Quick Edit</b>をクリックします。</li><li>エディターのコードを消去し、下にある<b>Worker プロキシスクリプト</b>を貼り付けて<b>Save and Deploy</b>をクリックします。</li><li>デプロイ後、<code>https://your-worker.workers.dev</code>のような Worker ドメインをコピーし、本ツールの詳細設定にある<b>CF Proxy URL</b>へ入力して<b>接続テスト</b>をクリックします。</li></ol></div>"""
+                "zh": """<div style="font-family: 'Sarasa UI SC', 'Microsoft YaHei UI'; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4; margin-top:0;">☁️ 为什么需要 Cloudflare Workers 代理？</h3><p>由于部分地区网络无法直接访问 <code>api.telegram.org</code>，本工具内置了官方直连优先 + 备用 Worker 代理的智能路由。如果您想完全使用自己独立稳定的线路，可在 Cloudflare 上免费搭建 1 个 Worker 转发代理。</p><h3 style="color: #0078d4;">🚀 快速部署指引</h3><ol><li>登录 <a href="https://dash.cloudflare.com/">Cloudflare 控制台</a>，进入 <b>Workers & Pages</b>，点击 <b>Create Application</b> → <b>Create Worker</b>；</li><li>点击 <b>Deploy</b> 部署默认模板，然后点击 <b>Quick Edit（快速编辑）</b>；</li><li>清空编辑器中的代码，粘贴下方提供的 <b>Worker 代理脚本</b> 并点击 <b>Save and Deploy</b>；</li><li>部署完成后复制您的 Worker 域名（例如 <code>https://your-worker.workers.dev</code>），填入本软件的高级配置 <b>「CF 代理 URL」</b> 中，点击<b>「测试连通性」</b>即可。</li></ol></div>""",
+                "zh_TW": """<div style="font-family: 'Sarasa UI SC', 'Microsoft YaHei UI'; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4; margin-top:0;">☁️ 為什麼需要 Cloudflare Workers 代理？</h3><p>由於部分地區的網路無法直接存取 <code>api.telegram.org</code>，本工具內建官方直連優先與備用 Worker 代理的智慧路由。若您想完全使用獨立且穩定的線路，可以在 Cloudflare 免費建立一個 Worker 轉發代理。</p><h3 style="color: #0078d4;">🚀 快速部署指引</h3><ol><li>登入 <a href="https://dash.cloudflare.com/">Cloudflare 控制台</a>，進入 <b>Workers & Pages</b>，點選 <b>Create Application</b> → <b>Create Worker</b>；</li><li>點選 <b>Deploy</b> 部署預設範本，再點選 <b>Quick Edit（快速編輯）</b>；</li><li>清空編輯器中的程式碼，貼上方提供的 <b>Worker 代理腳本</b>，然後點選 <b>Save and Deploy</b>；</li><li>部署完成後複製 Worker 網域（例如 <code>https://your-worker.workers.dev</code>），填入本軟體進階設定的 <b>「CF 代理 URL」</b>，再點選<b>「測試連線」</b>即可。</li></ol></div>""",
+                "en": """<div style="font-family: 'Sarasa UI SC', 'Microsoft YaHei UI'; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4; margin-top:0;">☁️ Why use a Cloudflare Workers proxy?</h3><p>Some networks cannot access <code>api.telegram.org</code> directly. This tool uses direct access first and falls back to a Worker proxy through smart routing. To use your own stable route, you can deploy a free forwarding Worker on Cloudflare.</p><h3 style="color: #0078d4;">🚀 Quick deployment guide</h3><ol><li>Sign in to the <a href="https://dash.cloudflare.com/">Cloudflare dashboard</a>, open <b>Workers & Pages</b>, and click <b>Create Application</b> → <b>Create Worker</b>;</li><li>Click <b>Deploy</b> to deploy the default template, then click <b>Quick Edit</b>;</li><li>Clear the editor, paste the <b>Worker proxy script</b> provided below, and click <b>Save and Deploy</b>;</li><li>After deployment, copy your Worker domain, such as <code>https://your-worker.workers.dev</code>. Enter it in <b>CF Proxy URL</b> under this tool's advanced settings and click <b>Test Connection</b>.</li></ol></div>""",
+                "ja": """<div style="font-family: 'Sarasa UI SC', 'Microsoft YaHei UI'; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4; margin-top:0;">☁️ Cloudflare Workers プロキシが必要な理由</h3><p>一部のネットワークでは <code>api.telegram.org</code> に直接アクセスできません。本ツールは直接接続を優先し、必要に応じて Worker プロキシへフォールバックするスマートルーティングを使用します。独自の安定した経路を使う場合は、Cloudflare に無料の転送 Worker をデプロイできます。</p><h3 style="color: #0078d4;">🚀 簡単なデプロイ手順</h3><ol><li><a href="https://dash.cloudflare.com/">Cloudflare ダッシュボード</a>にログインし、<b>Workers & Pages</b>を開いて<b>Create Application</b> → <b>Create Worker</b>をクリックします。</li><li><b>Deploy</b>で既定のテンプレートをデプロイし、<b>Quick Edit</b>をクリックします。</li><li>エディターのコードを消去し、下にある<b>Worker プロキシスクリプト</b>を貼り付けて<b>Save and Deploy</b>をクリックします。</li><li>デプロイ後、<code>https://your-worker.workers.dev</code>のような Worker ドメインをコピーし、本ツールの詳細設定にある<b>CF Proxy URL</b>へ入力して<b>接続テスト</b>をクリックします。</li></ol></div>"""
             },
             "token": {
-                "zh": """<div style="font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4; margin-top:0;">🤖 如何免费获取 Telegram Bot Token？</h3><p>本工具已<b>内置默认 Bot Token</b>，通常情况下您无需配置即可直接使用。<br/>如果您需要长期稳定下载、避免公用 Token 偶尔触发 Telegram 速率限制，建议向官方申请一个属于您自己的免费 Token。</p><h3 style="color: #0078d4;">📝 获取步骤（仅需 1 分钟）</h3><ol><li>在 Telegram 中搜索官方机器人 <b>@BotFather</b> 并开启对话，或访问 <a href="https://t.me/BotFather">https://t.me/BotFather</a>；</li><li>向 BotFather 发送命令 <code>/newbot</code>；</li><li>按照提示输入机器人的<b>昵称</b>（如 <code>MyStickerTool</code>）和<b>用户名</b>（需以 <code>bot</code> 结尾，如 <code>my_sticker_dl_bot</code>）；</li><li>创建成功后，BotFather 会发送一段 HTTP API Token（格式类似 <code>7203628923:AAF5D9vqy5o71egC9zIAb...</code>）；</li><li>将 Token 复制并粘贴到本软件高级配置的 <b>Bot Token</b> 栏中，点击<b>测试连通性</b>即可完成配置。</li></ol></div>""",
-                "zh_TW": """<div style="font-family: 'Segoe UI', 'Microsoft JhengHei', sans-serif; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4; margin-top:0;">🤖 如何免費取得 Telegram Bot Token？</h3><p>本工具已<b>內建預設 Bot Token</b>，通常不需設定即可直接使用。<br/>若您需要長期穩定下載，避免共用 Token 偶爾觸發 Telegram 速率限制，建議向官方申請一個屬於自己的免費 Token。</p><h3 style="color: #0078d4;">📝 取得步驟（只需 1 分鐘）</h3><ol><li>在 Telegram 搜尋官方機器人 <b>@BotFather</b> 並開始對話，或造訪 <a href="https://t.me/BotFather">https://t.me/BotFather</a>；</li><li>向 BotFather 傳送指令 <code>/newbot</code>；</li><li>依照提示輸入機器人的<b>暱稱</b>（如 <code>MyStickerTool</code>）與<b>使用者名稱</b>（需以 <code>bot</code> 結尾，如 <code>my_sticker_dl_bot</code>）；</li><li>建立成功後，BotFather 會傳送一段 HTTP API Token（格式類似 <code>7203628923:AAF5D9vqy5o71egC9zIAb...</code>）；</li><li>將 Token 複製並貼到本軟體進階設定的 <b>Bot Token</b> 欄位，點選<b>測試連線</b>即可完成設定。</li></ol></div>""",
-                "en": """<div style="font-family: 'Segoe UI', sans-serif; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4; margin-top:0;">🤖 How to get a Telegram Bot Token for free</h3><p>This tool includes a <b>built-in default Bot Token</b>, so no configuration is normally required. If you need stable long-term downloads and want to avoid rate limits that may occasionally affect a shared Token, apply for your own free Token.</p><h3 style="color: #0078d4;">📝 Steps（about 1 minute）</h3><ol><li>Search for the official bot <b>@BotFather</b> in Telegram and start a conversation, or open <a href="https://t.me/BotFather">https://t.me/BotFather</a>;</li><li>Send <code>/newbot</code> to BotFather;</li><li>Follow the instructions to enter a bot <b>display name</b> such as <code>MyStickerTool</code> and a <b>username</b> ending in <code>bot</code>, such as <code>my_sticker_dl_bot</code>;</li><li>After creation, BotFather sends an HTTP API Token similar to <code>7203628923:AAF5D9vqy5o71egC9zIAb...</code>;</li><li>Copy the Token into the <b>Bot Token</b> field in this tool's advanced settings and click <b>Test Connection</b>.</li></ol></div>""",
-                "ja": """<div style="font-family: 'Segoe UI', 'Yu Gothic', sans-serif; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4; margin-top:0;">🤖 Telegram Bot Token を無料で取得する方法</h3><p>本ツールには<b>既定の Bot Token</b>が組み込まれているため、通常は設定せずに使用できます。長期的に安定してダウンロードしたい場合や、共有 Token による Telegram のレート制限を避けたい場合は、自分専用の無料 Token を申請してください。</p><h3 style="color: #0078d4;">📝 取得手順（約 1 分）</h3><ol><li>Telegram で公式ボット <b>@BotFather</b>を検索して会話を開始するか、<a href="https://t.me/BotFather">https://t.me/BotFather</a>を開きます。</li><li>BotFather に <code>/newbot</code> を送信します。</li><li>案内に従い、<code>MyStickerTool</code>のような<b>表示名</b>と、<code>my_sticker_dl_bot</code>のように末尾が <code>bot</code> の<b>ユーザー名</b>を入力します。</li><li>作成が完了すると、BotFather から <code>7203628923:AAF5D9vqy5o71egC9zIAb...</code>のような HTTP API Token が届きます。</li><li>Token を本ツールの詳細設定にある<b>Bot Token</b>欄へ貼り付け、<b>接続テスト</b>をクリックします。</li></ol></div>"""
+                "zh": """<div style="font-family: 'Sarasa UI SC', 'Microsoft YaHei UI'; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4; margin-top:0;">🤖 如何免费获取 Telegram Bot Token？</h3><p>本工具已<b>内置默认 Bot Token</b>，通常情况下您无需配置即可直接使用。<br/>如果您需要长期稳定下载、避免公用 Token 偶尔触发 Telegram 速率限制，建议向官方申请一个属于您自己的免费 Token。</p><h3 style="color: #0078d4;">📝 获取步骤（仅需 1 分钟）</h3><ol><li>在 Telegram 中搜索官方机器人 <b>@BotFather</b> 并开启对话，或访问 <a href="https://t.me/BotFather">https://t.me/BotFather</a>；</li><li>向 BotFather 发送命令 <code>/newbot</code>；</li><li>按照提示输入机器人的<b>昵称</b>（如 <code>MyStickerTool</code>）和<b>用户名</b>（需以 <code>bot</code> 结尾，如 <code>my_sticker_dl_bot</code>）；</li><li>创建成功后，BotFather 会发送一段 HTTP API Token（格式类似 <code>7203628923:AAF5D9vqy5o71egC9zIAb...</code>）；</li><li>将 Token 复制并粘贴到本软件高级配置的 <b>Bot Token</b> 栏中，点击<b>测试连通性</b>即可完成配置。</li></ol></div>""",
+                "zh_TW": """<div style="font-family: 'Sarasa UI SC', 'Microsoft YaHei UI'; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4; margin-top:0;">🤖 如何免費取得 Telegram Bot Token？</h3><p>本工具已<b>內建預設 Bot Token</b>，通常不需設定即可直接使用。<br/>若您需要長期穩定下載，避免共用 Token 偶爾觸發 Telegram 速率限制，建議向官方申請一個屬於自己的免費 Token。</p><h3 style="color: #0078d4;">📝 取得步驟（只需 1 分鐘）</h3><ol><li>在 Telegram 搜尋官方機器人 <b>@BotFather</b> 並開始對話，或造訪 <a href="https://t.me/BotFather">https://t.me/BotFather</a>；</li><li>向 BotFather 傳送指令 <code>/newbot</code>；</li><li>依照提示輸入機器人的<b>暱稱</b>（如 <code>MyStickerTool</code>）與<b>使用者名稱</b>（需以 <code>bot</code> 結尾，如 <code>my_sticker_dl_bot</code>）；</li><li>建立成功後，BotFather 會傳送一段 HTTP API Token（格式類似 <code>7203628923:AAF5D9vqy5o71egC9zIAb...</code>）；</li><li>將 Token 複製並貼到本軟體進階設定的 <b>Bot Token</b> 欄位，點選<b>測試連線</b>即可完成設定。</li></ol></div>""",
+                "en": """<div style="font-family: 'Sarasa UI SC', 'Microsoft YaHei UI'; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4; margin-top:0;">🤖 How to get a Telegram Bot Token for free</h3><p>This tool includes a <b>built-in default Bot Token</b>, so no configuration is normally required. If you need stable long-term downloads and want to avoid rate limits that may occasionally affect a shared Token, apply for your own free Token.</p><h3 style="color: #0078d4;">📝 Steps（about 1 minute）</h3><ol><li>Search for the official bot <b>@BotFather</b> in Telegram and start a conversation, or open <a href="https://t.me/BotFather">https://t.me/BotFather</a>;</li><li>Send <code>/newbot</code> to BotFather;</li><li>Follow the instructions to enter a bot <b>display name</b> such as <code>MyStickerTool</code> and a <b>username</b> ending in <code>bot</code>, such as <code>my_sticker_dl_bot</code>;</li><li>After creation, BotFather sends an HTTP API Token similar to <code>7203628923:AAF5D9vqy5o71egC9zIAb...</code>;</li><li>Copy the Token into the <b>Bot Token</b> field in this tool's advanced settings and click <b>Test Connection</b>.</li></ol></div>""",
+                "ja": """<div style="font-family: 'Sarasa UI SC', 'Microsoft YaHei UI'; font-size: 13px; line-height: 1.6;"><h3 style="color: #0078d4; margin-top:0;">🤖 Telegram Bot Token を無料で取得する方法</h3><p>本ツールには<b>既定の Bot Token</b>が組み込まれているため、通常は設定せずに使用できます。長期的に安定してダウンロードしたい場合や、共有 Token による Telegram のレート制限を避けたい場合は、自分専用の無料 Token を申請してください。</p><h3 style="color: #0078d4;">📝 取得手順（約 1 分）</h3><ol><li>Telegram で公式ボット <b>@BotFather</b>を検索して会話を開始するか、<a href="https://t.me/BotFather">https://t.me/BotFather</a>を開きます。</li><li>BotFather に <code>/newbot</code> を送信します。</li><li>案内に従い、<code>MyStickerTool</code>のような<b>表示名</b>と、<code>my_sticker_dl_bot</code>のように末尾が <code>bot</code> の<b>ユーザー名</b>を入力します。</li><li>作成が完了すると、BotFather から <code>7203628923:AAF5D9vqy5o71egC9zIAb...</code>のような HTTP API Token が届きます。</li><li>Token を本ツールの詳細設定にある<b>Bot Token</b>欄へ貼り付け、<b>接続テスト</b>をクリックします。</li></ol></div>"""
             }
         }
         return pages[section].get(i18n_engine.current_lang, pages[section]["zh"])
@@ -155,7 +159,7 @@ class TGHelpDialog(QDialog):
         self.codeEdit = TextEdit()
         self.codeEdit.setPlainText(CORS_WORKER_SAMPLE)
         self.codeEdit.setReadOnly(True)
-        self.codeEdit.setFont(QFont("Consolas", 10))
+        self.codeEdit.setFont(QFont("JetBrains Mono", 10))
         self.codeEdit.setMaximumHeight(140)
         tab2_layout.addWidget(self.codeEdit)
 
@@ -233,29 +237,23 @@ class TGHelpDialog(QDialog):
     def _copyWorkerCode(self):
         clipboard = QApplication.clipboard()
         clipboard.setText(CORS_WORKER_SAMPLE)
-        QMessageBox.information(
-            self,
-            t("复制成功"),
-            t("Cloudflare Worker 脚本已成功复制到剪贴板！"),
-            QMessageBox.Ok,
-        )
+        feedback_for(self).toast(t("复制成功"), t("Cloudflare Worker 脚本已成功复制到剪贴板！"))
 
 
-class TGLogDialog(MessageBoxBase):
+class TGLogDialog(dialogs.NekoriDialog):
     """Telegram 下载页的操作日志查看弹窗。"""
 
     def __init__(self, log_history, parent=None):
         if parent is None:
             parent = QApplication.activeWindow() or QWidget()
-        super().__init__(parent)
+        super().__init__(parent, t("操作日志"))
 
-        self.titleLabel = SubtitleLabel(t("操作日志"), self)
         self.logTextEdit = TextEdit(self)
         self.logTextEdit.setReadOnly(True)
         self.logTextEdit.setMinimumSize(520, 340)
         self.logTextEdit.setStyleSheet("""
             TextEdit {
-                font-family: 'Segoe UI', 'Microsoft YaHei', Consolas;
+                font-family: 'Sarasa UI SC', 'Microsoft YaHei UI';
                 font-size: 12px;
                 border-radius: 6px;
             }
@@ -273,12 +271,10 @@ class TGLogDialog(MessageBoxBase):
         self.clearButton.clicked.connect(self._on_clear)
         self.copyButton.clicked.connect(self._on_copy)
 
-        self.viewLayout.addWidget(self.titleLabel)
-        self.viewLayout.addLayout(button_layout)
-        self.viewLayout.addWidget(self.logTextEdit)
-        self.yesButton.setText(t("关闭"))
-        self.hideCancelButton()
-        self.widget.setMinimumWidth(560)
+        self.body.addLayout(button_layout)
+        self.body.addWidget(self.logTextEdit)
+        self.add_button(t("关闭"), role="primary", on_click=self.accept)
+        self.setMinimumWidth(560)
         self.parent_view = parent
 
     def _on_clear(self):
@@ -642,7 +638,7 @@ class ImportPackThread(QThread):
         destination = os.path.abspath(self.export_path)
         with tempfile.TemporaryDirectory(prefix="tg_package_", dir=os.path.dirname(destination)) as directory:
             temporary = os.path.join(directory, "package.zip")
-            manifest = ExchangeExportService(self.storage.base_dir).export_zip(
+            manifest = ExchangeExportService(storage=self.storage).export_zip(
                 temporary,
                 selected_categories=[self.category_name],
                 export_scope="categories",
@@ -728,7 +724,6 @@ class TGStickerInterface(QWidget):
         self.topBarLayout.addWidget(self.titleLabel)
         self.topBarLayout.addStretch()
         self.topBarLayout.addWidget(self.btnLog)
-        self.mainLayout.addWidget(self.topBar)
 
         # 2. 配置折叠后的摘要
         self.summaryRow = QWidget(self)
@@ -744,7 +739,6 @@ class TGStickerInterface(QWidget):
         summary_layout.addStretch()
         summary_layout.addWidget(self.expandConfigButton)
         self.summaryRow.hide()
-        self.mainLayout.addWidget(self.summaryRow)
 
         # 3. 全宽可折叠配置卡
         self.configCard = CardWidget(self)
@@ -858,7 +852,7 @@ class TGStickerInterface(QWidget):
         self.tokenEdit = LineEdit(self.advWidget)
         self.tokenEdit.setEchoMode(LineEdit.Password)
         self.tokenEdit.setPlaceholderText(t("内置默认 Token，可填自定义 Token"))
-        self.toggleTokenBtn = PushButton(t("👁️ 显示"), self.advWidget)
+        self.toggleTokenBtn = PushButton(FIF.EYE, t("👁️ 显示").replace("👁️ ",""), self.advWidget)
         self.toggleTokenBtn.setFixedWidth(76)
         self.toggleTokenBtn.clicked.connect(self.toggleTokenVisibility)
         self.tokenLabel = add_advanced_row("Bot Token:", self.tokenEdit, self.toggleTokenBtn)
@@ -915,11 +909,10 @@ class TGStickerInterface(QWidget):
         self.configScrollArea.setWidget(self.configFormWidget)
         self.configCardLayout.addWidget(self.configScrollArea, 1)
         self.configCard.setMinimumHeight(120)
-        self.mainLayout.addWidget(self.configCard)
 
         # 4. 常驻操作栏
         self.actionBar = QWidget(self)
-        action_layout = QHBoxLayout(self.actionBar)
+        action_layout = WrapCommands(self.actionBar)
         action_layout.setContentsMargins(4, 2, 4, 2)
         action_layout.setSpacing(8)
 
@@ -958,11 +951,9 @@ class TGStickerInterface(QWidget):
         action_layout.addWidget(self.selectAllButton)
         action_layout.addWidget(self.clearSelectionButton)
         action_layout.addWidget(self.invertSelectionButton)
-        self.mainLayout.addWidget(self.actionBar)
 
         # 5. 贴纸包轻量标题
         self.previewTitleLabel = SubtitleLabel(t("贴纸预览区 (未加载)"), self)
-        self.mainLayout.addWidget(self.previewTitleLabel)
 
         # 6. 主内容区：预览网格 + 详情卡
         self.contentLayout = QHBoxLayout()
@@ -1040,7 +1031,7 @@ class TGStickerInterface(QWidget):
               '的项目二次开发')
         )
         self.thanksLabel.setOpenExternalLinks(True)
-        self.thanksLabel.setStyleSheet("color: #888888; font-size: 11px;")
+        self.thanksLabel.setStyleSheet(f"color: {colors()['text_muted']}; font-size: 11px;")
 
         self.detailLayout.addWidget(self.detailTitle)
         self.detailLayout.addWidget(self.detailPreviewLabel, alignment=Qt.AlignCenter)
@@ -1048,7 +1039,7 @@ class TGStickerInterface(QWidget):
         self.detailLayout.addStretch()
         self.detailLayout.addWidget(self.thanksLabel)
         self.contentLayout.addWidget(self.detailWidget)
-        self.mainLayout.addLayout(self.contentLayout, 1)
+        build_import_tool(self)
 
         self.tooltip = StateToolTipManager(self)
         self.tooltip.closed.connect(self._on_tooltip_closed)
@@ -1138,13 +1129,7 @@ class TGStickerInterface(QWidget):
             self.back_requested.emit()
             return
 
-        reply = QMessageBox.question(
-            self,
-            t("确认中断并返回"),
-            t("当前正在处理 Telegram 贴纸，确定要中断当前任务并返回吗？"),
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
+        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认中断并返回"), t("当前正在处理 Telegram 贴纸，确定要中断当前任务并返回吗？")) else QMessageBox.No)
         if reply != QMessageBox.Yes:
             return
 
@@ -1264,7 +1249,8 @@ class TGStickerInterface(QWidget):
         self._config_anim = QPropertyAnimation(
             self.configCard, b"maximumHeight", self
         )
-        self._config_anim.setDuration(260)
+        from fluent_ui.visual import MOTION
+        self._config_anim.setDuration(MOTION.expand)
         self._config_anim.setEasingCurve(QEasingCurve.OutCubic)
         self._config_anim.setStartValue(height_from)
         self._config_anim.setEndValue(height_to)
@@ -1337,10 +1323,12 @@ class TGStickerInterface(QWidget):
         """切换 Token 输入框密码显隐"""
         if self.tokenEdit.echoMode() == LineEdit.Password:
             self.tokenEdit.setEchoMode(LineEdit.Normal)
-            self.toggleTokenBtn.setText(t("🔒 隐藏"))
+            self.toggleTokenBtn.setText(t("🔒 隐藏").replace("🔒 ",""))
+            self.toggleTokenBtn.setIcon(FIF.EYE_OFF)
         else:
             self.tokenEdit.setEchoMode(LineEdit.Password)
-            self.toggleTokenBtn.setText(t("👁️ 显示"))
+            self.toggleTokenBtn.setText(t("👁️ 显示").replace("👁️ ",""))
+            self.toggleTokenBtn.setIcon(FIF.EYE)
 
     def resetConfig(self):
         """重置高级配置为默认"""
@@ -1348,12 +1336,6 @@ class TGStickerInterface(QWidget):
         self.cfProxyEdit.clear()
         self.proxyEdit.clear()
         self.log(t("✅ 已恢复默认网络与 Token 配置"))
-        QMessageBox.information(
-            self,
-            t("恢复默认"),
-            t("高级网络与 Token 配置已恢复为内置默认值！"),
-            QMessageBox.Ok,
-        )
 
     def selectSavePath(self):
         directory = QFileDialog.getExistingDirectory(
@@ -1397,21 +1379,16 @@ class TGStickerInterface(QWidget):
                         channel=res.get("channel"), bot=res.get("bot_username")
                     )
                 )
-                QMessageBox.information(self, t("连通性测试"), msg, QMessageBox.Ok)
+                notify(self, t("连通性测试"), msg)
             else:
                 msg = t("❌ 连接失败: {error}").format(
                     error=res.get("error", t("未知错误"))
                 )
                 self.log(msg)
-                QMessageBox.warning(self, t("连通性测试"), msg, QMessageBox.Ok)
+                notify(self, t("连通性测试"), msg)
         except Exception as e:
             self.log(t("❌ 测试出错: {error}").format(error=e))
-            QMessageBox.critical(
-                self,
-                t("测试出错"),
-                t("发生异常: {error}").format(error=e),
-                QMessageBox.Ok,
-            )
+            notify(self, t("测试出错"), t("发生异常: {error}").format(error=e))
 
     # ==========================================
     # 解析贴纸包逻辑与懒加载体系
@@ -1423,12 +1400,7 @@ class TGStickerInterface(QWidget):
         link = self.urlInputEdit.text().strip()
         if not link:
             self.log(t("❌ 请先输入 Telegram 贴纸链接或包名！"))
-            QMessageBox.warning(
-                self,
-                t("提示"),
-                t("请先输入 Telegram 贴纸链接或包名！"),
-                QMessageBox.Ok,
-            )
+            notify(self, t("提示"), t("请先输入 Telegram 贴纸链接或包名！"))
             return
 
         self._cancelActiveThreads()
@@ -1522,15 +1494,7 @@ class TGStickerInterface(QWidget):
         self._set_busy(False)
         self.previewTitleLabel.setText(t("贴纸预览区 (解析失败)"))
         self.log(t("❌ 解析贴纸包失败: {error}").format(error=error_msg))
-        self.tooltip.finish(t("解析失败"), str(error_msg))
-        QMessageBox.critical(
-            self,
-            t("解析失败"),
-            t("无法获取贴纸包信息:\n{error}\n\n建议检查网络代理、Token 或贴纸链接是否正确。").format(
-                error=error_msg
-            ),
-            QMessageBox.Ok,
-        )
+        self.tooltip.fail(t("解析失败"), str(error_msg))
 
     def onScrollBarMoved(self, value):
         """监听滚动条位置，滑动到底部 85% 时触发懒加载下一批"""
@@ -1562,7 +1526,7 @@ class TGStickerInterface(QWidget):
             
             painter = QPainter(placeholder_pixmap)
             painter.setPen(QColor(150, 150, 150))
-            painter.setFont(QFont("Arial", 8))
+            painter.setFont(QFont("Sarasa UI SC", 8))
             painter.drawText(
                 placeholder_pixmap.rect(), Qt.AlignCenter, t("#{index}\n加载中...").format(index=s.index + 1)
             )
@@ -1622,7 +1586,7 @@ class TGStickerInterface(QWidget):
             painter.drawRoundedRect(badge_rect, 3, 3)
 
             painter.setPen(QColor(255, 255, 255))
-            painter.setFont(QFont("Arial", 8, QFont.Bold))
+            painter.setFont(QFont("Sarasa UI SC", 8, QFont.Bold))
             painter.drawText(badge_rect, Qt.AlignCenter, badge_text)
             painter.end()
 
@@ -1710,7 +1674,7 @@ class TGStickerInterface(QWidget):
             "<b>原始尺寸:</b> {width} x {height}<br/>"
             "<b>文件大小:</b> {size:.2f} KB<br/><br/>"
             "<b>Telegram File ID:</b><br/>"
-            "<span style='font-size:10px; color:#666;'>{file_id}...</span>"
+            "<span style='font-size:10px; color:{muted};'>{file_id}...</span>"
         ).format(
             index=sticker.index + 1,
             emoji=sticker.emoji or t("无"),
@@ -1720,6 +1684,7 @@ class TGStickerInterface(QWidget):
             height=sticker.height,
             size=(sticker.file_size or 0) / 1024,
             file_id=sticker.file_id[:26],
+            muted=colors()['text_muted'],
         )
         self.detailInfoLabel.setText(info_text)
 
@@ -1789,22 +1754,14 @@ class TGStickerInterface(QWidget):
         selected_items = self.previewListWidget.selectedItems()
         if not selected_items:
             self.log(t("❌ 您尚未选择任何贴纸！请先在预览区选中贴纸后再导出。"))
-            QMessageBox.warning(
-                self, t("提示"), t("请先在预览区选中贴纸后再导出！"), QMessageBox.Ok
-            )
+            notify(self, t("提示"), t("请先在预览区选中贴纸后再导出！"))
             return
 
         selected_indices = [item.data(Qt.UserRole) for item in selected_items if item.data(Qt.UserRole) is not None]
 
-        reply = QMessageBox.question(
-            self,
-            t("确认导出选中"),
-            t("确定导出当前选中的 {count} 个贴纸到文件夹？").format(
+        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导出选中"), t("确定导出当前选中的 {count} 个贴纸到文件夹？").format(
                 count=len(selected_indices)
-            ),
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
-        )
+            )) else QMessageBox.No)
         if reply == QMessageBox.No:
             self.log(t("💬 用户取消了导出操作"))
             return
@@ -1816,15 +1773,9 @@ class TGStickerInterface(QWidget):
         if not self.current_pack:
             return
 
-        reply = QMessageBox.question(
-            self,
-            t("确认导出全部"),
-            t("当前不管预览是否完全加载，将直接从服务器批量导出《{title}》的全部 {count} 个贴纸？").format(
+        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导出全部"), t("当前不管预览是否完全加载，将直接从服务器批量导出《{title}》的全部 {count} 个贴纸？").format(
                 title=self.current_pack.title, count=self.current_pack.total_count
-            ),
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
-        )
+            )) else QMessageBox.No)
         if reply == QMessageBox.No:
             self.log(t("💬 用户取消了导出操作"))
             return
@@ -1882,7 +1833,7 @@ class TGStickerInterface(QWidget):
             done=done, total=total, message=msg
         )
         self.log(progress_message)
-        self.tooltip.update(progress_message)
+        self.tooltip.update(progress_message, current=done, total=total)
 
     def _onDownloadFinished(self, result: Dict[str, Any]):
         self._set_busy(False)
@@ -1892,7 +1843,7 @@ class TGStickerInterface(QWidget):
             success=result["success_count"], failed=result["fail_count"]
         )
         self.log(f"✅ {msg}")
-        self.tooltip.finish(t("导出完成"), msg)
+        self.tooltip.finish(t("导出完成"), msg, outcome=("partial" if result["success_count"] else "error") if result["fail_count"] else "success")
         self.log(t("📁 导出文件夹: {directory}").format(directory=result["output_dir"]))
         if result.get("zip_path"):
             self.log(t("📦 ZIP压缩包: {path}").format(path=result["zip_path"]))
@@ -1908,23 +1859,11 @@ class TGStickerInterface(QWidget):
         except Exception:
             pass
 
-        QMessageBox.information(
-            self, t("导出完成"),
-            t("{message}\n\n保存目录:\n{directory}").format(
-                message=msg, directory=result["output_dir"]
-            ) +
-            (t("\n\nZIP 压缩包:\n{path}").format(path=result["zip_path"])
-             if result.get("zip_path") else ""),
-            QMessageBox.Ok
-        )
 
     def _onDownloadFailed(self, error_msg: str):
         self._set_busy(False)
         self.log(t("❌ 导出过程中出现错误: {error}").format(error=error_msg))
-        self.tooltip.finish(t("导出失败"), str(error_msg))
-        QMessageBox.critical(
-            self, t("导出出错"), t("导出失败:\n{error}").format(error=error_msg), QMessageBox.Ok
-        )
+        self.tooltip.fail(t("导出失败"), str(error_msg))
 
     # ==========================================
     # 导入到 SuzuEmojy 资源库逻辑
@@ -1935,7 +1874,7 @@ class TGStickerInterface(QWidget):
             return
         storage = getattr(self.window(), "storage", None)
         if storage is None:
-            QMessageBox.warning(self, t("错误"), t("无法获取表情包资源库存储服务！"))
+            notify(self, t("错误"), t("无法获取表情包资源库存储服务！"))
             return
         from fluent_ui.components.tg_batch_dialog import TGBatchPackageDialog
         downloader = self._get_configured_downloader()
@@ -1967,27 +1906,24 @@ class TGStickerInterface(QWidget):
             return
         storage = getattr(self.window(), "storage", None)
         if storage is None:
-            QMessageBox.warning(self, t("错误"), t("无法获取表情包资源库存储服务！"))
+            notify(self, t("错误"), t("无法获取表情包资源库存储服务！"))
             return
-        package_id, accepted = QInputDialog.getText(
+        package_id, accepted = dialogs.prompt_text(
             self, t("导出为资源包"),
             t("请输入资源包 ID（同时作为收藏夹名称和 ZIP 文件名）："),
-            text=self.current_pack.title,
+            initial=self.current_pack.title,
         )
         if not accepted:
             return
         package_id = package_id.strip()
         if not package_id:
-            QMessageBox.warning(self, t("提示"), t("资源包 ID 不能为空"))
+            notify(self, t("提示"), t("资源包 ID 不能为空"))
             return
         directory = QFileDialog.getExistingDirectory(self, t("选择资源包保存目录"), self.save_path)
         if not directory:
             return
         export_path = os.path.join(directory, package_id + ".zip")
-        if os.path.exists(export_path) and QMessageBox.question(
-            self, t("覆盖资源包"), t("文件已存在，是否覆盖？") + "\n" + export_path,
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
-        ) != QMessageBox.Yes:
+        if os.path.exists(export_path) and (QMessageBox.Yes if dialogs.confirm(self, t("覆盖资源包"), t("文件已存在，是否覆盖？") + "\n" + export_path) else QMessageBox.No) != QMessageBox.Yes:
             return
         self._set_busy(True)
         self.tooltip.show(t("正在导出资源包"), t("正在下载并清洗贴纸..."))
@@ -2014,9 +1950,7 @@ class TGStickerInterface(QWidget):
         )
         details = "\n".join(self._import_thread.skipped_details)
         self.log(t("资源包导出完成") + ": " + path + "\n" + summary + "\n" + details)
-        self.tooltip.finish(t("资源包导出完成"), summary)
-        QMessageBox.information(self, t("资源包导出完成"),
-                                f"ID: {category_name}\n{summary}\n{path}\n{details}")
+        self.tooltip.finish(t("资源包导出完成"), summary + "\n" + path + "\n" + details, outcome="partial" if failed or self._import_thread.skipped_count else "success")
 
     def _onPackageFailed(self, message):
         self._set_busy(False)
@@ -2024,8 +1958,7 @@ class TGStickerInterface(QWidget):
         if callable(refresh):
             refresh()
         self.log(message)
-        self.tooltip.finish(t("资源包导出失败"), message)
-        QMessageBox.critical(self, t("资源包导出失败"), message)
+        self.tooltip.fail(t("资源包导出失败"), message)
 
     def importSelected(self):
         """将选中的贴纸下载并导入到资源库"""
@@ -2035,22 +1968,14 @@ class TGStickerInterface(QWidget):
         selected_items = self.previewListWidget.selectedItems()
         if not selected_items:
             self.log(t("❌ 您尚未选择任何贴纸！请先在预览区选中贴纸后再导入。"))
-            QMessageBox.warning(
-                self, t("提示"), t("请先在预览区选中贴纸后再导入！"), QMessageBox.Ok
-            )
+            notify(self, t("提示"), t("请先在预览区选中贴纸后再导入！"))
             return
 
         selected_indices = [item.data(Qt.UserRole) for item in selected_items if item.data(Qt.UserRole) is not None]
 
-        reply = QMessageBox.question(
-            self,
-            t("确认导入选中"),
-            t("确定将当前选中的 {count} 个贴纸导入到资源库？（自动转码为通用图片并去重）").format(
+        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导入选中"), t("确定将当前选中的 {count} 个贴纸导入到资源库？（自动转码为通用图片并去重）").format(
                 count=len(selected_indices)
-            ),
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
-        )
+            )) else QMessageBox.No)
         if reply == QMessageBox.No:
             self.log(t("💬 用户取消了导入操作"))
             return
@@ -2062,15 +1987,9 @@ class TGStickerInterface(QWidget):
         if not self.current_pack:
             return
 
-        reply = QMessageBox.question(
-            self,
-            t("确认导入全部"),
-            t("确定将《{title}》的全部 {count} 个贴纸导入到资源库？（自动转码并去重）").format(
+        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导入全部"), t("确定将《{title}》的全部 {count} 个贴纸导入到资源库？（自动转码并去重）").format(
                 title=self.current_pack.title, count=self.current_pack.total_count
-            ),
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
-        )
+            )) else QMessageBox.No)
         if reply == QMessageBox.No:
             self.log(t("💬 用户取消了导入操作"))
             return
@@ -2083,9 +2002,7 @@ class TGStickerInterface(QWidget):
         main_win = self.window()
         if not hasattr(main_win, 'storage') or not main_win.storage:
             self.log(t("❌ 导入失败，无法获取表情包资源库存储服务！"))
-            QMessageBox.warning(
-                self, t("错误"), t("无法获取表情包资源库存储服务！"), QMessageBox.Ok
-            )
+            notify(self, t("错误"), t("无法获取表情包资源库存储服务！"))
             return
 
         storage = main_win.storage
@@ -2138,7 +2055,7 @@ class TGStickerInterface(QWidget):
         self.tooltip.update(
             t("入库进度 [{done}/{total}]: {message}").format(
                 done=done, total=total, message=msg
-            )
+            ), current=done, total=total
         )
 
     def _onImportFinished(self, imported: int, dup: int, failed: int, cat_name: str):
@@ -2155,26 +2072,15 @@ class TGStickerInterface(QWidget):
             t("导入完成"),
             t("成功 {imported} 张，重复 {duplicated} 张，失败 {failed} 张").format(
                 imported=imported, duplicated=dup, failed=failed
-            ),
+            ), outcome=("partial" if imported or dup else "error") if failed else "success",
         )
 
         main_win = self.window()
         refresh_library = getattr(main_win, "refresh_library", None)
         if callable(refresh_library):
             refresh_library()
-        QMessageBox.information(
-            self,
-            t("导入完成"),
-            t("Telegram 贴纸导入成功！\n分类: {category}\n共成功入库: {imported} 个 (重复合并: {duplicated})\n失败: {failed} 个").format(
-                category=cat_name, imported=imported, duplicated=dup, failed=failed
-            ),
-            QMessageBox.Ok
-        )
 
     def _onImportFailed(self, error_msg: str):
         self._set_busy(False)
         self.log(t("❌ 导入过程中出现错误: {error}").format(error=error_msg))
-        self.tooltip.finish(t("导入失败"), str(error_msg))
-        QMessageBox.critical(
-            self, t("导入出错"), t("导入失败:\n{error}").format(error=error_msg), QMessageBox.Ok
-        )
+        self.tooltip.fail(t("导入失败"), str(error_msg))

@@ -3,57 +3,50 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from PySide6.QtCore import QMimeData, QUrl
+from PIL import Image
 
 from fluent_ui.views.gallery_view import GalleryInterface, ImportThread
+from test_storage_single_frame_gif import _make_storage
 
 
-def make_view():
+def make_view(current_node="__library__"):
     view = SimpleNamespace(
-        auto_scroll_timer=Mock(),
-        import_thread=None,
-        current_category='原分类',
-        storage=Mock(SUPPORTED_FORMATS=('.png', '.gif'), images_dir='unused'),
-        sidebar=Mock(),
-        show_error=Mock(),
+        auto_scroll_timer=Mock(), import_thread=None,
+        current_node=current_node, current_category="全部资源",
+        storage=Mock(images_dir="unused"), sidebar=Mock(),
+        show_error=Mock(), show_success=Mock(), refresh_content=Mock(),
+        import_paths_to=Mock(), _entries=[], _all_card_widgets=[],
+        _display_mode="mixed", download_threads=[],
         _start_background_import=Mock(),
     )
-    view._import_dropped_folders = lambda folders, files: GalleryInterface._import_dropped_folders(view, folders, files)
+    view._drop_index = lambda pos: 0
+    view._import_at = lambda sources, index: GalleryInterface._import_at(view, sources, index)
+    view._import_dropped_folders = lambda folders, files: GalleryInterface._import_dropped_folders(
+        view, folders, files)
     return view
 
 
-def test_drop_multiple_folders_and_file_as_one_batch(tmp_path):
-    first = tmp_path / '猫'
-    second = tmp_path / '狗'
-    empty = tmp_path / '空文件夹'
-    for folder in (first, second, empty):
-        folder.mkdir()
-    cat = first / 'cat.PNG'
-    dog = second / 'dog.gif'
-    loose = tmp_path / 'loose.png'
-    for path in (cat, dog, loose, first / 'readme.txt'):
-        path.touch()
-    nested = first / '子文件夹'
-    nested.mkdir()
-    (nested / 'ignored.png').touch()
-    mime = QMimeData()
-    mime.setUrls([QUrl.fromLocalFile(str(p)) for p in (first, second, empty, loose)])
+def drop_event(mime):
     event = Mock()
     event.mimeData.return_value = mime
+    event.position.return_value = Mock(toPoint=Mock(return_value=Mock()))
+    return event
+
+
+def test_drop_multiple_folders_and_file_as_one_batch(tmp_path):
+    folders = [tmp_path / 'First', tmp_path / 'Second']
+    for folder in folders:
+        folder.mkdir()
+    loose = tmp_path / 'loose.png'
+    loose.touch()
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(str(p)) for p in [*folders, loose]])
     view = make_view()
-
-    GalleryInterface.dropEvent(view, event)
-
-    event.accept.assert_called_once()
-    view._start_background_import.assert_called_once()
-    args, kwargs = view._start_background_import.call_args
-    assert {os.path.normpath(path) for path in args[0]} == {str(cat), str(dog), str(loose)}
-    categories = {os.path.normpath(path): category for path, category in kwargs['file_categories'].items()}
-    assert categories == {str(cat): '猫', str(dog): '狗', str(loose): '原分类'}
-    stats = kwargs['folder_stats']
-    assert stats['subdirs'] == 1
-    assert stats['non_images'] == 1
-    assert stats['image_count'] == 3
-    assert len(stats['issues']) == 1
+    GalleryInterface.dropEvent(view, drop_event(mime))
+    view.import_paths_to.assert_called_once()
+    args, kwargs = view.import_paths_to.call_args
+    assert [os.path.normpath(p) for p in args[0]] == [*map(str, folders), str(loose)]
+    assert args[1] == '__library__'
 
 
 def test_busy_import_does_not_create_categories(tmp_path):
@@ -66,38 +59,28 @@ def test_busy_import_does_not_create_categories(tmp_path):
     view.show_error.assert_called_once()
 
 
-def test_unreadable_folder_does_not_block_later_folder(tmp_path):
-    image = tmp_path / 'valid.png'
-    image.touch()
-    view = make_view()
-    view._import_dropped_folders([str(tmp_path / 'missing'), str(tmp_path)], [])
-    args, kwargs = view._start_background_import.call_args
-    assert args[0] == [str(image)]
-    assert len(kwargs['folder_stats']['issues']) == 1
+def test_import_thread_routes_duplicate_to_each_target(tmp_path):
+    storage = _make_storage(tmp_path)
+    first = storage.create_node('First')
+    second = storage.create_node('Second')
+    sources = [tmp_path / 'a.png', tmp_path / 'b.png']
+    for source in sources:
+        Image.new('RGBA', (16, 16), 'red').save(source)
 
-
-def test_import_thread_routes_duplicate_to_each_folder():
-    storage = Mock()
-    storage.save_file.side_effect = [('saved.png', False), ('saved.png', True)]
-    worker = ImportThread(
-        ['a.png', 'b.png'], storage, '原分类',
-        file_categories={'a.png': '猫', 'b.png': '狗'},
-    )
+    worker = ImportThread([str(sources[0])], storage, first)
     finished = Mock()
-    progress = Mock()
     worker.finished.connect(finished)
-    worker.progress.connect(progress)
     worker.run()
-    assert [call.args for call in storage.add_image_to_category.call_args_list] == [
-        ('saved.png', '猫'), ('saved.png', '狗'),
-    ]
-    finished.assert_called_once_with(1, 1, 0)
-    assert [call.args for call in progress.call_args_list] == [(1, 2), (2, 2)]
+    finished.assert_called_once_with(1, 0, 0)
 
-
-def test_single_file_import_keeps_default_category():
-    storage = Mock()
-    storage.save_file.return_value = ('saved.png', False)
-    worker = ImportThread(['a.png'], storage, '原分类')
+    # The second file is pixel-identical, so it merges instead of duplicating,
+    # while still receiving its own category relation.
+    worker = ImportThread([str(sources[1])], storage, second)
+    finished = Mock()
+    worker.finished.connect(finished)
     worker.run()
-    storage.add_image_to_category.assert_called_once_with('saved.png', '原分类')
+    finished.assert_called_once_with(0, 1, 0)
+
+    assert len(storage.get_all_images()) == 1
+    assert storage.get_images_by_category(
+        storage.node(first)['name']) == storage.get_images_by_category(storage.node(second)['name'])

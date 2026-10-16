@@ -1,3 +1,4 @@
+from fluent_ui.components import dialogs
 """On-demand visual cleanup, with bounded result pages and cancellable workers."""
 import os
 import time
@@ -8,14 +9,15 @@ from PySide6.QtWidgets import (
     QApplication, QDialog, QWidget, QLabel, QVBoxLayout, QHBoxLayout,
     QGridLayout, QScrollArea, QMessageBox,
 )
-from qfluentwidgets import (
-    BodyLabel, CaptionLabel, SubtitleLabel, PushButton, PrimaryPushButton,
-    ComboBox, Slider, CheckBox, ProgressBar, isDarkTheme,
-)
+from qfluentwidgets import BodyLabel, CaptionLabel, SubtitleLabel, isDarkTheme
+from fluent_ui.components.softframe import SoftframeSlider as Slider
+from fluent_ui.components.softframe import SoftframeProgress as ProgressBar
+from fluent_ui.components.controls import PushButton, PrimaryPushButton, ComboBox, CheckBox
 
 from services.i18n import t
 from services.similarity import scan, group_features, ScanCancelled
 from fluent_ui.components.exchange_task_dialog import ExchangeWorker
+from fluent_ui.visual import colors
 
 
 def similarity_icon():
@@ -24,7 +26,7 @@ def similarity_icon():
     pixmap.fill(Qt.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.Antialiasing)
-    painter.setPen(QPen(QColor('white' if isDarkTheme() else '#333333'), 1.5))
+    painter.setPen(QPen(QColor(colors()['text_primary']), 1.5))
     painter.drawRoundedRect(3, 3, 13, 12, 2, 2)
     painter.drawLine(1, 7, 1, 18)
     painter.drawLine(1, 18, 11, 18)
@@ -224,63 +226,8 @@ class SimilarityDialog(QDialog):
         self.categories = {}
         self.failures = []
         self.pictures = []
-        self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(20, 16, 20, 16)
-        self.layout.addWidget(SubtitleLabel(t('感知哈希去重'), self))
-        hint = BodyLabel(t('结果为疑似相似图片，请逐张比较后勾选删除。动图悬停播放，点击图片放大；预览中方向键跨组切换，Del 切换删除勾选。'), self)
-        hint.setWordWrap(True)
-        self.layout.addWidget(hint)
-        row = QHBoxLayout()
-        self.scope = ComboBox(self)
-        self.scope.addItem(t('全部资源'), userData=None)
-        for name in self.storage.get_all_categories():
-            if name != '全部表情':
-                self.scope.addItem(name, userData=name)
-        self.kind = ComboBox(self)
-        for name, value in [('全部图片', 'all'), ('仅静态图', 'static'), ('仅动图', 'animated')]:
-            self.kind.addItem(t(name), userData=value)
-        self.scan_button = PrimaryPushButton(t('开始扫描'), self)
-        self.cancel_button = PushButton(t('取消'), self)
-        self.cancel_button.setEnabled(False)
-        row.addWidget(self.scope)
-        row.addWidget(self.kind)
-        row.addStretch()
-        row.addWidget(self.scan_button)
-        row.addWidget(self.cancel_button)
-        self.layout.addLayout(row)
-        row = QHBoxLayout()
-        row.addWidget(BodyLabel(t('严格'), self))
-        self.threshold = Slider(Qt.Horizontal, self)
-        self.threshold.setRange(0, 16)
-        self.threshold.setValue(6)
-        row.addWidget(self.threshold)
-        row.addWidget(BodyLabel(t('宽松'), self))
-        self.threshold_label = CaptionLabel('6', self)
-        row.addWidget(self.threshold_label)
-        self.layout.addLayout(row)
-        self.status = BodyLabel(t('选择范围后点击开始扫描。'), self)
-        self.status.setWordWrap(True)
-        self.layout.addWidget(self.status)
-        self.progress = ProgressBar(self)
-        self.progress.hide()
-        self.layout.addWidget(self.progress)
-        self.scroll = QScrollArea(self)
-        self.scroll.setObjectName('similarityResults')
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QScrollArea.NoFrame)
-        self.layout.addWidget(self.scroll, 1)
-        row = QHBoxLayout()
-        self.previous = PushButton(t('上一页'), self)
-        self.next = PushButton(t('下一页'), self)
-        self.page_label = CaptionLabel(self)
-        self.clear_button = PushButton(t('清空选择'), self)
-        self.delete_button = PushButton(t('删除所选（0）'), self)
-        for widget in (self.previous, self.page_label, self.next):
-            row.addWidget(widget)
-        row.addStretch()
-        row.addWidget(self.clear_button)
-        row.addWidget(self.delete_button)
-        self.layout.addLayout(row)
+        from fluent_ui.presentation.similarity import build_similarity
+        build_similarity(self)
         self.rematch_timer = QTimer(self)
         self.rematch_timer.setSingleShot(True)
         self.rematch_timer.setInterval(180)
@@ -305,8 +252,8 @@ class SimilarityDialog(QDialog):
 
     def apply_theme(self):
         from qfluentwidgets import qconfig
-        self.setStyleSheet('QDialog { background: ' + ('#202020' if isDarkTheme() else '#f9f9f9') + '; }')
-        background = '#292929' if isDarkTheme() else '#f3f3f3'
+        self.setStyleSheet('QDialog { background: ' + colors()['window_base'] + '; }')
+        background = colors()['surface']
         self.scroll.setStyleSheet(
             f'QScrollArea#similarityResults, QWidget#similarityCards {{ background: {background}; border: none; }}')
         # Signal is automatically disconnected when the dialog is destroyed.
@@ -364,7 +311,8 @@ class SimilarityDialog(QDialog):
         self.render_page()
         self.set_busy(True)
         self.status.setText(t('正在扫描…') if features is None else t('正在重新匹配…'))
-        self.progress.setValue(0)
+        self.feedback_host.action_button.setEnabled(True)
+        self.feedback_host.task(self.status.text(), cancel=self.cancel)
         self.worker = SimilarityWorker(paths, os.path.join(self.storage.data_dir, 'cache', 'similarity-v1.db'),
                                        self.kind.currentData(), self.threshold.value(), features, self)
         self.worker.progress.connect(self.on_progress)
@@ -383,7 +331,7 @@ class SimilarityDialog(QDialog):
 
     def on_progress(self, phase, current, total):
         self.status.setText(f'{t(phase)}：{current} / {total}')
-        self.progress.setValue(int(current * 100 / max(total, 1)))
+        self.feedback_host.update_task(current, total, self.status.text())
 
     def worker_finished(self):
         worker = self.worker
@@ -405,6 +353,8 @@ class SimilarityDialog(QDialog):
                                 + (f' · {len(self.failures)} ' + t('个文件无法读取，已跳过') if self.failures else ''))
             self.status.setToolTip('\n'.join(f'{os.path.basename(p)}: {error}' for p, error in self.failures[:20]))
             self.scan_button.setText(t('重新扫描'))
+        self.feedback_host.finish(self.status.text(), self.status.toolTip(),
+                                  outcome="error" if worker.error else "partial" if self.failures else "success")
         worker.deleteLater()
         self.render_page()
         if self.closing:
@@ -415,6 +365,7 @@ class SimilarityDialog(QDialog):
             self.worker.requestInterruption()
             self.cancel_button.setEnabled(False)
             self.status.setText(t('正在取消…'))
+            self.feedback_host.action_button.setEnabled(False)
 
     def render_page(self):
         for picture in self.pictures:
@@ -512,12 +463,9 @@ class SimilarityDialog(QDialog):
     def delete_selected(self):
         if not self.selected or self.worker or self.deleting:
             return
-        answer = QMessageBox.question(
-            self, t('确认删除'),
-            t('将从资源库及所有相关分类中永久删除所选图片，此操作不可恢复。')
+        answer = (QMessageBox.Yes if dialogs.confirm(self, t('确认删除'), t('将把所选资源移入 Windows 回收站，并移除索引及分类关系。')
             + f'\n{t("已选择")} {len(self.selected)} {t("张图片")}\n'
-            + t('疑似相似不代表内容相同，请确认已逐张比较。'),
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            + t('疑似相似不代表内容相同，请确认已逐张比较。')) else QMessageBox.No)
         if answer != QMessageBox.Yes:
             return
         paths = sorted(self.selected)
@@ -527,7 +475,7 @@ class SimilarityDialog(QDialog):
             picture.stop()
         self.set_busy(True)
         self.status.setText(t('正在删除所选图片…'))
-        self.progress.setValue(0)
+        self.feedback_host.task(self.status.text(), total=len(paths))
         try:
             self.delete_worker = ExchangeWorker(
                 lambda report: self.storage.delete_images_batch(
@@ -543,10 +491,11 @@ class SimilarityDialog(QDialog):
             self.deleting = False
             self.set_busy(False)
             self.status.setText(t('删除失败：') + str(error))
+            self.feedback_host.finish(self.status.text(), outcome='error')
 
     def deletion_progress(self, current, total, message):
         self.status.setText(f'{message} {current} / {total}')
-        self.progress.setValue(int(current * 100 / max(total, 1)))
+        self.feedback_host.update_task(current, total, self.status.text())
 
     def deletion_finished(self):
         worker = self.delete_worker
@@ -573,7 +522,9 @@ class SimilarityDialog(QDialog):
             self.render_page()
             details = str(error) if error else '\n'.join(result.get('failure_details', {}).values())
             self.status.setText(t('删除失败：') + (details or str(result.get('failed'))))
+            self.feedback_host.finish(self.status.text(), details, outcome='partial' if result.get('deleted') else 'error')
         else:
+            self.feedback_host.finish()
             self.rematch()
 
     def shutdown(self):

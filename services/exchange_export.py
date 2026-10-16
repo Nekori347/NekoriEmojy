@@ -52,7 +52,8 @@ class ExchangeExportService:
     - 不调用 storage.py 内任何 save_* / _save_hashes / move_image_to_front
     """
 
-    def __init__(self, base_dir: Optional[str] = None):
+    def __init__(self, base_dir: Optional[str] = None, *, storage=None):
+        self.storage = storage
         if base_dir is None:
             base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
         self.base_dir = base_dir
@@ -64,6 +65,10 @@ class ExchangeExportService:
         self.metadata_file = os.path.join(self.data_dir, "metadata.json")
         self.categories_file = os.path.join(self.data_dir, "categories.json")
         self.app_version = self._read_app_version()
+        if storage is not None:
+            self.data_dir = storage.data_dir
+            self.images_dir = storage.images_dir
+            self.features_db_path = storage.features_db_path
 
     def export_zip(
         self,
@@ -105,11 +110,13 @@ class ExchangeExportService:
                 if os.path.isfile(os.path.join(self.images_dir, name))
             )
 
+        if self.storage is not None:
+            source_files = self.storage.get_all_images()
         total_files = max(len(source_files), 1)
         for idx, name in enumerate(source_files):
             if progress_callback:
                 progress_callback(idx, total_files * 2, f"正在解析表情: {name}")
-            source_path = os.path.join(self.images_dir, name)
+            source_path = name if os.path.isabs(name) else os.path.join(self.images_dir, name)
             result = self._inspect_and_pack_asset(source_path)
             if isinstance(result, ExportSkip):
                 skipped.append(result)
@@ -138,7 +145,7 @@ class ExchangeExportService:
                     "quality_score": float(meta_quality or 0.0),
                     "keywords": list(meta_keywords),
                     "created_at": result.created_at,
-                    "display_name": result.display_name,
+                    "display_name": self.storage.index.resource(source_path)['display_name'] if self.storage is not None else result.display_name,
                     "category_refs": set(refs),
                     "_payload": result.payload,
                 }
@@ -180,7 +187,7 @@ class ExchangeExportService:
 
         categories_json = [{"ref": idx, "name": name} for idx, name in enumerate(categories.keys(), start=1)]
         icon_assets: Dict[str, bytes] = {}
-        icons = {self._normalize_name(name): value for name, value in load_icons(self.data_dir).items()}
+        icons = {self._normalize_name(name): value for name, value in (self.storage.get_all_category_icons() if self.storage is not None else load_icons(self.data_dir)).items()}
         for category in categories_json:
             try:
                 icon = pack_icon(self.data_dir, icons.get(category["name"]), icon_assets)
@@ -320,6 +327,8 @@ class ExchangeExportService:
         return ExportSkip(name=display_name, reason=f"unsupported type: {self._sniff_type(data)}")
 
     def _load_categories_readonly(self) -> Tuple[Dict[str, List[str]], List[Dict[str, Any]]]:
+        if self.storage is not None:
+            return ({name: [os.path.basename(p) for p in paths] for name, paths in self.storage.get_all_categories().items()}, [])
         raw_entries: List[Tuple[str, List[str]]] = []
 
         if os.path.exists(self.categories_db_path):
@@ -390,6 +399,8 @@ class ExchangeExportService:
         return {name: item["files"] for name, item in merged.items()}, warnings
 
     def _load_metadata_readonly(self) -> Dict[str, str]:
+        if self.storage is not None:
+            return {os.path.basename(p): tags for p, tags in self.storage.get_all_metadata().items()}
         result: Dict[str, str] = {}
 
         if os.path.exists(self.metadata_db_path):

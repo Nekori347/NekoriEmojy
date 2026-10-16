@@ -1,3 +1,5 @@
+from fluent_ui.presentation.tools import WrapCommands, build_import_tool
+from fluent_ui.components import dialogs
 from PySide6.QtCore import (
     Qt, QSize, Signal, QCoreApplication, QRect, QStandardPaths,
     QEasingCurve, QPropertyAnimation, QTimer, QEventLoop, QThread
@@ -9,12 +11,11 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import (
     QIcon, QFont, QPixmap, QPainter, QColor, QMovie, QImageReader, QTextCursor
 )
-from qfluentwidgets import (
-    LineEdit, PushButton, PrimaryPushButton, ComboBox,
-    TextEdit, FluentIcon as FIF, TransparentToolButton,
-    TitleLabel, BodyLabel, SubtitleLabel, CardWidget, StrongBodyLabel,
-    ScrollArea, MessageBoxBase, InfoBar
-)
+from fluent_ui.components.controls import LineEdit, PushButton, PrimaryPushButton, ComboBox, TransparentToolButton
+from qfluentwidgets import TitleLabel, BodyLabel, SubtitleLabel, StrongBodyLabel, ScrollArea, MessageBoxBase, InfoBar
+from fluent_ui.components.controls import TextEdit
+from fluent_ui.components.controls import CardWidget
+from fluent_ui.icons import Icon as FIF
 
 import os
 import shutil
@@ -26,6 +27,8 @@ from services.i18n import t, i18n_engine
 from fluent_ui.views.setting_view import disable_wheel_scroll_adjustment
 from fluent_ui.components.rotating_chevron_button import RotatingChevronButton
 from fluent_ui.components.state_tool_tip_manager import StateToolTipManager
+from fluent_ui.components.feedback import feedback_for, notify
+from fluent_ui.visual import colors
 
 
 def _tf(text, **kwargs):
@@ -33,21 +36,20 @@ def _tf(text, **kwargs):
     return t(text).format(**kwargs)
 
 
-class LogDialog(MessageBoxBase):
+class LogDialog(dialogs.NekoriDialog):
     """操作日志查看弹窗"""
     def __init__(self, log_history, parent=None):
         if parent is None:
             from PySide6.QtWidgets import QApplication
             parent = QApplication.activeWindow() or QWidget()
-        super().__init__(parent)
-        self.titleLabel = SubtitleLabel(t("操作日志"), self)
+        super().__init__(parent, t("操作日志"))
 
         self.logTextEdit = TextEdit(self)
         self.logTextEdit.setReadOnly(True)
         self.logTextEdit.setMinimumSize(520, 340)
         self.logTextEdit.setStyleSheet("""
             TextEdit {
-                font-family: 'Segoe UI', 'Microsoft YaHei', Consolas;
+                font-family: 'Sarasa UI SC', 'Microsoft YaHei UI';
                 font-size: 12px;
                 border-radius: 6px;
             }
@@ -65,13 +67,11 @@ class LogDialog(MessageBoxBase):
         self.clearBtn.clicked.connect(self._on_clear)
         self.copyBtn.clicked.connect(self._on_copy)
 
-        self.viewLayout.addWidget(self.titleLabel)
-        self.viewLayout.addLayout(btn_layout)
-        self.viewLayout.addWidget(self.logTextEdit)
+        self.body.addLayout(btn_layout)
+        self.body.addWidget(self.logTextEdit)
 
-        self.yesButton.setText(t("关闭"))
-        self.hideCancelButton()
-        self.widget.setMinimumWidth(560)
+        self.add_button(t("关闭"), role="primary", on_click=self.accept)
+        self.setMinimumWidth(560)
         self.parent_view = parent
 
     def _on_clear(self):
@@ -328,7 +328,6 @@ class QQScanInterface(QWidget):
         self.btnLog.clicked.connect(self.show_log_dialog)
         self.topBarLayout.addWidget(self.btnLog)
 
-        self.mainLayout.addWidget(self.topBar)
 
         # 2. 配置卡片折叠后的摘要行 (折叠时显示)
         self.summaryRow = QWidget(self)
@@ -347,7 +346,6 @@ class QQScanInterface(QWidget):
         summary_layout.addWidget(self.expandConfigButton)
 
         self.summaryRow.setVisible(False)
-        self.mainLayout.addWidget(self.summaryRow)
 
         # 3. QQ 数据配置卡片 (可折叠)
         self.configCard = CardWidget(self)
@@ -465,11 +463,10 @@ class QQScanInterface(QWidget):
         self.configScrollArea.setWidget(self.configFormWidget)
         self.configCardLayout.addWidget(self.configScrollArea, 1)
         self.configCard.setMinimumHeight(120)
-        self.mainLayout.addWidget(self.configCard)
 
         # 4. 常驻操作工具条：[入库选中] [入库全部]   ...   [全选已加载] [清空选择]
         self.actionBar = QWidget(self)
-        action_layout = QHBoxLayout(self.actionBar)
+        action_layout = WrapCommands(self.actionBar)
         action_layout.setContentsMargins(4, 2, 4, 2)
         action_layout.setSpacing(10)
 
@@ -496,7 +493,6 @@ class QQScanInterface(QWidget):
         action_layout.addWidget(self.selectAllButton)
         action_layout.addWidget(self.clearSelectionButton)
 
-        self.mainLayout.addWidget(self.actionBar)
 
         # 5. 下方主内容区 (左：预览网格，右：详细预览)
         self.contentLayout = QHBoxLayout()
@@ -575,11 +571,11 @@ class QQScanInterface(QWidget):
         self.thanksLabel = BodyLabel(self.detailWidget)
         self.thanksLabel.setText(t('致谢：基于 <a href="https://github.com/VanillaNahida" style="color: #0078d4; text-decoration: underline;">VanillaNahida</a> 的项目二次开发'))
         self.thanksLabel.setOpenExternalLinks(True)
-        self.thanksLabel.setStyleSheet("color: #888888; font-size: 11px;")
+        self.thanksLabel.setStyleSheet(f"color: {colors()['text_muted']}; font-size: 11px;")
         detail_layout.addWidget(self.thanksLabel)
 
         self.contentLayout.addWidget(self.detailWidget)
-        self.mainLayout.addLayout(self.contentLayout, stretch=1)
+        build_import_tool(self)
 
         # 6. 右上角状态气泡管理器
         self.tooltip = StateToolTipManager(self)
@@ -621,13 +617,7 @@ class QQScanInterface(QWidget):
     def _on_back_clicked(self):
         """点击返回按钮：若有后台任务运行则弹窗确认中断"""
         if self._current_worker and self._current_worker.isRunning():
-            reply = QMessageBox.question(
-                self,
-                t("确认中断并返回"),
-                t("当前正在处理表情文件，确定要中断当前任务并返回吗？"),
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
+            reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认中断并返回"), t("当前正在处理表情文件，确定要中断当前任务并返回吗？")) else QMessageBox.No)
             if reply == QMessageBox.Yes:
                 self.log(t("💬 用户确认中断任务并返回"))
                 self._current_worker.cancel()
@@ -708,7 +698,8 @@ class QQScanInterface(QWidget):
         if self._config_anim is not None:
             self._config_anim.stop()
         self._config_anim = QPropertyAnimation(self.configCard, b'maximumHeight', self)
-        self._config_anim.setDuration(260)
+        from fluent_ui.visual import MOTION
+        self._config_anim.setDuration(MOTION.expand)
         self._config_anim.setEasingCurve(QEasingCurve.OutCubic)
         self._config_anim.setStartValue(height_from)
         self._config_anim.setEndValue(height_to)
@@ -1010,7 +1001,7 @@ class QQScanInterface(QWidget):
                             rect = QRect(55, 84, 45, 16)
                             painter.fillRect(rect, QColor(0, 0, 0, 160))
                             painter.setPen(QColor(255, 255, 255))
-                            font = QFont("Arial", 8, QFont.Bold)
+                            font = QFont("Sarasa UI SC", 8, QFont.Bold)
                             painter.setFont(font)
                             painter.drawText(rect, Qt.AlignCenter, badge_text)
 
@@ -1128,14 +1119,14 @@ class QQScanInterface(QWidget):
         if not selected_qq:
             message = t("❌ 你还没有选择QQ号呢，请先选择一个QQ号！")
             self.log(message)
-            QMessageBox.information(self, t("提示"), message)
+            notify(self, t("提示"), message)
             return
 
         selected_folder = self.getSelectedFolder()
         if not selected_folder:
             message = t("❌ 你还没有选择表情分类呢，请先选择一个分类！")
             self.log(message)
-            QMessageBox.information(self, t("提示"), message)
+            notify(self, t("提示"), message)
             return
 
         userdata_save_path = self.userdata_save_path_cache or QQExtractor.get_userdata_save_path(self.default_ini_path, self.userdata_save_path_cache)
@@ -1147,10 +1138,7 @@ class QQScanInterface(QWidget):
 
         if not target_path or not target_path.exists():
             self.log(_tf("❌ 未找到该用户的表情分类目录: {path}", path=target_path))
-            QMessageBox.warning(
-                self, t("警告"),
-                t("未找到该分类的本地目录，可能是该账号在本地未生成对应分类，或者路径不正确。")
-            )
+            notify(self, t("警告"), t("未找到该分类的本地目录，可能是该账号在本地未生成对应分类，或者路径不正确。"))
             return
 
         if hasattr(self, 'detail_movie') and self.detail_movie:
@@ -1167,7 +1155,7 @@ class QQScanInterface(QWidget):
         self.loaded_emoji_count = 0
         self.log(_tf("💬 开始智能扫描分类 [{folder}] 表情包路径...", folder=selected_folder))
 
-        self.tooltip.show(t("正在扫描表情包..."), _tf("正在扫描分类 [{folder}]...", folder=selected_folder))
+        self.tooltip.show(t("正在扫描表情包..."), _tf("正在扫描分类 [{folder}]...", folder=selected_folder), cancellable=False)
         QCoreApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
 
         self._set_busy(True)
@@ -1181,7 +1169,7 @@ class QQScanInterface(QWidget):
     def _on_scan_failed(self, error):
         self._set_busy(False)
         self._current_worker = None
-        self.tooltip.finish(t("扫描失败"), str(error))
+        self.tooltip.fail(t("扫描失败"), str(error))
         self.log(_tf("❌ 扫描失败: {error}", error=error))
 
     def _on_scan_finished(self, paths):
@@ -1217,14 +1205,14 @@ class QQScanInterface(QWidget):
     def copy_files_with_progress(self, file_paths, dst_dir):
         """导出文件（通过后台异步线程执行，主线程保持响应）"""
         if self._current_worker and self._current_worker.isRunning():
-            QMessageBox.warning(self, t("提示"), t("当前有正在进行的操作，请稍候或先中止当前任务！"))
+            notify(self, t("提示"), t("当前有正在进行的操作，请稍候或先中止当前任务！"))
             return
 
         total_files = len(file_paths)
         self._set_busy(True)
         self.tooltip.show(
             t("正在导出表情..."),
-            _tf("准备导出 {total} 个表情...", total=total_files)
+            _tf("准备导出 {total} 个表情...", total=total_files), total=total_files
         )
 
         worker = QQExportWorker(
@@ -1250,7 +1238,7 @@ class QQScanInterface(QWidget):
         ))
         percent = int(done * 100 / max(total, 1))
         self.tooltip.update(_tf("正在处理: {done}/{total} ({percent}%)",
-                                done=done, total=total, percent=percent))
+                                done=done, total=total, percent=percent), current=done, total=total)
 
     def _on_export_finished(self, copied_count, dst_dir, was_cancelled):
         self._set_busy(False)
@@ -1272,7 +1260,6 @@ class QQScanInterface(QWidget):
         self.log(t("✅ 完成！正在打开输出文件夹……"))
         try:
             subprocess.Popen(['explorer', os.path.abspath(dst_dir)])
-            QMessageBox.information(self, t("完成"), t("表情提取成功！"))
         except Exception as e:
             self.log(_tf("❌ 无法打开资源管理器: {error}", error=e))
 
@@ -1294,36 +1281,30 @@ class QQScanInterface(QWidget):
         if not selected_qq:
             message = t("❌ 你还没有选择QQ号呢，请先选择一个QQ号！")
             self.log(message)
-            QMessageBox.information(self, t("提示"), message)
+            notify(self, t("提示"), message)
             return
 
         if not self.savePath:
             message = t("❌ 你还没有选择保存路径呢，请先选择保存路径！")
             self.log(message)
-            QMessageBox.information(self, t("提示"), message)
+            notify(self, t("提示"), message)
             return
 
         selected_folder = self.getSelectedFolder()
         if not selected_folder:
             message = t("❌ 你还没有选择表情分类呢，请先选择一个分类！")
             self.log(message)
-            QMessageBox.information(self, t("提示"), message)
+            notify(self, t("提示"), message)
             return
 
         selected_items = self.previewListWidget.selectedItems()
         if len(selected_items) == 0:
             message = t("❌ 您尚未选择任何表情！请先在预览区选中表情后再导出。")
             self.log(message)
-            QMessageBox.warning(self, t("提示"), t("请先在预览区选中表情后再导出！"))
+            notify(self, t("提示"), t("请先在预览区选中表情后再导出！"))
             return
 
-        reply = QMessageBox.question(
-            self,
-            t("确认导出选中"),
-            _tf("确定导出当前选中的 {count} 个表情？", count=len(selected_items)),
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
-        )
+        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导出选中"), _tf("确定导出当前选中的 {count} 个表情？", count=len(selected_items))) else QMessageBox.No)
         if reply == QMessageBox.No:
             self.log(t("💬 用户取消了导出操作"))
             return
@@ -1340,20 +1321,20 @@ class QQScanInterface(QWidget):
         if not selected_qq:
             message = t("❌ 你还没有选择QQ号呢，请先选择一个QQ号！")
             self.log(message)
-            QMessageBox.information(self, t("提示"), message)
+            notify(self, t("提示"), message)
             return
 
         if not self.savePath:
             message = t("❌ 你还没有选择保存路径呢，请先选择保存路径！")
             self.log(message)
-            QMessageBox.information(self, t("提示"), message)
+            notify(self, t("提示"), message)
             return
 
         selected_folder = self.getSelectedFolder()
         if not selected_folder:
             message = t("❌ 你还没有选择表情分类呢，请先选择一个分类！")
             self.log(message)
-            QMessageBox.information(self, t("提示"), message)
+            notify(self, t("提示"), message)
             return
 
         if len(self.emoji_file_paths) == 0:
@@ -1365,19 +1346,13 @@ class QQScanInterface(QWidget):
         if len(self.emoji_file_paths) == 0:
             message = t("❌ 该表情分类下未发现任何有效的图片文件，无法导出！")
             self.log(message)
-            QMessageBox.warning(self, t("提示"), t("该分类下未发现任何有效的表情图片文件！"))
+            notify(self, t("提示"), t("该分类下未发现任何有效的表情图片文件！"))
             return
 
-        reply = QMessageBox.question(
-            self,
-            t("确认导出全部"),
-            _tf(
+        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导出全部"), _tf(
                 "当前不管界面是否完全加载，将直接导出扫描到的该分类下所有 {count} 个表情？",
                 count=len(self.emoji_file_paths)
-            ),
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
-        )
+            )) else QMessageBox.No)
         if reply == QMessageBox.No:
             self.log(t("💬 用户取消了导出操作"))
             return
@@ -1391,15 +1366,15 @@ class QQScanInterface(QWidget):
     def import_files_with_progress(self, file_paths):
         """导入表情到资源库（通过后台异步线程执行，主线程保持响应）"""
         if self._current_worker and self._current_worker.isRunning():
-            QMessageBox.warning(self, t("提示"), t("当前有正在进行的操作，请稍候或先中止当前任务！"))
+            notify(self, t("提示"), t("当前有正在进行的操作，请稍候或先中止当前任务！"))
             return
 
         main_win = self.window()
         if not hasattr(main_win, 'storage') or not main_win.storage:
             message = t("❌ 导入失败，无法获取表情包资源库存储服务！")
             self.log(message)
-            self.tooltip.finish(t("导入失败"), t("无法获取表情包资源库存储服务！"))
-            QMessageBox.warning(self, t("错误"), t("无法获取表情包资源库存储服务！"))
+            self.tooltip.fail(t("导入失败"), t("无法获取表情包资源库存储服务！"))
+            notify(self, t("错误"), t("无法获取表情包资源库存储服务！"))
             return
 
         storage = main_win.storage
@@ -1411,7 +1386,7 @@ class QQScanInterface(QWidget):
         self._set_busy(True)
         self.tooltip.show(
             t("正在入库表情..."),
-            _tf("准备入库 {total} 个表情到分类 [{category}]...", total=total_files, category=category_name)
+            _tf("准备入库 {total} 个表情到分类 [{category}]...", total=total_files, category=category_name), total=total_files
         )
         self.log(_tf(
             "💬 开始导入表情到资源库，分类: [{category}]...",
@@ -1446,7 +1421,7 @@ class QQScanInterface(QWidget):
         percent = int(done * 100 / max(total, 1))
         self.tooltip.update(
             _tf("正在入库: {done}/{total} ({percent}%)",
-                done=done, total=total, percent=percent)
+                done=done, total=total, percent=percent), current=done, total=total
         )
 
     def _on_import_finished(self, imported_count, dup_count, fail_count, category_name, was_cancelled):
@@ -1472,55 +1447,42 @@ class QQScanInterface(QWidget):
         ))
         self.tooltip.finish(
             t("入库完成"),
-            _tf("成功入库 {count} 个表情 (合并去重 {dup} 个)", count=imported_count, dup=dup_count)
-        )
-        QMessageBox.information(
-            self, t("完成"),
-            _tf(
-                "表情导入成功！\n分类: {category}\n共导入并去重处理: {count} 个",
-                category=category_name, count=imported_count
-            )
+            _tf("成功入库 {count} 个表情 (合并去重 {dup} 个)", count=imported_count, dup=dup_count) + ("\n" + t("失败") + f": {fail_count}" if fail_count else ""),
+            outcome=("partial" if imported_count or dup_count else "error") if fail_count else "success"
         )
 
     def _on_worker_failed(self, error_msg):
         self._set_busy(False)
         self._current_worker = None
         self.log(_tf("❌ 操作出错: {error}", error=error_msg))
-        self.tooltip.finish(t("操作出错"), str(error_msg))
-        QMessageBox.critical(self, t("错误"), _tf("操作出错: {error}", error=error_msg))
+        self.tooltip.fail(t("操作出错"), str(error_msg))
 
     def importSelected(self):
         selected_qq = self.get_selected_qq()
         if not selected_qq:
             message = t("❌ 你还没有选择QQ号呢，请先选择一个QQ号！")
             self.log(message)
-            QMessageBox.information(self, t("提示"), message)
+            notify(self, t("提示"), message)
             return
 
         selected_folder = self.getSelectedFolder()
         if not selected_folder:
             message = t("❌ 你还没有选择表情分类呢，请先选择一个分类！")
             self.log(message)
-            QMessageBox.information(self, t("提示"), message)
+            notify(self, t("提示"), message)
             return
 
         selected_items = self.previewListWidget.selectedItems()
         if len(selected_items) == 0:
             message = t("❌ 您尚未选择任何表情！请先在预览区选中表情后再导入。")
             self.log(message)
-            QMessageBox.warning(self, t("提示"), t("请先在预览区选中表情后再导入！"))
+            notify(self, t("提示"), t("请先在预览区选中表情后再导入！"))
             return
 
-        reply = QMessageBox.question(
-            self,
-            t("确认导入选中"),
-            _tf(
+        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导入选中"), _tf(
                 "确定将当前选中的 {count} 个表情导入到资源库？（会经过自动清洗和去重过滤）",
                 count=len(selected_items)
-            ),
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
-        )
+            )) else QMessageBox.No)
         if reply == QMessageBox.No:
             self.log(t("💬 用户取消了导入操作"))
             return
@@ -1533,14 +1495,14 @@ class QQScanInterface(QWidget):
         if not selected_qq:
             message = t("❌ 你还没有选择QQ号呢，请先选择一个QQ号！")
             self.log(message)
-            QMessageBox.information(self, t("提示"), message)
+            notify(self, t("提示"), message)
             return
 
         selected_folder = self.getSelectedFolder()
         if not selected_folder:
             message = t("❌ 你还没有选择表情分类呢，请先选择一个分类！")
             self.log(message)
-            QMessageBox.information(self, t("提示"), message)
+            notify(self, t("提示"), message)
             return
 
         if len(self.emoji_file_paths) == 0:
@@ -1552,19 +1514,13 @@ class QQScanInterface(QWidget):
         if len(self.emoji_file_paths) == 0:
             message = t("❌ 该表情分类下未发现任何有效的图片文件，无法导入！")
             self.log(message)
-            QMessageBox.warning(self, t("提示"), t("该分类下未发现任何有效的表情图片文件！"))
+            notify(self, t("提示"), t("该分类下未发现任何有效的表情图片文件！"))
             return
 
-        reply = QMessageBox.question(
-            self,
-            t("确认导入全部"),
-            _tf(
+        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导入全部"), _tf(
                 "当前不管界面是否完全加载，将直接导入扫描到的该分类下所有 {count} 个表情到资源库？（自动清洗和去重）",
                 count=len(self.emoji_file_paths)
-            ),
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes
-        )
+            )) else QMessageBox.No)
         if reply == QMessageBox.No:
             self.log(t("💬 用户取消了导入操作"))
             return
@@ -1588,9 +1544,4 @@ class QQScanInterface(QWidget):
             "  可以尝试手动指定聊天数据文件夹的所在位置"
         )
 
-        QMessageBox.information(
-            self,
-            t("使用帮助"),
-            help_text,
-            QMessageBox.Ok
-        )
+        notify(self, t("使用帮助"), help_text)

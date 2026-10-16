@@ -7,7 +7,7 @@ from pathlib import Path
 
 class AutostartService:
     RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-    VALUE_NAME = "SuzuEmojy"
+    VALUE_NAME = "NekoriEmojy"
 
     def __init__(self):
         self.supported = sys.platform == "win32"

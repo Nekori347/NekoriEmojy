@@ -1,5 +1,8 @@
 # 开机自启动
 
+> 上游技术参考：随 Suzu v1.13.0 继承；本文不是 Nekori 当前状态或产品规范，UI / 路径 / 发布条款可能已被替代。按任务结合当前代码读取；现行边界见 [CURRENT](../../ProjectDocs/CURRENT.md) / [ARCHITECTURE](../../ProjectDocs/ARCHITECTURE.md)。原文保留于 [归整前资料](../../Archive/ProjectDocs_Before_Consolidation_2026-10-07/Source_docs)。
+
+
 在「设置 → 窗口设置 → 开机自启动」开启或关闭，立即生效，无需管理员权限。
 
 - 默认关闭，仅在用户开启后注册当前 Windows 用户的登录启动项。

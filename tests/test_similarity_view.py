@@ -120,10 +120,10 @@ class SimilarityViewTests(unittest.TestCase):
         preview.deleteLater()
         target = group[0].path
         self.dialog.select(target, True)
-        with patch.object(QMessageBox, 'question', return_value=QMessageBox.No):
+        with patch('fluent_ui.components.dialogs.confirm', return_value=False):
             self.dialog.delete_selected()
         self.assertTrue(os.path.exists(target))
-        with patch.object(QMessageBox, 'question', return_value=QMessageBox.Yes):
+        with patch('fluent_ui.components.dialogs.confirm', return_value=True):
             self.dialog.delete_selected()
         self.wait_worker()
         self.assertEqual(self.gallery.storage.deleted, [target])
@@ -200,14 +200,14 @@ class SimilarityViewTests(unittest.TestCase):
         target = self.gallery.storage.paths[0]
         self.dialog.select(target, True)
         with patch.object(self.gallery.storage, 'delete_images_batch', side_effect=RuntimeError('disk error')):
-            with patch.object(QMessageBox, 'question', return_value=QMessageBox.Yes):
+            with patch('fluent_ui.components.dialogs.confirm', return_value=True):
                 self.dialog.delete_selected()
             self.wait_worker()
         self.assertIn('disk error', self.dialog.status.text())
         self.assertTrue(self.dialog.scan_button.isEnabled())
         self.assertTrue(os.path.exists(target))
         self.dialog.select(target, True)
-        with patch.object(QMessageBox, 'question', return_value=QMessageBox.Yes):
+        with patch('fluent_ui.components.dialogs.confirm', return_value=True):
             self.dialog.delete_selected()
         self.wait_worker()
         self.assertFalse(os.path.exists(target))
@@ -228,7 +228,7 @@ class SimilarityViewTests(unittest.TestCase):
 
         with patch.object(self.gallery.storage, 'delete_images_batch', side_effect=slow_delete):
             try:
-                with patch.object(QMessageBox, 'question', return_value=QMessageBox.Yes):
+                with patch('fluent_ui.components.dialogs.confirm', return_value=True):
                     self.dialog.delete_selected()
                 self.assertTrue(started.wait(2))
                 self.assertNotEqual(worker_threads, [main_thread])
@@ -249,7 +249,7 @@ class SimilarityViewTests(unittest.TestCase):
         self.dialog.select(target, True)
         result = {'failed': 1, 'failure_details': {target: 'file is in use'}}
         with patch.object(self.gallery.storage, 'delete_images_batch', return_value=result):
-            with patch.object(QMessageBox, 'question', return_value=QMessageBox.Yes):
+            with patch('fluent_ui.components.dialogs.confirm', return_value=True):
                 self.dialog.delete_selected()
             self.wait_worker()
         self.assertIn('file is in use', self.dialog.status.text())
@@ -260,7 +260,7 @@ class SimilarityViewTests(unittest.TestCase):
         target = self.gallery.storage.paths[0]
         self.dialog.select(target, True)
         with patch('fluent_ui.views.similarity_view.ExchangeWorker.start', side_effect=RuntimeError('start failed')):
-            with patch.object(QMessageBox, 'question', return_value=QMessageBox.Yes):
+            with patch('fluent_ui.components.dialogs.confirm', return_value=True):
                 self.dialog.delete_selected()
         self.assertFalse(self.dialog.deleting)
         self.assertIsNone(self.dialog.delete_worker)
@@ -318,7 +318,7 @@ class SimilarityViewTests(unittest.TestCase):
             time.sleep(.005)
         self.assertEqual(len(dialog.groups), 1)
         dialog.select(paths[0], True)
-        with patch.object(QMessageBox, 'question', return_value=QMessageBox.Yes):
+        with patch('fluent_ui.components.dialogs.confirm', return_value=True):
             dialog.delete_selected()
         deadline = time.monotonic() + 10
         while (dialog.deleting or dialog.worker) and time.monotonic() < deadline:

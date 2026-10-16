@@ -45,3 +45,9 @@ mini_launcher.py
 .update/
 data/
 config/config.json
+
+# Nekori local environment and isolated checks
+.venv/
+.tmp/
+.verification/
+.pytest_cache/

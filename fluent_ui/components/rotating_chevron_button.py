@@ -5,7 +5,8 @@ from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QRectF, Qt, Propert
 from PySide6.QtGui import QColor, QPainter
 from PySide6.QtWidgets import QWidget
 
-from qfluentwidgets import FluentIcon as FIF, drawIcon
+from fluent_ui.icons import Icon as FIF
+from qfluentwidgets import drawIcon
 
 
 class RotatingChevronButton(QWidget):
@@ -47,8 +48,9 @@ class RotatingChevronButton(QWidget):
         if self._anim is not None:
             self._anim.stop()
         anim = QPropertyAnimation(self, b'angle', self)
-        anim.setDuration(250)
-        anim.setEasingCurve(QEasingCurve.InOutCubic)
+        from fluent_ui.visual import MOTION
+        anim.setDuration(MOTION.expand)
+        anim.setEasingCurve(MOTION.easing)
         anim.setStartValue(self._angle)
         anim.setEndValue(float(angle))
         anim.start()

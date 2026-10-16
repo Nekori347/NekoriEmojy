@@ -1,27 +1,37 @@
+from services.i18n import t
 import os
 import ctypes
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QGridLayout, QLabel, QApplication
-from PySide6.QtCore import Qt, QTimer, QEvent, QPoint
+from PySide6.QtCore import Qt, QTimer, QEvent, QPoint, Signal
 from PySide6.QtGui import QCursor, QGuiApplication
-from qfluentwidgets import SearchLineEdit, ScrollArea, isDarkTheme, BodyLabel
+from fluent_ui.components.controls import SearchLineEdit
+from qfluentwidgets import ScrollArea, isDarkTheme, BodyLabel
 
 from fluent_ui.components.emoji_card import EmojiCard
 from fluent_ui.components.hover_preview import HoverPreviewPopup
 from fluent_ui.components.hover_preview_controller import HoverPreviewController
+from services.send_target import SendTargetService, SendResult
 
 user32 = ctypes.windll.user32
 
-def get_window_class_name(hwnd):
-    buff = ctypes.create_unicode_buffer(256)
-    user32.GetClassNameW(hwnd, buff, 256)
-    return buff.value
-
 class QuickPanel(QWidget):
-    def __init__(self, storage_service, clipboard_service, config_service, parent=None):
+    resources_imported = Signal()
+    send_finished = Signal(object)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Escape and self.config.get('esc_hide_quick', False):
+            self.hide_panel()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def __init__(self, storage_service, clipboard_service, config_service, parent=None, *, send_target_service=None):
         super().__init__(parent)
         self.storage = storage_service
         self.clipboard = clipboard_service
         self.config = config_service
+        self.send_target_service = send_target_service or SendTargetService(self)
+        self.last_send_result = None
         
         # 设置为 Tool 窗口，无边框，置顶
         self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
@@ -32,23 +42,36 @@ class QuickPanel(QWidget):
         h = self.config.get("quick_panel_height", 480)
         self.resize(w, h)
             
-        # 目标窗口句柄（用于粘贴）
-        self._target_hwnd = None
-        
         self._all_card_widgets = []
         self._current_columns = 0
         self._cached_query = None
         self._cached_results = None
         self._activation_guard = False
+        # When the panel hides itself because it lost focus, remember when: a
+        # tray click makes it lose focus, so the click that follows is the
+        # "close" half of a toggle rather than a request to open it again.
+        self._auto_hidden_at = 0.0
         self._activation_guard_timer = QTimer(self)
         self._activation_guard_timer.setSingleShot(True)
         self._activation_guard_timer.timeout.connect(self._end_activation_guard)
         
         # 布局常量
-        self.LAYOUT_TOP_MARGIN = 0
+        self.LAYOUT_TOP_MARGIN = 10
         self.LAYOUT_SPACING = 8
         
         self._init_ui()
+        from fluent_ui.components.feedback import FeedbackHost
+        from fluent_ui.components.drop_contract import DropFeedback
+        self.feedback_host = FeedbackHost(self.bg_widget, self.bg_layout, before=self.scroll_area,
+                                          overlay_parent=self.scroll_area.viewport())
+        self.bg_widget.feedback_host = self.feedback_host
+        self.drop_feedback = DropFeedback(self.bg_widget)
+        self._drop_payload = None
+        self.import_thread = self.download_thread = None
+        for surface in (self, self.bg_widget, self.scroll_area.viewport()):
+            surface.setAcceptDrops(True)
+            surface.installEventFilter(self)
+        QApplication.instance().aboutToQuit.connect(self.shutdown)
         
         # 悬停预览组件
         self.preview_popup = HoverPreviewPopup(self)
@@ -73,69 +96,11 @@ class QuickPanel(QWidget):
         self.search_timer.timeout.connect(self._perform_search)
         
         self.update_theme()
+        self.storage.availability.changed.connect(self._availability_changed)
 
     def _init_ui(self):
-        self.layout = QVBoxLayout(self)
-        # 恢复纯粹的视觉留白
-        self.layout.setContentsMargins(10, 10, 10, 10)
-        self.layout.setSpacing(0)
-        
-        # 背景容器
-        self.bg_widget = QWidget(self)
-        self.bg_widget.setObjectName("bg_widget")
-        self.bg_layout = QVBoxLayout(self.bg_widget)
-        self.bg_layout.setContentsMargins(10, 10, 10, 10)
-        self.bg_layout.setSpacing(10)
-        self.layout.addWidget(self.bg_widget)
-        
-        # 搜索框
-        from services.i18n import t, i18n_engine
-        self.search_box = SearchLineEdit(self.bg_widget)
-        self.search_box.setObjectName("quickPanelSearchBox")
-        self.search_box.setPlaceholderText(t("搜索关键词..."))
-        self.search_box.textChanged.connect(self._on_search_text_changed)
-        
-        # 隐藏 qfluentwidgets 默认的聚焦底部粗边框 (由 paintEvent 绘制)
-        self.search_box.setCustomFocusedBorderColor(Qt.transparent, Qt.transparent)
-        
-        # 样式在 update_theme 中动态设置，以支持主题色
-        
-        self.bg_layout.addWidget(self.search_box)
-        
-        # 滚动区域
-        self.scroll_area = ScrollArea(self.bg_widget)
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
-        
-        self.grid_container = QWidget()
-        self.grid_container.setStyleSheet("QWidget { background-color: transparent; }")
-        self.grid_layout = QGridLayout(self.grid_container)
-        self.grid_layout.setSpacing(8)
-        self.grid_layout.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
-        self.grid_layout.setContentsMargins(0, 0, 0, 0)
-        
-        self.scroll_area.setWidget(self.grid_container)
-        self.bg_layout.addWidget(self.scroll_area)
-        
-        # 空状态提示
-        self.empty_label = BodyLabel(t("暂无最近使用记录"), self.grid_container)
-        self.empty_label.setAlignment(Qt.AlignCenter)
-        self.empty_label.setStyleSheet("color: gray;")
-        self.empty_label.hide()
-
-        # 监听多语言切换
-        i18n_engine.language_changed.connect(self._update_i18n_texts)
-        
-        # 安装事件过滤器以支持滚轮缩放
-        self.scroll_area.viewport().installEventFilter(self)
-        
-        # 监听滚动条实现懒加载
-        self.scroll_area.verticalScrollBar().valueChanged.connect(self._on_scroll)
-        
-        # 滚动节流定时器
-        self._lazy_load_timer = QTimer(self)
-        self._lazy_load_timer.setSingleShot(True)
-        self._lazy_load_timer.timeout.connect(self._apply_lazy_loading)
+        from fluent_ui.presentation.quick import build_quick
+        build_quick(self)
 
     def _on_scroll(self, value):
         self._lazy_load_timer.start(32)
@@ -175,68 +140,47 @@ class QuickPanel(QWidget):
                     widget.update_size(current_size, load_image=True)
 
     def set_target_hwnd(self, hwnd):
-        self._target_hwnd = hwnd
+        self.send_target_service.remember(hwnd)
+
+    def _availability_changed(self, path, status):
+        self._cached_query = self._cached_results = None
+        for card in self._all_card_widgets:
+            if card.image_path == path:
+                card.setProperty('state', status)
+                from services.i18n import t
+                card.setToolTip(t('资源文件缺失') if status == 'missing' else '')
+                card.update_style()
+
+    def showEvent(self,event):
+        super().showEvent(event)
+        from fluent_ui.materials import native_material,sync_native_clip
+        native_material(self);sync_native_clip(self)
 
     def paintEvent(self, event):
-        from PySide6.QtGui import QPainter, QColor, QPainterPath
-        from fluent_ui.theme import get_current_background_color
-        from qfluentwidgets import isDarkTheme
-        
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        
-        path = QPainterPath()
-        # 留出 1px 边距防止裁剪
-        path.addRoundedRect(1, 1, self.width() - 2, self.height() - 2, 8, 8)
-        
-        is_dark = isDarkTheme()
-        bg_color = get_current_background_color(self.config, is_dark)
-        # 保持半透明毛玻璃质感
-        bg_color.setAlpha(240)
-        
-        painter.fillPath(path, bg_color)
-        
-        if is_dark:
-            painter.setPen(QColor(68, 68, 68))
-        else:
-            painter.setPen(QColor(204, 204, 204))
-            
-        painter.drawPath(path)
+        from PySide6.QtGui import QPainter, QColor, QPainterPath, QPen
+        from PySide6.QtCore import QRectF
+        from fluent_ui import visual
+        c=visual.colors();p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
+        from fluent_ui.materials import shell_color
+        p.setBrush(shell_color(self));p.setPen(QPen(QColor(c['border']),1))
+        p.drawRoundedRect(QRectF(self.rect()).adjusted(.5,.5,-.5,-.5),visual.WINDOW_RADIUS,visual.WINDOW_RADIUS)
+        p.setPen(Qt.NoPen);p.setBrush(QColor(c['accent']))
+        p.drawRoundedRect(QRectF(10,3,max(0,self.width()-20),3),1.5,1.5)
 
     def update_theme(self):
-        # 动态更新搜索框样式，使其聚焦边框跟随主题色
-        from qfluentwidgets import setCustomStyleSheet, themeColor
-        color = themeColor().name()
-        
-        light_qss = f"""
-            SearchLineEdit#quickPanelSearchBox {{
-                border: 1px solid rgba(0, 0, 0, 0.08);
-                background-color: rgba(255, 255, 255, 0.7);
-            }}
-            SearchLineEdit#quickPanelSearchBox:hover {{
-                background-color: rgba(249, 249, 249, 0.5);
-            }}
-            SearchLineEdit#quickPanelSearchBox:focus {{
-                border: 1px solid {color};
-                background-color: rgba(255, 255, 255, 0.9);
-            }}
-        """
-        dark_qss = f"""
-            SearchLineEdit#quickPanelSearchBox {{
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                background-color: rgba(255, 255, 255, 0.05);
-            }}
-            SearchLineEdit#quickPanelSearchBox:hover {{
-                background-color: rgba(255, 255, 255, 0.08);
-            }}
-            SearchLineEdit#quickPanelSearchBox:focus {{
-                border: 1px solid {color};
-                background-color: rgba(255, 255, 255, 0.05);
-            }}
-        """
-        setCustomStyleSheet(self.search_box, light_qss, dark_qss)
-        
-        # 背景绘制已移至 paintEvent，这里只需触发重绘
+        from fluent_ui.materials import native_material
+        native_material(self)
+        from fluent_ui import visual
+        c=visual.colors()
+        visual.apply_typography(self)
+        self.setStyleSheet(visual.control_style())
+        self.search_box.setStyleSheet(f"SearchLineEdit {{ color: {c['text']}; background: {c['surface']}; border: 1px solid {c['border']}; border-radius: 8px; }} SearchLineEdit:focus {{ border-color: {c['accent']}; }}")
+        self.scroll_area.setStyleSheet('QScrollArea { background: transparent; border: none; }')
+        self.scroll_area.viewport().setAutoFillBackground(False)
+        self.scroll_area.viewport().setStyleSheet('background: transparent;')
+        self.grid_container.setAutoFillBackground(False)
+        self.grid_container.setStyleSheet('background: transparent;')
+        self.empty_label.setStyleSheet(f"color: {c['muted']}; background: transparent;")
         self.update()
 
     def _on_search_text_changed(self, text):
@@ -296,7 +240,8 @@ class QuickPanel(QWidget):
         # 填充新结果
         for path in results:
             # 初始化时不加载图片，交给懒加载处理
-            card = EmojiCard(path, size=card_size, parent=self.grid_container)
+            card = EmojiCard(path, size=card_size, parent=self.grid_container,
+                             availability=self.storage.availability)
             card.update_size(card_size, load_image=False)
             card._is_loaded = False
             
@@ -378,7 +323,86 @@ class QuickPanel(QWidget):
                 if widget.needs_reload(current_size):
                     widget.update_size(current_size, load_image=True)
 
+    def _track_external_drop(self, event):
+        from services.clipboard import ClipboardService
+        from fluent_ui.components.drop_contract import INTO, RESOURCE_MIME, TAG_MIME, NODE_MIME
+        mime = event.mimeData()
+        self._drop_payload = (None, None) if any(mime.hasFormat(k) for k in (RESOURCE_MIME, TAG_MIME, NODE_MIME)) else ClipboardService.importable_payload(mime, self.storage.SUPPORTED_FORMATS)
+        if self._drop_payload[0] and not self.feedback_host.task_active:
+            self._activation_guard = True
+            self._activation_guard_timer.stop()
+            self.preview_controller.cancel()
+            self.drop_feedback.show_target(INTO, self.bg_widget.rect().adjusted(5,5,-5,-5))
+            event.acceptProposedAction()
+        else:
+            self.drop_feedback.clear()
+            self.feedback_host.hint(t('当前有导入任务正在进行，请稍候') if self.feedback_host.task_active else t('无法导入此内容'), event.position().toPoint() + self.mapToGlobal(QPoint()))
+            event.ignore()
+
+    def _start_external_import(self, paths, *, temporary=False):
+        from fluent_ui.views.gallery_view import ImportThread
+        from services.library_index import ROOT
+        self.import_thread = ImportThread(paths, self.storage, ROOT, delete_after=temporary, parent=self)
+        self.import_thread.progress.connect(lambda current,total: self.feedback_host.update_task(current,total))
+        self.import_thread.finished.connect(self._external_import_finished)
+        self.import_thread.start()
+
+    def _external_import_finished(self, saved, skipped, failed):
+        self._cached_query = self._cached_results = None
+        self.resources_imported.emit()
+        self._perform_search(force=True)
+        self.feedback_host.finish(t('导入完成'), t('新增 {saved} 项，重复 {skipped} 项，失败 {failed} 项').format(
+            saved=saved,skipped=skipped,failed=failed),
+            outcome=('partial' if saved or skipped else 'error') if failed else 'success')
+        self._activation_guard_timer.start(180)
+
+    def _external_download_finished(self, success, path, error, url):
+        if success:
+            self._start_external_import([path], temporary=True)
+        else:
+            self.feedback_host.finish(t('下载失败'), error, outcome='error')
+            self._activation_guard_timer.start(180)
+
+    def _import_external_payload(self, payload):
+        kind, data = payload
+        self.feedback_host.task(t('正在导入'))
+        try:
+            if kind == 'file':
+                self._start_external_import(data)
+            elif kind == 'image':
+                from services.resource_import import ImportTarget
+                from services.library_index import ROOT
+                path, duplicate = self.storage.save_image(data, ImportTarget(ROOT))
+                self._external_import_finished(int(bool(path) and not duplicate), int(duplicate), int(not path))
+            else:
+                from fluent_ui.views.gallery_view import DownloadThread
+                self.download_thread = DownloadThread(data, self)
+                self.download_thread.finished.connect(self._external_download_finished)
+                self.download_thread.start()
+        except Exception as error:
+            self.feedback_host.finish(t('导入失败'), str(error), outcome='error')
+            self._activation_guard_timer.start(180)
+
+    def shutdown(self):
+        for worker in (self.import_thread, self.download_thread):
+            if worker and worker.isRunning():
+                worker.wait()
+
     def eventFilter(self, obj, event):
+        if obj in (self, getattr(self,'bg_widget',None), getattr(self,'scroll_area',None).viewport() if hasattr(self,'scroll_area') else None):
+            if event.type() in (QEvent.DragEnter, QEvent.DragMove):
+                self._track_external_drop(event)
+                return True
+            if event.type() == QEvent.DragLeave:
+                self.drop_feedback.clear()
+                self._activation_guard_timer.start(180)
+                return True
+            if event.type() == QEvent.Drop:
+                self._track_external_drop(event)
+                self.drop_feedback.clear()
+                if event.isAccepted():
+                    self._import_external_payload(self._drop_payload)
+                return True
         if obj == self.scroll_area.viewport() and event.type() == event.Type.Wheel:
             if QApplication.keyboardModifiers() & Qt.ControlModifier:
                 delta = event.angleDelta().y()
@@ -395,48 +419,29 @@ class QuickPanel(QWidget):
         return super().eventFilter(obj, event)
 
     def _on_card_clicked(self, path, modifiers=None):
-        self.clipboard.copy_image_to_clipboard(path)
-        limit = self.config.get("recent_limit", 30)
-        self.storage.add_recent_image(path, limit)
-        self._cached_query = None
-        self._cached_results = None
-        self.hide_panel()
-        
-        # 尝试恢复焦点并粘贴
-        if self._target_hwnd and user32.IsWindow(self._target_hwnd):
-            class_name = get_window_class_name(self._target_hwnd)
-            system_classes = (
-                "Progman", "WorkerW", "Shell_TrayWnd", 
-                "CabinetWClass", "ExploreWClass", "Windows.UI.Core.CoreWindow"
-            )
-            if class_name not in system_classes:
-                # 如果窗口被最小化，先恢复
-                if user32.IsIconic(self._target_hwnd):
-                    user32.ShowWindow(self._target_hwnd, 9) # SW_RESTORE
-                    
-                # 强制恢复焦点
-                user32.SetForegroundWindow(self._target_hwnd)
-                # 轮询确认焦点切换成功，带超时兜底
-                self._paste_attempts = 0
-                self._check_focus_and_paste()
+        # Ignore acquisition-induced focus loss until the send result is known.
+        self._activation_guard = True
+        self._activation_guard_timer.stop()
+        self.send_target_service.send(path, self.clipboard, self.storage,
+                                      self._on_send_finished, self.config.get('recent_limit', 30))
 
-    def _check_focus_and_paste(self):
-        current_hwnd = user32.GetForegroundWindow()
-        if current_hwnd == self._target_hwnd or self._paste_attempts >= 10:
-            # 焦点已切换成功，或者已经尝试了 10 次（约 100ms），执行粘贴
-            self._simulate_paste()
+    def _on_send_finished(self, result):
+        from fluent_ui.components.feedback import feedback_for
+        local = feedback_for(self.bg_widget)
+        self.feedback_host = local
+        self.last_send_result = result
+        self.send_finished.emit(result)
+        if result != SendResult.COPY_FAILED:
+            self._cached_query = self._cached_results = None
+        if result == SendResult.SENT:
+            local.dismiss()
+            self.hide_panel()
         else:
-            self._paste_attempts += 1
-            QTimer.singleShot(10, self._check_focus_and_paste)
-
-    def _simulate_paste(self):
-        VK_CONTROL = 0x11
-        VK_V = 0x56
-        KEYEVENTF_KEYUP = 0x0002
-        user32.keybd_event(VK_CONTROL, 0, 0, 0)
-        user32.keybd_event(VK_V, 0, 0, 0)
-        user32.keybd_event(VK_V, 0, KEYEVENTF_KEYUP, 0)
-        user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0)
+            self._activation_guard_timer.start(180)
+            if result == SendResult.COPIED_ONLY:
+                local.notice(t('已复制，但未找到可发送窗口'))
+            else:
+                local.notice(t('复制失败'), t('无法将图片写入剪贴板'), error=True)
 
     def _on_card_hover_started(self, card, path):
         self.preview_controller.set_delay(self.config.get("preview_delay", 500))
@@ -458,6 +463,7 @@ class QuickPanel(QWidget):
         self._activation_guard = False
 
     def show_at_cursor(self):
+        self.send_target_service.capture_foreground()
         # 每次唤醒时读取最新的宽高配置
         w = self.config.get("quick_panel_width", 360)
         h = self.config.get("quick_panel_height", 480)
@@ -502,9 +508,17 @@ class QuickPanel(QWidget):
         self.activateWindow()
         self.search_box.setFocus()
 
-    def hide_panel(self):
+    def hide_panel(self, auto=False):
         self.preview_controller.cancel()
+        if auto:
+            import time
+            self._auto_hidden_at = time.monotonic()
         self.hide()
+
+    def hidden_by_focus_loss_within(self, seconds=0.6):
+        """Whether the panel just hid itself because it lost focus."""
+        import time
+        return bool(self._auto_hidden_at) and time.monotonic() - self._auto_hidden_at < seconds
         
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -515,5 +529,5 @@ class QuickPanel(QWidget):
     def changeEvent(self, event):
         if event.type() == QEvent.ActivationChange:
             if not self.isActiveWindow() and not self._activation_guard:
-                self.hide_panel()
+                self.hide_panel(auto=True)
         super().changeEvent(event)

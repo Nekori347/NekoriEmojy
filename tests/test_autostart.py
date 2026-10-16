@@ -26,11 +26,11 @@ class AutostartTests(unittest.TestCase):
             0, self.registry.KEY_SET_VALUE)
         self.registry.SetValueEx.assert_called_once_with(
             self.registry.CreateKeyEx.return_value.__enter__.return_value,
-            'SuzuEmojy', 0, 1, '"C:\\应用 程序\\app.exe" --autostart')
+            'NekoriEmojy', 0, 1, '"C:\\应用 程序\\app.exe" --autostart')
 
     def test_disable_removes_only_our_value_and_is_idempotent(self):
         self.service.set_enabled(False)
-        self.registry.DeleteValue.assert_called_once_with(self.key, 'SuzuEmojy')
+        self.registry.DeleteValue.assert_called_once_with(self.key, 'NekoriEmojy')
         self.registry.DeleteValue.side_effect = FileNotFoundError
         self.service.set_enabled(False)
 
@@ -96,16 +96,18 @@ class AutostartUITests(unittest.TestCase):
         from fluent_ui.views.setting_view import SettingInterface
         config = MagicMock()
         config.get.side_effect = lambda key, default=None: default
-        with patch('fluent_ui.views.setting_view.AutostartService') as factory, \
-                patch('fluent_ui.views.setting_view.InfoBar.error') as error:
+        with patch('fluent_ui.views.settings_center.AutostartService') as factory, \
+                patch('fluent_ui.views.settings_center.InfoBar.error') as error:
             service = factory.return_value
             service.supported = True
             service.is_enabled.return_value = False
             view = SettingInterface(config)
             service.set_enabled.assert_not_called()
             service.set_enabled.side_effect = PermissionError('denied')
-            view.autostartCard.setChecked(True)
-            self.assertFalse(view.autostartCard.isChecked())
+            row = view._rows['autostart'][0]
+            row.set_value(True)
+            row.changed.emit()
+            self.assertFalse(row.value())
             error.assert_called_once()
             config.set.assert_not_called()
             view.deleteLater()

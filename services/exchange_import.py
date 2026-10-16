@@ -45,7 +45,8 @@ class ExchangeImportService:
 
     FORMAT_VERSION = 1
 
-    def __init__(self, base_dir: str | os.PathLike[str] | None = None) -> None:
+    def __init__(self, base_dir: str | os.PathLike[str] | None = None, *, storage=None) -> None:
+        self.storage = storage
         root = Path(base_dir) if base_dir is not None else Path(__file__).resolve().parent.parent
         self.base_dir = root
         self.data_dir = root / "data"
@@ -72,6 +73,8 @@ class ExchangeImportService:
             catalog = self._load_json(staging / "catalog.json")
             resources, categories = self._parse_catalog(manifest, catalog, staging)
             icons = self._parse_icons(catalog, staging)
+            if self.storage is not None:
+                return self._import_into_library(resources, categories, icons, progress_callback)
 
             self.data_dir.mkdir(parents=True, exist_ok=True)
             self.images_dir.mkdir(parents=True, exist_ok=True)
@@ -203,6 +206,49 @@ class ExchangeImportService:
             for connection in connections:
                 connection.close()
             shutil.rmtree(staging, ignore_errors=True)
+
+    def _import_into_library(self, resources, categories, icons, progress):
+        # Preserve the validated upstream sharing format. Native recursive-node
+        # packages remain a later feature; no second writable catalog is used.
+        storage = self.storage
+        nodes = {}
+        for ref, name in categories.items():
+            storage.add_category(name)
+            nodes[ref] = storage.resolve_category(name)
+        for ref, icon in icons.items():
+            if isinstance(icon, Path):
+                directory = storage.index.root / 'category_icons'
+                directory.mkdir(exist_ok=True)
+                destination = directory / (self._sha256(icon) + icon.suffix.lower())
+                if not destination.exists():
+                    shutil.copy2(icon, destination)
+                value = 'category_icons/' + destination.name
+            else:
+                value = icon
+            with storage.index.connect() as db:
+                old = db.execute('SELECT icon FROM nodes WHERE id=?', (nodes[ref],)).fetchone()[0]
+            if not old:
+                storage.index.update_node(nodes[ref], icon=value)
+        imported = skipped = 0
+        for i, resource in enumerate(resources):
+            try:
+                saved, duplicate = storage.save_file(str(resource.source), strict=True)
+                resource_id = storage._resource_id(saved)
+                for ref in resource.category_refs:
+                    storage.index.add_membership(resource_id, nodes[ref])
+                existing_tags = storage.get_image_keywords(saved)
+                storage.set_image_keywords(saved, storage.merge_tags(existing_tags, ' '.join(resource.keywords)))
+                if duplicate:
+                    skipped += 1
+                else:
+                    imported += 1
+                    with storage.index.connect() as db:
+                        db.execute('UPDATE resources SET display_name=? WHERE id=?', (resource.display_name, resource_id))
+                if progress:
+                    progress(i + 1, len(resources), resource.display_name)
+            except Exception as exc:
+                raise ExchangeImportError(f'导入中断；已保存 {imported}，已合并 {skipped}。{exc}') from exc
+        return imported, skipped
 
     def _extract_zip(
         self,

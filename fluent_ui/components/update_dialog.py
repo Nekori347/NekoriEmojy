@@ -1,3 +1,4 @@
+from fluent_ui.components import dialogs
 """User-initiated update workflow; background work never touches Qt widgets."""
 import gc
 import threading
@@ -7,11 +8,15 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QApplication, QDialog, QHBoxLayout, QMessageBox, QVBoxLayout,
 )
-from qfluentwidgets import BodyLabel, PrimaryPushButton, ProgressBar, PushButton, TextEdit, isDarkTheme
+from qfluentwidgets import BodyLabel, isDarkTheme
+from fluent_ui.components.softframe import SoftframeProgress as ProgressBar
+from fluent_ui.components.controls import TextEdit
+from fluent_ui.components.controls import PrimaryPushButton, PushButton
 
 from services.i18n import t
 from services.update_service import Cancelled, RELEASES_URL, UpdateService, current_version
 from services.update_protocol import MANIFEST
+from fluent_ui.visual import colors
 
 
 class UpdateWorker(QThread):
@@ -48,7 +53,7 @@ def active_tasks():
     return tasks
 
 
-class UpdateDialog(QDialog):
+class UpdateDialog(dialogs.OwnerCenteredDialog):
     def __init__(self, parent=None, service=None):
         super().__init__(parent)
         self.service = service or UpdateService()
@@ -58,7 +63,7 @@ class UpdateDialog(QDialog):
         self.installing = False
         self.setWindowTitle(t("软件更新"))
         self.setObjectName("updateDialog")
-        self.setStyleSheet("QDialog#updateDialog { background: " + ("#202020" if isDarkTheme() else "#f9f9f9") + "; }")
+        self.setStyleSheet("QDialog#updateDialog { background: " + colors()['window_base'] + "; }")
         self.resize(700, 470)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
@@ -176,8 +181,7 @@ class UpdateDialog(QDialog):
             if active_tasks():
                 self.status.setText(t("请等待导入、导出和后台任务结束后再更新"))
                 return
-            if QMessageBox.question(self, t("重启并更新"), t("现在退出软件并安装更新？用户数据将保留。"),
-                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+            if not dialogs.confirm(self, t("重启并更新"), t("现在退出软件并安装更新？用户数据将保留。")):
                 return
             self.installing = True
             self.later_button.setEnabled(False)

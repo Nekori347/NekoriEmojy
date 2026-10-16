@@ -58,6 +58,11 @@ class _I18nEngine(QObject):
             self.load_language(lang)
 
     def t(self, text, context=None):
+        if isinstance(text, _TranslatedText):
+            return text.render()
+        return _TranslatedText(text, self._translate(text, context), context)
+
+    def _translate(self, text, context=None):
         """
         获取翻译文本。
         :param text: 中文原文
@@ -68,6 +73,8 @@ class _I18nEngine(QObject):
         JSON 字典中对应的 key 为 "原文::上下文"，例如 "打开::文件": "Open"。
         """
         # 如果是中文（基准语言），直接返回原文（忽略 context）
+        if not text:
+            return ""
         if self.current_lang == "zh":
             return text
             
@@ -98,3 +105,54 @@ SUPPORTED_LANGUAGES = [
 i18n_engine = _I18nEngine()
 # 导出简写函数
 t = i18n_engine.t
+
+
+class _TranslatedText(str):
+    """Keep the source key across dialog/row arguments and formatted counts."""
+    def __new__(cls, source, value, context=None, args=(), values=None):
+        result = super().__new__(cls, value)
+        result.source, result.context = source, context
+        result.args, result.values = args, values or {}
+        return result
+
+    def format(self, *args, **values):
+        return _TranslatedText(self.source, str(self).format(*args, **values),
+                               self.context, args, values)
+
+    def render(self):
+        value = i18n_engine._translate(self.source, self.context)
+        return _TranslatedText(self.source, value.format(*self.args, **self.values),
+                               self.context, self.args, self.values)
+
+
+class _TextBinding(QObject):
+    def __init__(self, widget, source, setter):
+        super().__init__(widget)
+        self.widget, self.source, self.setter = widget, source, setter
+        i18n_engine.language_changed.connect(self.refresh)
+        self.refresh()
+
+    def refresh(self, *_):
+        getattr(self.widget, self.setter)(t(self.source))
+
+
+def bind_text(widget, source, setter='setText'):
+    """Bind fixed UI text; never use this for user names, paths, tags or input."""
+    bindings = getattr(widget, '_i18n_bindings', {})
+    if setter in bindings:
+        bindings[setter].source = source
+        bindings[setter].refresh()
+    else:
+        bindings[setter] = _TextBinding(widget, source, setter)
+    widget._i18n_bindings = bindings
+
+
+def translated(factory, *args, **kwargs):
+    """Small construction helper for fixed labels/buttons/actions."""
+    text_index = next(i for i, value in enumerate(args) if isinstance(value, str))
+    source = args[text_index]
+    values = list(args)
+    values[text_index] = t(source)
+    widget = factory(*values, **kwargs)
+    bind_text(widget, source)
+    return widget

@@ -2,9 +2,14 @@ import ctypes
 import sys
 from ctypes import wintypes
 
-from PySide6.QtCore import QObject, QTimer, QEvent, Qt
+from PySide6.QtCore import QObject, QTimer, QEvent, Qt, QPoint, QRect
 from PySide6.QtGui import QCursor, QGuiApplication
 from PySide6.QtWidgets import QApplication, QWidget, QAbstractScrollArea
+from shiboken6 import isValid
+
+_PREVIEW_EVENTS = frozenset((QEvent.Hide, QEvent.Close, QEvent.WindowStateChange,
+    QEvent.Leave, QEvent.Move, QEvent.Resize, QEvent.Wheel,
+    QEvent.MouseButtonPress, QEvent.DragEnter, QEvent.ContextMenu))
 
 
 def _native_window_under_cursor():
@@ -75,13 +80,15 @@ class HoverPreviewController(QObject):
 
     def eventFilter(self, obj, event):
         kind = event.type()
-        if kind not in (
-            QEvent.Hide, QEvent.Close, QEvent.WindowStateChange, QEvent.Leave,
-            QEvent.Move, QEvent.Resize, QEvent.Wheel, QEvent.MouseButtonPress,
-            QEvent.DragEnter, QEvent.ContextMenu,
-        ):
+        if kind not in _PREVIEW_EVENTS:
+            return False
+        if not isValid(self.owner) or not isValid(self.viewport):
             return False
         if not isinstance(obj, QWidget):
+            return False
+        # A fixed preview lives inside the viewport. Its own layout/position
+        # events are presentation, not a movement of the source thumbnails.
+        if obj is self.popup or self.popup.isAncestorOf(obj):
             return False
         if obj in (self.owner, self.owner.window(), self.viewport):
             if kind in (QEvent.Hide, QEvent.Close, QEvent.WindowStateChange, QEvent.Leave):
@@ -112,11 +119,12 @@ class HoverPreviewController(QObject):
         self.current_hover_card = card
         self.current_hover_path = path
 
-        # destroyed 信号只影响当前这一代的当前卡片。
-        card.destroyed.connect(
-            lambda _obj=None, card=card, generation=generation:
-            self._on_card_destroyed(card, generation)
-        )
+        # A pooled renderer may be hovered thousands of times. Connect once;
+        # destruction still only cancels the currently hovered renderer.
+        if not getattr(card, '_preview_destroy_connected', False):
+            card.destroyed.connect(lambda _obj=None, card=card:
+                                   self._on_card_destroyed(card, self.hover_generation))
+            card._preview_destroy_connected = True
         self.hover_timer.start(self.delay)
 
     def leave(self, card):
@@ -247,12 +255,26 @@ class HoverPreviewController(QObject):
             # 卡片边缘可能跨越多显示器边界，使用右上角会导致弹窗
             # 按另一块屏幕的可用区域计算位置。
             anchor_pos = QCursor.pos()
+            info = self.owner.get_preview_info(path)
+            container_rect = None
+            anchor_rect = None
+            pane = self.popup.parentWidget()
+            if pane is not None and card is not None:
+                # Fixed mode: coordinates relative to the pane the overlay is
+                # attached to, and the hovered card's rect so the overlay can
+                # step aside when the card already sits in its corner.
+                container_rect = pane.rect()
+                anchor_rect = QRect(pane.mapFromGlobal(card.mapToGlobal(QPoint(0, 0))),
+                                    card.size())
             self.popup.show_preview(
                 path,
                 anchor_pos,
                 self.owner.get_preview_size(),
                 category_str,
                 keyword_str,
+                info=info,
+                anchor_rect=anchor_rect,
+                container_rect=container_rect,
             )
         except RuntimeError:
             self.cancel()

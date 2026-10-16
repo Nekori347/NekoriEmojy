@@ -1,5 +1,8 @@
 # 手动更新与发布
 
+> 上游技术参考：随 Suzu v1.13.0 继承；本文不是 Nekori 当前状态或产品规范，UI / 路径 / 发布条款可能已被替代。按任务结合当前代码读取；现行边界见 [CURRENT](../../ProjectDocs/CURRENT.md) / [ARCHITECTURE](../../ProjectDocs/ARCHITECTURE.md)。原文保留于 [归整前资料](../../Archive/ProjectDocs_Before_Consolidation_2026-10-07/Source_docs)。
+
+
 关于页面显示根目录 `version.json` 中的版本，点击“检查更新”才请求 GitHub Releases API。
 程序启动不检查、不下载、不自动安装已下载的更新。启动器只会在检测到上次安装中断时进行本地恢复。
 

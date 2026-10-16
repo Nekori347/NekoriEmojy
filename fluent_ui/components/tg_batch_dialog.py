@@ -1,3 +1,4 @@
+from fluent_ui.components import dialogs
 """Batch package dialog with ordered pipeline work outside the GUI thread."""
 
 import os
@@ -9,7 +10,9 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFileDialog, QMessageBox,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
 )
-from qfluentwidgets import TextEdit, LineEdit, PushButton, PrimaryPushButton, BodyLabel
+from qfluentwidgets import BodyLabel
+from fluent_ui.components.controls import TextEdit
+from fluent_ui.components.controls import LineEdit, PushButton, PrimaryPushButton
 
 from services.i18n import t
 from services.tg_downloader import TGStickerDownloader
@@ -98,7 +101,7 @@ class BatchPackageWorker(QThread):
             self.error = str(exc)
 
 
-class TGBatchPackageDialog(QDialog):
+class TGBatchPackageDialog(dialogs.OwnerCenteredDialog):
     def __init__(self, parent, directory, config, storage, importer_factory):
         super().__init__(parent)
         self.config, self.storage = config, storage
@@ -160,7 +163,7 @@ class TGBatchPackageDialog(QDialog):
         links = [line.strip() for line in self.links_edit.toPlainText().splitlines() if line.strip()]
         directory = self.path_edit.text().strip()
         if not links or not directory:
-            QMessageBox.warning(self, t("提示"), t("请输入 TG 链接并选择保存目录。"))
+            dialogs.message(self, t("提示"), t("请输入 TG 链接并选择保存目录。"))
             return
         self.table.setRowCount(len(links))
         for row, link in enumerate(links):
@@ -198,17 +201,14 @@ class TGBatchPackageDialog(QDialog):
         item = self.table.item(row, 3)
         if item is None or not item.toolTip():
             return
-        dialog = QDialog(self)
-        dialog.setWindowTitle(t("结果 / 详情"))
+        dialog = dialogs.NekoriDialog(self, t("结果 / 详情"))
         dialog.resize(720, 420)
-        layout = QVBoxLayout(dialog)
+        layout = dialog.body
         content = TextEdit(dialog)
         content.setReadOnly(True)
         content.setPlainText(item.toolTip())
         layout.addWidget(content)
-        close_button = PushButton(t("关闭"), dialog)
-        close_button.clicked.connect(dialog.accept)
-        layout.addWidget(close_button)
+        dialog.add_button(t("关闭"), role="primary", on_click=dialog.accept)
         dialog.exec()
 
     def _finished(self):

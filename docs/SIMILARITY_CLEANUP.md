@@ -1,5 +1,8 @@
 # PC 感知哈希去重
 
+> 上游技术参考：随 Suzu v1.13.0 继承；本文不是 Nekori 当前状态或产品规范，UI / 路径 / 发布条款可能已被替代。按任务结合当前代码读取；现行边界见 [CURRENT](../../ProjectDocs/CURRENT.md) / [ARCHITECTURE](../../ProjectDocs/ARCHITECTURE.md)。原文保留于 [归整前资料](../../Archive/ProjectDocs_Before_Consolidation_2026-10-07/Source_docs)。
+
+
 图库顶部“筛选”和“导出导入”之间的双图片放大镜图标进入。打开窗口不自动扫描；选择全部资源或指定分类、全部图片或静态/动图后，点击开始扫描。
 
 - 严格到宽松对应汉明距离 0–16，默认 6。松开滑条重新匹配缓存特征，并清空选择。

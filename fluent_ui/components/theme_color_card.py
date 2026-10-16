@@ -1,7 +1,8 @@
 from PySide6.QtCore import Qt, Signal, QRect
 from PySide6.QtGui import QPainter, QColor, QPen, QCursor
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QToolButton, QLabel
-from qfluentwidgets import SettingCard, FluentIcon as FIF, isDarkTheme
+from qfluentwidgets import SettingCard, isDarkTheme
+from fluent_ui.icons import Icon as FIF
 
 from fluent_ui.theme import THEMES
 from services.i18n import t, i18n_engine

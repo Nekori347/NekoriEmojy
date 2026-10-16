@@ -1,53 +1,111 @@
 import os
 from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QApplication, QHBoxLayout
-from PySide6.QtCore import Qt, QSize, QByteArray, QBuffer
-from PySide6.QtGui import QPixmap, QMovie, QImageReader
+from PySide6.QtCore import Qt, QSize, QByteArray, QBuffer, QRect, QRectF
+from PySide6.QtGui import QPixmap, QMovie, QImageReader, QPainter, QPainterPath, QColor
+from fluent_ui.icons import Icon
 from qfluentwidgets import BodyLabel, CaptionLabel
 import darkdetect
 from services.i18n import t, i18n_engine
+from fluent_ui import visual
+
+class IconCaption(QLabel):
+    def __init__(self,icon,text):
+        super().__init__(text);self.icon=icon;self.setContentsMargins(20,0,0,0);self.setFont(visual.font('secondary'))
+    def paintEvent(self,event):
+        super().paintEvent(event)
+        p=QPainter(self);self.icon.render(p,QRect(0,(self.height()-13)//2,13,13),fill=visual.colors()['text_secondary'])
+
+
+class PreviewImage(QLabel):
+    def paintEvent(self,event):
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);p.setRenderHint(QPainter.SmoothPixmapTransform)
+        r=QRectF(self.rect());path=QPainterPath();path.addRoundedRect(r,8,8);p.setClipPath(path)
+        p.fillRect(r,QColor(visual.colors()['surface_alt']))
+        movie=self.movie();pix=movie.currentPixmap() if movie else self.pixmap()
+        if pix is not None and not pix.isNull():
+            size=pix.size().toSizeF();size.scale(r.size(),Qt.KeepAspectRatio)
+            target=QRectF(0,0,size.width(),size.height());target.moveCenter(r.center())
+            p.drawPixmap(target,pix,QRectF(pix.rect()))
+
 
 class HoverPreviewPopup(QWidget):
     """
     独立且无焦点的悬停预览浮窗组件，包含元数据展示
+
+    两种呈现模式共用同一个组件：浮动时是靠近指针的工具窗，固定时挂到内容
+    面板上成为角落 overlay——固定模式不会额外创建一个窗口。
     """
+
+    FLOATING_FLAGS = (Qt.Tool
+                      | Qt.FramelessWindowHint
+                      | Qt.WindowStaysOnTopHint
+                      | Qt.WindowDoesNotAcceptFocus
+                      | Qt.WindowTransparentForInput)
+
+    def apply_presentation(self, pane):
+        """Attach to `pane` as an overlay, or detach back to a floating window."""
+        fixed = pane is not None
+        if fixed and self.parentWidget() is pane:
+            return
+        if not fixed and self.parentWidget() is None:
+            return
+        self.hide()
+        if fixed:
+            self.setParent(pane)
+            self.setWindowFlags(Qt.Widget)
+        else:
+            self.setParent(None)
+            self.setWindowFlags(self.FLOATING_FLAGS)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         
         # 使用无焦点的工具窗口，避免 Qt.ToolTip 在应用失去激活状态时自动隐藏。
         # 预览不接收鼠标事件，因此不会阻挡指针离开缩略图。
-        self.setWindowFlags(
-            Qt.Tool
-            | Qt.FramelessWindowHint
-            | Qt.WindowStaysOnTopHint
-            | Qt.WindowDoesNotAcceptFocus
-            | Qt.WindowTransparentForInput
-        )
+        # 固定模式下会被重新挂到内容面板上成为 overlay，那时这些标志会被清除。
+        self.setWindowFlags(self.FLOATING_FLAGS)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WA_StyledBackground, True)
         
         # 核心布局
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(8, 8, 8, 8)
+        self.layout.setContentsMargins(4,4,4,4)
         self.layout.setSpacing(4)
         
         # 图像显示区域
-        self.image_label = QLabel()
+        self.image_label = PreviewImage()
         self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setStyleSheet("border: none; background: transparent;")
-        self.layout.addWidget(self.image_label, stretch=1)
+        self.layout.addWidget(self.image_label)
         
         # 元数据区域 (分类和关键词)
-        self.meta_layout = QVBoxLayout()
+        from fluent_ui.presentation.surfaces import Surface
+        self.metadata_footer = Surface('raised',self,radius=8,edge=True)
+        self.meta_layout = QVBoxLayout(self.metadata_footer)
+        self.meta_layout.setContentsMargins(10,8,10,8)
         self.meta_layout.setSpacing(2)
         
-        self.category_label = CaptionLabel(f"🗂️ {t('无分类')}")
-        
-        self.keyword_label = CaptionLabel(f"🏷️ {t('无关键词')}")
-        
+        # The image stays the first information; the file identity lives here as
+        # low-weight text instead of a separate path tooltip on the card.
+        self.name_label = CaptionLabel("")
+        self.name_label.setProperty("role", "section")
+        self.path_label = CaptionLabel("")
+        self.path_label.setProperty("role", "data")
+
+        self.category_label = IconCaption(Icon.FOLDER,f"{t('无分类')}")
+
+        self.keyword_label = IconCaption(Icon.TAG,f"{t('无关键词')}")
+
+        self.meta_layout.addWidget(self.name_label)
+        self.meta_layout.addWidget(self.path_label)
         self.meta_layout.addWidget(self.category_label)
         self.meta_layout.addWidget(self.keyword_label)
         
-        self.layout.addLayout(self.meta_layout)
+        self.layout.addWidget(self.metadata_footer)
         
         self.current_movie = None
         self.setObjectName("PreviewPopup")
@@ -59,55 +117,55 @@ class HoverPreviewPopup(QWidget):
         """动态刷新界面文本"""
         # 只有在没有实际数据时才刷新默认文本
         if not hasattr(self, 'current_category_str') or not self.current_category_str:
-            self.category_label.setText(f"🗂️ {t('无分类')}")
-            self.keyword_label.setText(f"🏷️ {t('无关键词')}")
+            self.category_label.setText(f"{t('无分类')}")
+            self.keyword_label.setText(f"{t('无关键词')}")
         else:
             # 如果有数据，重新翻译并显示
-            self.category_label.setText(f"🗂️ {t('分类')}: {self.current_category_str}")
-            self.keyword_label.setText(f"🏷️ {t('关键词')}: {self.current_keyword_str}")
+            self.category_label.setText(f"{t('分类')}: {self.current_category_str}")
+            self.keyword_label.setText(f"{t('关键词')}: {self.current_keyword_str}")
+
+    def update_identity(self, info):
+        """File identity as low-weight text under the image."""
+        self.current_name_str = str(info.get('name') or '')
+        self.current_path_str = str(info.get('path') or '')
+        self.name_label.setText(self.current_name_str)
+        self.path_label.setText(self.current_path_str)
 
     def update_theme(self):
-        """动态同步当前 qfluentwidgets 的主题风格"""
-        from qfluentwidgets import isDarkTheme
-        from qfluentwidgets import themeColor
-        color = themeColor().name()
-        
-        if isDarkTheme():
-            self.category_label.setStyleSheet("color: white;")
-            self.keyword_label.setStyleSheet("color: white;")
-            self.setStyleSheet(f"""
-                QWidget#PreviewPopup {{
-                    background-color: rgba(30, 30, 30, 0.95);
-                    border: 1px solid {color};
-                    border-radius: 8px;
-                }}
-            """)
-        else:
-            self.category_label.setStyleSheet("color: #222;")
-            self.keyword_label.setStyleSheet("color: #222;")
-            self.setStyleSheet(f"""
-                QWidget#PreviewPopup {{
-                    background-color: rgba(255, 255, 255, 0.95);
-                    border: 1px solid {color};
-                    border-radius: 8px;
-                }}
-            """)
+        """The preview uses the same semantic surface in either presentation."""
+        visual.apply_typography(self)
+        palette = visual.colors()
+        data_style = f"color: {palette['text_muted']};"
+        self.name_label.setStyleSheet(data_style)
+        self.path_label.setStyleSheet(data_style)
+        text_style = f"color: {palette['text_primary']};"
+        self.category_label.setStyleSheet(text_style)
+        self.keyword_label.setStyleSheet(text_style)
+        self.setStyleSheet(f"QWidget#PreviewPopup {{ {visual.surface_style('popover')} "
+                           f"border: 1px solid {palette['border']}; "
+                           f"border-radius: {visual.PANEL_RADIUS}px; }}")
 
-    def show_preview(self, image_path, global_pos, size_config=320, category_str="无", keyword_str="无"):
+    def show_preview(self, image_path, global_pos, size_config=320, category_str="无",
+                     keyword_str="无", info=None, anchor_rect=None, container_rect=None):
         """
         显示预览窗口，并更新元数据
+
+        `info` 提供文件名 / 相对路径等低权重文字；`container_rect` 非空时按
+        固定模式把预览放进内容面板的角落（右下，被占用则左下），不再跟随鼠标。
         """
         if not os.path.exists(image_path):
             return
 
         self.update_theme()
-        
+        info = info or {}
+        self.update_identity(info)
+
         # 保存当前状态以便语言切换时刷新
         self.current_category_str = category_str
         self.current_keyword_str = keyword_str
-        
-        self.category_label.setText(f"🗂️ {t('分类')}: {category_str}")
-        self.keyword_label.setText(f"🏷️ {t('关键词')}: {keyword_str}")
+
+        self.category_label.setText(f"{t('分类')}: {category_str}")
+        self.keyword_label.setText(f"{t('关键词')}: {keyword_str}")
 
         # 1. 停止清理上一次的动图
         if self.current_movie:
@@ -126,29 +184,30 @@ class HoverPreviewPopup(QWidget):
         screen_rect = screen.availableGeometry()
 
         gap = 15
-        metadata_height = 40
+        metadata_height = max(self.metadata_footer.sizeHint().height(),
+                              4*self.fontMetrics().height()+6)
         max_popup_width = max(1, screen_rect.width() - gap * 2)
         max_image_size = max(
             1,
-            screen_rect.height() - gap * 2 - metadata_height,
+            screen_rect.height() - gap * 2 - metadata_height - 24,
         )
         display_size = min(
             int(size_config),
             max_popup_width,
             max_image_size,
         )
-        total_height = display_size + metadata_height
+        total_height = display_size + metadata_height + 4
         self.setFixedSize(display_size, total_height)
         
         # 只读取图片尺寸，不载入原图像素数据。
         reader = QImageReader(image_path)
         original_size = reader.size()
         
-        target_size = self.calculate_scaled_size(original_size, display_size)
+        target_size = self.calculate_scaled_size(original_size, max(1, display_size-8))
         
         self.image_label.setFixedSize(
-            max(1, display_size - 16),
-            max(1, display_size - 16),
+            max(1, display_size - 8),
+            max(1, display_size - 8),
         )
         self.image_label.setScaledContents(False)
 
@@ -156,37 +215,50 @@ class HoverPreviewPopup(QWidget):
         popup_width = self.width()
         popup_height = self.height()
 
-        # 优先放在指针右下方；空间不足时分别翻转到左侧/上方。
-        candidate_positions = (
-            (global_pos.x() + gap, global_pos.y() + gap),
-            (global_pos.x() - popup_width - gap, global_pos.y() + gap),
-            (global_pos.x() + gap, global_pos.y() - popup_height - gap),
-            (global_pos.x() - popup_width - gap, global_pos.y() - popup_height - gap),
-        )
+        if container_rect is not None:
+            # Fixed mode: a corner overlay inside the content pane. Bottom-right
+            # by default; when the hovered card already occupies that corner the
+            # overlay moves to the bottom-left so it never covers what the user
+            # is pointing at.
+            margin = 4
+            right_x = container_rect.right() - popup_width - margin
+            target_y = max(container_rect.top() + margin,
+                           container_rect.bottom() - popup_height - margin)
+            occupied = anchor_rect is not None and anchor_rect.intersects(
+                QRect(right_x, target_y, popup_width, popup_height))
+            target_x = container_rect.left() + margin if occupied else right_x
+        else:
+            # 优先放在指针右下方；空间不足时分别翻转到左侧/上方。
+            candidate_positions = (
+                (global_pos.x() + gap, global_pos.y() + gap),
+                (global_pos.x() - popup_width - gap, global_pos.y() + gap),
+                (global_pos.x() + gap, global_pos.y() - popup_height - gap),
+                (global_pos.x() - popup_width - gap, global_pos.y() - popup_height - gap),
+            )
 
-        target_x, target_y = next(
-            (
-                (x, y)
-                for x, y in candidate_positions
-                if (
-                    x >= screen_rect.left()
-                    and y >= screen_rect.top()
-                    and x + popup_width <= screen_rect.right() + 1
-                    and y + popup_height <= screen_rect.bottom() + 1
-                )
-            ),
-            (
-                # 四个方向都放不下时，夹紧到当前屏幕可用区域。
-                max(
-                    screen_rect.left(),
-                    min(global_pos.x() + gap, screen_rect.right() - popup_width + 1),
+            target_x, target_y = next(
+                (
+                    (x, y)
+                    for x, y in candidate_positions
+                    if (
+                        x >= screen_rect.left()
+                        and y >= screen_rect.top()
+                        and x + popup_width <= screen_rect.right() + 1
+                        and y + popup_height <= screen_rect.bottom() + 1
+                    )
                 ),
-                max(
-                    screen_rect.top(),
-                    min(global_pos.y() + gap, screen_rect.bottom() - popup_height + 1),
+                (
+                    # 四个方向都放不下时，夹紧到当前屏幕可用区域。
+                    max(
+                        screen_rect.left(),
+                        min(global_pos.x() + gap, screen_rect.right() - popup_width + 1),
+                    ),
+                    max(
+                        screen_rect.top(),
+                        min(global_pos.y() + gap, screen_rect.bottom() - popup_height + 1),
+                    ),
                 ),
-            ),
-        )
+            )
 
         # 3. 移动并无焦点显示窗口
         self.move(target_x, target_y)

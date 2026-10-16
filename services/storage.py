@@ -1,14 +1,18 @@
+"""Desktop storage facade over the Nekori catalog and Suzu's mature codecs."""
 import os
 import uuid
-from datetime import datetime
-import shutil
 import json
 import hashlib
 import io
 import sqlite3
 import time
+import threading
+from datetime import datetime
 from functools import wraps
+from pathlib import Path
 from PIL import Image
+from services.library_index import LibraryIndex, ROOT
+from services.resource_import import ResourceImporter, ImportTarget
 from services.exchange_icons import IMAGE_SUFFIXES, resolve_icon_path, portable_icon_path
 
 
@@ -21,73 +25,656 @@ def _storage_locked(method):
 
 
 class StorageService:
-    SUPPORTED_FORMATS = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.webm', '.tgs')
+    SUPPORTED_FORMATS = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.webm', '.tgs', '.bmp', '.tiff')
 
-    def __init__(self):
-        import sys
-        import threading
+    def __init__(self, library_path=None, config=None):
+        from services.app_paths import selected_library
+        from services.config import ConfigService
+        from services.feature_db import FeatureDB
         self.lock = threading.RLock()
-        # 确保数据目录在项目根目录下的 data/images
-        if getattr(sys, 'frozen', False):
-            # 打包后，数据目录直接放在 exe 所在目录（即 bin 目录）下
-            self.base_dir = os.path.dirname(sys.executable)
-        else:
-            self.base_dir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
-        
-        self.data_dir = os.path.join(self.base_dir, "data")
-        self.images_dir = os.path.join(self.data_dir, "images")
-        self.inbox_dir = os.path.join(self.data_dir, "inbox")
-        self.inbox_failed_dir = os.path.join(self.inbox_dir, "failed")
-        
-        # JSON 路径 (用于 JSON 备份/双写双读)
-        self.order_file = os.path.join(self.data_dir, "order.json")
-        self.categories_file = os.path.join(self.data_dir, "categories.json")
-        self.metadata_file = os.path.join(self.data_dir, "metadata.json")
-        self.icons_file = os.path.join(self.data_dir, "category_icons.json")
-        self.hashes_file = os.path.join(self.data_dir, "hashes.json")
-        self.recent_file = os.path.join(self.data_dir, "recent.json")
-
-        # SQLite DB 数据库文件路径 (独立模块化 DB)
-        self.features_db_path = os.path.join(self.data_dir, "features.db")
-        self.metadata_db_path = os.path.join(self.data_dir, "metadata.db")
-        self.categories_db_path = os.path.join(self.data_dir, "categories.db")
-        self.order_db_path = os.path.join(self.data_dir, "order.db")
-        self.recent_db_path = os.path.join(self.data_dir, "recent.db")
-        
-        # 自动创建必要目录
-        for d in [self.data_dir, self.images_dir, self.inbox_dir, self.inbox_failed_dir]:
-            if not os.path.exists(d):
-                os.makedirs(d)
-
-        # 初始化与确保 DB 表结构存在
-        self._ensure_db_tables()
-
+        self.config = config if config is not None else ConfigService()
+        root = Path(library_path) if library_path is not None else selected_library(self.config)
+        if library_path is None and self.config.get('library_path') and not root.is_dir():
+            raise FileNotFoundError(f'已选择的资源库无法连接：{root}。请恢复路径或在应用配置中重新指定 library_path。')
+        self.index = LibraryIndex(root)
+        from services.resource_availability import ResourceAvailability
+        self.availability = ResourceAvailability(self.index)
+        self.library_root = str(self.index.root)
+        # base_dir continues to mean program files, never the selected library.
+        self.base_dir = str(Path(__file__).resolve().parent.parent)
+        self.data_dir = self.library_root
+        self.images_dir = str(self.index.root / 'images')
+        self.inbox_dir = str(self.index.root / 'inbox')
+        self.inbox_failed_dir = str(self.index.root / 'inbox/failed')
+        for directory in (self.images_dir, self.inbox_dir, self.inbox_failed_dir):
+            Path(directory).mkdir(parents=True, exist_ok=True)
+        self.features_db_path = str(self.index.path)
+        FeatureDB(self.features_db_path)
         self._hashes_cache = self._load_hashes()
-        
-        # 内存缓存与脏标记
-        self._images_cache = []
-        self._images_dirty = True
-        
-        self._categories_cache = {}
-        self._image_to_categories_cache = {}
-        self._categories_dirty = True
-        
-        self._metadata_cache = {}
-        self._metadata_dirty = True
-        
+        self._images_dirty = self._categories_dirty = self._metadata_dirty = True
         self._recent_cache = None
         self._sync_key_index = None
         self._sync_index_lock = threading.RLock()
         self._sync_index_event = threading.Event()
         self._sync_index_event.set()
         self._sync_index_building = False
+        self.importer = ResourceImporter(self)
+        self._adopt_internal_data()
 
-        self._repair_orphaned_resources()
+    def _adopt_internal_data(self):
+        """One-time adoption of data already inside this selected library.
+
+        Never reads the old Nekori Repo or a separate Suzu installation.
+        A transaction marker makes retries idempotent; source data is kept.
+        """
+        with self.index.connect() as db:
+            adopted = db.execute("SELECT 1 FROM library_meta WHERE key='internal_adopted'").fetchone()
+        if adopted:
+            return
+        # A Suzu-shaped directory explicitly selected as the library is a real
+        # compatibility object; use its databases first, JSON only if absent.
+        def read_records(db_name, sql, json_name, default):
+            path = self.index.root / db_name
+            if path.exists():
+                from contextlib import closing
+                with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)) as db:
+                    return db.execute(sql).fetchall()
+            path = self.index.root / json_name
+            return json.loads(path.read_text(encoding='utf-8')) if path.exists() else default
+
+        order = read_records('order.db', 'SELECT image_path FROM item_orders ORDER BY sort_order', 'order.json', [])
+        order = [row[0] if isinstance(row, (tuple, list)) else row for row in order]
+        categories = read_records('categories.db', 'SELECT name FROM categories ORDER BY sort_order,id', 'categories.json', {})
+        if isinstance(categories, list):
+            names = [row[0] for row in categories]
+            relations = read_records('categories.db', 'SELECT category_name,image_path FROM category_images', 'categories.json', {})
+            categories = {name: [r[1] for r in relations if r[0] == name] for name in names}
+        metadata = read_records('metadata.db', 'SELECT image_path,keywords FROM image_metadata', 'metadata.json', {})
+        metadata = dict(metadata)
+        icons = read_records('categories.db', 'SELECT name,icon_path FROM categories WHERE icon_path IS NOT NULL', 'category_icons.json', {})
+        icons = dict(icons)
+        referenced = set(order) | set(metadata)
+        for paths in categories.values():
+            referenced.update(paths)
+        referenced.update(p.name for p in Path(self.images_dir).iterdir() if p.is_file() and p.suffix.lower() in self.SUPPORTED_FORMATS)
+        # Missing references from source records must also survive adoption.
+        for filename in sorted(referenced):
+            self.index.register(Path(self.images_dir) / Path(filename).name)
+        if order:
+            paths = [self._to_abspath(p) for p in order]
+            paths += [p for p in self.get_all_images() if p not in paths]
+            self.save_order(paths)
+        for name, paths in categories.items():
+            if name not in ('全部表情', '未分类', '新建分类'):
+                self.add_category(name)
+                self.add_images_to_category(paths, name)
+        self.save_metadata(metadata)
+        self.save_category_icons(icons)
+        self.index.refresh_status()
+        with self.index.connect() as db:
+            db.execute("INSERT INTO library_meta VALUES ('internal_adopted','1')")
+
+    def _to_filename(self, filepath):
+        resource = self.index.resource(filepath)
+        return resource['filename'] if resource else os.path.basename(filepath)
+
+    def _to_abspath(self, filename):
+        resource = self.index.resource(filename)
+        if resource:
+            return self.index.absolute_path(resource)
+        return os.path.normcase(os.path.abspath(filename if os.path.isabs(filename) else os.path.join(self.images_dir, filename)))
+
+    def get_all_images(self):
+        return [self.index.absolute_path(r) for r in self.index.resources()]
+
+    def category_labels(self):
+        """Temporary breadcrumb projection for the existing flat Suzu sidebar."""
+        nodes = {n['id']: n for n in self.index.nodes()}
+        labels = {}
+        def visit(parent, prefix):
+            for entry in self.index.content(parent):
+                if entry['kind'] == 'node':
+                    node = nodes[entry['id']]
+                    segment = node['name'].replace('%', '%25').replace('/', '%2F')
+                    label = prefix + segment
+                    labels[label] = node['id']
+                    visit(node['id'], label + ' / ')
+        visit(ROOT, '')
+        return labels
+
+    def resolve_category(self, category):
+        if category is None or category in ('全部表情', '未分类', ROOT):
+            return ROOT
+        labels = self.category_labels()
+        if category in labels:
+            return labels[category]
+        if category in labels.values():
+            return category
+        for node in self.index.nodes():
+            if node['parent_id'] == ROOT and node['name'] == category:
+                return node['id']
+        raise KeyError(category)
+
+    def get_all_categories(self):
+        resources = {r['id']: self.index.absolute_path(r) for r in self.index.resources()}
+        return {label: [resources[e['id']] for e in self.index.content(node) if e['kind'] == 'resource']
+                for label, node in self.category_labels().items()}
+
+    def get_exportable_categories(self):
+        return list(self.category_labels())
+
+    def get_images_by_category(self, category_name):
+        if category_name in (None, '全部表情', ROOT):
+            return self.get_all_images()
+        if category_name == '未分类':
+            reverse = self.get_image_to_categories_map()
+            return [p for p in self.get_all_images() if not reverse.get(p)]
+        node = self.resolve_category(category_name)
+        resources = {r['id']: self.index.absolute_path(r) for r in self.index.resources()}
+        return [resources[e['id']] for e in self.index.content(node) if e['kind'] == 'resource']
+
+    def get_categories_by_image(self, filepath):
+        return self.get_image_to_categories_map().get(self._to_abspath(filepath), [])
+
+    def get_image_to_categories_map(self):
+        result = {}
+        for name, paths in self.get_all_categories().items():
+            for path in paths:
+                result.setdefault(path, []).append(name)
+        return result
+
+    def _resource_id(self, path):
+        resource = self.index.resource(path)
+        if not resource:
+            raise KeyError(path)
+        return resource['id']
+
+    def save_order(self, filepaths, category_name=None):
+        """Order resources within this view without moving interleaved child nodes."""
+        node = self.resolve_category(category_name)
+        entries = self.index.content(node)
+        resources = [self._resource_id(p) for p in filepaths]
+        current = [e['id'] for e in entries if e['kind'] == 'resource']
+        if len(resources) != len(current) or set(resources) != set(current):
+            raise ValueError('Resource order must contain the current category resources exactly once')
+        sequence = iter(resources)
+        for entry in entries:
+            if entry['kind'] == 'resource':
+                entry['id'] = next(sequence)
+        self.index.set_order(node, entries)
+
+    def add_category(self, category_name):
+        if not category_name or category_name in ('全部表情', '未分类', '新建分类'):
+            return False
+        try:
+            self.resolve_category(category_name)
+            return False
+        except KeyError:
+            pass
+        self.index.create_node(category_name)
+        return True
+
+    def rename_category(self, old_name, new_name):
+        if not new_name or new_name in ('全部表情', '未分类', '新建分类'):
+            return False
+        try:
+            self.index.update_node(self.resolve_category(old_name), name=new_name)
+            return True
+        except (KeyError, ValueError, sqlite3.IntegrityError):
+            return False
+
+    def remove_category(self, category_name):
+        return self.index.delete_node(self.resolve_category(category_name))
+
+    @_storage_locked
+    def save_categories(self, categories_data, strict=False):
+        """Existing sidebar reorder consumer; never reconstruct or flatten nodes."""
+        labels = self.category_labels()
+        for name in categories_data:
+            if name not in labels:
+                self.add_category(name)
+        labels = self.category_labels()
+        with self.index.connect() as db:
+            for name, paths in categories_data.items():
+                node = labels[name]
+                resources = list(dict.fromkeys(self._resource_id(p) for p in paths))
+                entries = self.index._entries(db, node)
+                # Preserve existing mixed positions; append new relationships.
+                kept = [(k, i) for k, i in entries if k == 'node' or i in resources]
+                current_resources = iter(resources)
+                kept = [(k, next(current_resources)) if k == 'resource' else (k, i) for k, i in kept]
+                kept.extend(('resource', i) for i in current_resources)
+                self.index._write_order(db, node, kept)
+            # Sidebar drag order changes siblings only, with child/resource slots intact.
+            rank = {labels[n]: i for i, n in enumerate(categories_data)}
+            for parent in [ROOT, *labels.values()]:
+                entries = self.index._entries(db, parent)
+                ordered = iter(sorted([e for e in entries if e[0] == 'node'], key=lambda e: rank.get(e[1], len(rank))))
+                self.index._write_order(db, parent, [next(ordered) if k == 'node' else (k, i) for k, i in entries])
+
+    def add_image_to_category(self, filepath, category_name, strict=False):
+        if category_name not in self.category_labels():
+            self.add_category(category_name)
+        added = self.index.add_membership(self._resource_id(filepath), self.resolve_category(category_name))
+        return 'success' if added else 'already_exists'
+
+    def remove_image_from_category(self, filepath, category_name):
+        return self.index.remove_membership(self._resource_id(filepath), self.resolve_category(category_name))
+
+    def add_images_to_category(self, filepaths, category_name):
+        return sum(self.add_image_to_category(p, category_name) == 'success' for p in filepaths)
+
+    def remove_images_from_category(self, filepaths, category_name):
+        return sum(self.remove_image_from_category(p, category_name) for p in filepaths)
+
+    # ------------------------------------------------------------------
+    # Node-level navigation: the UI works with stable node IDs and the real
+    # interleaved content order instead of projecting the tree into labels.
+    # ------------------------------------------------------------------
+
+    def node(self, node_id):
+        return self.index.node(node_id or ROOT) or {"id": ROOT, "name": "Library", "icon": "", "parent_id": None}
+
+    def node_path(self, node_id):
+        """Breadcrumb from the root down to this node; the virtual root is included."""
+        return self.index.node_path(node_id or ROOT)
+
+    def child_nodes(self, node_id):
+        return self.index.child_nodes(node_id or ROOT)
+
+    def entries_of(self, node_id):
+        """Mixed direct content: resources and child nodes in the user's manual order."""
+        node_id = node_id or ROOT
+        counts = self.node_counts()
+        result = []
+        for position, entry in enumerate(self.index.entries(node_id)):
+            record = entry["record"]
+            if entry["kind"] == "resource":
+                result.append({
+                    "kind": "resource", "id": record["id"], "position": entry["position"],
+                    "name": record["display_name"], "path": self.index.absolute_path(record),
+                    "status": record["status"], "tags": record["tags"],
+                    "resource": record,
+                })
+            else:
+                node_id_value = record["id"]
+                stats = counts.get(node_id_value, {"resources": 0, "children": 0})
+                result.append({
+                    "kind": "node", "id": node_id_value, "position": entry["position"],
+                    "name": record["name"], "icon": record["icon"],
+                    "children": stats["children"], "total": stats["resources"],
+                    "node": record,
+                })
+        return result
+
+    def node_choices(self):
+        """Every node as (id, indented display path), for target pickers."""
+        return [(row["id"], "    " * row["depth"] + row["name"])
+                for row in self.node_choice_rows()]
+
+    def node_choice_rows(self):
+        """Every node with its depth and full path, for searchable target pickers.
+
+        Kept alongside node_choices because a flat indented label is not enough
+        once the tree is deep: search and the path line need the actual
+        structure rather than padding.
+        """
+        nodes = {n["id"]: n for n in self.index.nodes()}
+        result = []
+
+        def visit(parent, depth, trail):
+            for entry in self.index.content(parent):
+                if entry["kind"] != "node":
+                    continue
+                node = nodes.get(entry["id"])
+                if node is None:
+                    continue
+                path = trail + [node["name"]]
+                result.append({"id": node["id"], "name": node["name"], "depth": depth,
+                               "path": " / ".join(path)})
+                visit(node["id"], depth + 1, path)
+
+        visit(ROOT, 0, [])
+        return result
+
+    def node_counts(self):
+        """resource / child totals per node, computed in one pass."""
+        stats = {}
+        with self.index.connect() as db:
+            for parent_id, resource_count, child_count in db.execute(
+                    "SELECT parent_id, SUM(resource_id IS NOT NULL), SUM(node_id IS NOT NULL) "
+                    "FROM content GROUP BY parent_id"):
+                stats[parent_id] = {"resources": resource_count or 0, "children": child_count or 0}
+        return stats
+
+    def create_node(self, name, parent_id=ROOT, icon="", position=None):
+        return self.index.create_node(name, parent_id or ROOT, icon, position)
+
+    def rename_node(self, node_id, name):
+        self.index.update_node(node_id, name=name)
+
+    def delete_node(self, node_id):
+        return self.index.delete_node(node_id)
+
+    def move_node(self, node_id, parent_id, position=None):
+        self.index.move_node(node_id, parent_id, position)
+
+    def move_nodes(self, node_ids, parent_id, position=None):
+        self.index.move_nodes(node_ids, parent_id, position)
+
+    def set_content_order(self, node_id, entries):
+        """entries: [{'kind': 'resource'|'node', 'id': ...}] in the wanted order."""
+        self.index.set_order(node_id or ROOT, [(e["kind"], e["id"]) for e in entries])
+
+    def reorder_resources(self, node_id, resource_ids):
+        self.index.reorder_resources(node_id or ROOT, resource_ids)
+
+    def resource_path(self, resource_id):
+        record = self.index.resource_by_id(resource_id)
+        return self.index.absolute_path(record) if record else None
+
+    def resource_of(self, filepath):
+        return self.index.resource(filepath)
+
+    def set_node_icon(self, node_id, value):
+        """value is either an emoji/text or a local image path (copied into the library)."""
+        if value and Path(value).suffix.lower() in IMAGE_SUFFIXES and Path(value).is_file():
+            value = self._store_node_icon_file(value)
+        self.index.update_node(node_id, icon=value or "")
+
+    def _store_node_icon_file(self, source):
+        import shutil
+        target_dir = Path(self.data_dir) / "category_icons"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        suffix = Path(source).suffix.lower()
+        filename = hashlib.md5(Path(source).read_bytes()).hexdigest() + suffix
+        target = target_dir / filename
+        if not target.exists():
+            shutil.copy2(source, target)
+        return "category_icons/" + filename
+
+    def node_icon_path(self, node_id):
+        """Absolute path of an image node icon, or None when the icon is text/empty."""
+        record = self.index.node(node_id)
+        if not record:
+            return None
+        value = record.get("icon") or ""
+        if Path(value).suffix.lower() not in IMAGE_SUFFIXES:
+            return None
+        path = resolve_icon_path(self.data_dir, value)
+        return str(path) if Path(path).is_file() else None
+
+    def move_resources_to(self, filepaths, target_node, copy=True, source_node=None, position=None):
+        """Copy adds the target relation; Move also drops the source relation."""
+        added = 0
+        for offset, path in enumerate(filepaths):
+            record = self.index.resource(path)
+            if not record:
+                continue
+            slot = None if position is None else position + offset
+            if self.index.add_membership(record["id"], target_node or ROOT, slot):
+                added += 1
+            if not copy and source_node and source_node != ROOT:
+                self.index.remove_membership(record["id"], source_node)
+        return added
+
+    def resource_metadata(self, filepath):
+        record = self.index.resource(filepath)
+        return self.index.resource_metadata(record["id"]) if record else {}
+
+    def set_resource_metadata(self, filepath, values):
+        record = self.index.resource(filepath)
+        if record:
+            self.index.set_resource_metadata(record["id"], values)
+
+    def all_tags(self):
+        """Tag to usage count, used by the quick filter strip."""
+        counts = {}
+        for record in self.index.resources():
+            for tag in self.parse_tags(record["tags"]):
+                counts[tag] = counts.get(tag, 0) + 1
+        return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0].casefold())))
+
+    # -- Tag as a global library metadatum -----------------------------
+    # A tag is not owned by a category: resources carry tags, and the single
+    # manual tag order belongs to the library. These four methods are the only
+    # place tag *identity* changes; the panel only projects them.
+    TAG_ORDER_KEY = 'tag_order'
+
+    def tag_order(self):
+        """The one global manual tag order for this library."""
+        raw = self.index.meta(self.TAG_ORDER_KEY, '[]')
+        try:
+            names = json.loads(raw or '[]')
+        except ValueError:
+            return []
+        return [str(name) for name in names] if isinstance(names, list) else []
+
+    def set_tag_order(self, names):
+        ordered = [str(name) for name in names]
+        self.index.set_meta(self.TAG_ORDER_KEY,
+                            json.dumps(list(dict.fromkeys(ordered)), ensure_ascii=False))
+
+    def tag_usage(self, node_id=None, resource_ids=None):
+        """Tag → resource count for the effective scope of one location.
+
+        `resource_ids` is the explicit set a search or filter is actually
+        showing; `node_id` is a category and counts its whole subtree, so a
+        collapsed child still contributes its tags. Without either, the whole
+        library is counted -- that is the library-wide view, not a location.
+        """
+        return self.count_tags(self.index.tag_strings(node_id=node_id,
+                                                      resource_ids=resource_ids))
+
+    def resources_in_subtree(self, node_id):
+        """Unique resources for a committed category operation, one query."""
+        with self.index.connect() as db:
+            rows = db.execute(
+                "WITH RECURSIVE tree(id) AS (SELECT ? UNION ALL "
+                "SELECT n.id FROM nodes n JOIN tree t ON n.parent_id=t.id) "
+                "SELECT DISTINCT r.* FROM resources r JOIN content c ON c.resource_id=r.id "
+                "JOIN tree t ON c.parent_id=t.id", (node_id,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def count_tags(self, tag_texts):
+        counts = {}
+        for text in tag_texts:
+            for tag in self.parse_tags(text):
+                counts[tag] = counts.get(tag, 0) + 1
+        return counts
+
+    def rename_tag(self, old, new):
+        """Rename one tag on every resource that carries it; files untouched."""
+        new = (new or '').strip()
+        if not old or not new or old == new or any(ch.isspace() for ch in new):
+            return 0
+        changed = 0
+        for record in self.index.resources():
+            tags = self.parse_tags(record['tags'])
+            if old not in tags:
+                continue
+            renamed = list(dict.fromkeys(new if tag == old else tag for tag in tags))
+            self.index.set_search_fields(record['id'], tags=self.serialize_tags(renamed))
+            changed += 1
+        return changed
+
+    def delete_tags(self, names):
+        """Drop the tag relation everywhere; no resource is removed."""
+        wanted = {str(name) for name in names}
+        if not wanted:
+            return 0
+        changed = 0
+        for record in self.index.resources():
+            tags = self.parse_tags(record['tags'])
+            if not wanted.intersection(tags):
+                continue
+            kept = [tag for tag in tags if tag not in wanted]
+            self.index.set_search_fields(record['id'], tags=self.serialize_tags(kept))
+            changed += 1
+        return changed
+
+    def apply_tags(self, filepaths, tags, mode="add"):
+        """mode: add appends, remove deletes, replace overwrites."""
+        for path in filepaths:
+            existing = self.get_image_keywords(path)
+            if mode == "add":
+                result = self.merge_tags(existing, self.serialize_tags(tags))
+            elif mode == "remove":
+                result = self.remove_tags(existing, self.serialize_tags(tags))
+            else:
+                result = self.serialize_tags(tags)
+            self.set_image_keywords(path, result)
+
+    def get_all_category_icons(self):
+        nodes = {n['id']: n for n in self.index.nodes()}
+        return {label: str(resolve_icon_path(self.data_dir, nodes[node]['icon']))
+                if Path(nodes[node]['icon']).suffix.lower() in IMAGE_SUFFIXES else nodes[node]['icon']
+                for label, node in self.category_labels().items() if nodes[node]['icon']}
+
+    def save_category_icons(self, icons_data):
+        for label, node in self.category_labels().items():
+            value = icons_data.get(label, '') or ''
+            if Path(value).suffix.lower() in IMAGE_SUFFIXES:
+                value = portable_icon_path(self.data_dir, value)
+            self.index.update_node(node, icon=value)
+
+    def set_category_icon(self, category_name, filepath):
+        """Accepts a library image, an external file, or an emoji string."""
+        self.set_node_icon(self.resolve_category(category_name), filepath)
+
+    def get_category_icon(self, category_name):
+        return self.get_all_category_icons().get(category_name)
+
+    def get_all_metadata(self):
+        return {self.index.absolute_path(r): r['tags'] for r in self.index.resources()}
+
+    def save_metadata(self, metadata):
+        with self.index.connect() as db:
+            for path, tags in metadata.items():
+                resource = self.index.resource(path)
+                if resource:
+                    db.execute('UPDATE resources SET tags=? WHERE id=?', (str(tags or ''), resource['id']))
+
+    def get_image_keywords(self, filepath):
+        resource = self.index.resource(filepath)
+        return resource['tags'] if resource else ''
+
+    def set_image_keywords(self, filepath, keywords_str):
+        self.index.set_search_fields(self._resource_id(filepath), tags=keywords_str)
+
+    def get_search_metadata(self):
+        texts = self.index.search_texts()
+        return {self.index.absolute_path(r): texts[r['id']] for r in self.index.resources()}
+
+    def search_images(self, keyword, category_name='全部表情'):
+        images = self.get_images_by_category(category_name)
+        keyword = keyword.strip().casefold()
+        if not keyword:
+            return images
+        texts = self.get_search_metadata()
+        return [p for p in images if keyword in texts.get(p, '')]
+
+    def _get_recent_limit(self):
+        return int(self.config.get('recent_limit', 30))
+
+    def get_recent_images(self, limit=None):
+        with self.index.connect() as db:
+            rows = db.execute('SELECT r.* FROM recent h JOIN resources r ON h.resource_id=r.id ORDER BY h.used_at DESC LIMIT ?',
+                              (limit if limit is not None else self._get_recent_limit(),)).fetchall()
+            return [self.index.absolute_path(r) for r in rows if Path(self.index.absolute_path(r)).is_file()]
+
+    def add_recent_image(self, filepath, limit=None):
+        resource_id = self._resource_id(filepath)
+        with self.index.connect() as db:
+            db.execute('INSERT INTO recent VALUES (?,?) ON CONFLICT(resource_id) DO UPDATE SET used_at=excluded.used_at',
+                       (resource_id, time.time_ns()))
+            db.execute('DELETE FROM recent WHERE resource_id NOT IN (SELECT resource_id FROM recent ORDER BY used_at DESC LIMIT ?)',
+                       (limit if limit is not None else self._get_recent_limit(),))
+
+    def _load_hashes(self):
+        with self.index.connect() as db:
+            return {r[0]: r[1] for r in db.execute('SELECT md5,image_path FROM image_features WHERE md5 IS NOT NULL')}
+
+    def _save_hashes(self, strict=False):
+        with self.index.connect() as db:
+            db.executemany('INSERT INTO image_features(image_path,md5) VALUES (?,?) ON CONFLICT(image_path) DO UPDATE SET md5=excluded.md5',
+                           [(filename, md5) for md5, filename in self._hashes_cache.items()])
+
+    def save_file(self, source_path, strict=False, target=None, *, library_added_seq=None):
+        return self.importer.file(source_path, target or ImportTarget(), strict, library_added_seq=library_added_seq)
+
+    def save_image(self, qimage, target=None):
+        return self.importer.image(qimage, target or ImportTarget())
+
+    def import_paths(self, paths, target=None, progress=None):
+        return self.importer.paths(paths, target or ImportTarget(), progress)
+
+    def force_reload(self):
+        self._hashes_cache = self._load_hashes()
+        self._sync_key_index = None
+        self.availability.refresh()
+
+    def cleanup_dead_links(self):
+        """Missing is an indexed state, never a reason to erase user metadata."""
+        self.availability.refresh()
+
+    def rebind_resource(self, resource_id, path):
+        resource = self.index.resource(resource_id)
+        if not resource:
+            raise KeyError(resource_id)
+        self.index.rebind(resource_id, path)
+        self._remove_feature_record(resource['filename'])
+        self._hashes_cache = self._load_hashes()
+        self._sync_key_index = None
+
+    def forget_resource(self, resource_id):
+        resource = self.index.resource(resource_id)
+        if not resource:
+            return False
+        self._remove_feature_record(resource['filename'])
+        removed = self.index.forget_resource(resource_id)
+        self._hashes_cache = self._load_hashes()
+        self._sync_key_index = None
+        return removed
+
+    def delete_images_batch(self, filepaths, progress_callback=None, cancel_check=None):
+        from services.recycle_bin import recycle_file
+        paths = list(dict.fromkeys(filepaths))
+        result = dict(requested=len(paths), deleted=0, missing_cleaned=0, failed=0,
+                      cancelled=0, unprocessed=0, failure_details={})
+        for i, path in enumerate(paths):
+            if cancel_check and cancel_check():
+                result['cancelled'] = result['unprocessed'] = len(paths) - i
+                break
+            try:
+                with self.lock:
+                    resource = self.index.resource(path)
+                    if not resource:
+                        raise ValueError('Resource is not owned by this library')
+                    absolute = self.index.absolute_path(resource)
+                    if self.availability.exists(resource['id'], revalidate=True):
+                        recycle_file(absolute, self.library_root)
+                        # Retain a Missing record if DB removal fails after recycling.
+                        result['deleted'] += 1
+                    else:
+                        result['missing_cleaned'] += 1
+                    self.forget_resource(resource['id'])
+            except Exception as exc:
+                result['failed'] += 1
+                result['failure_details'][path] = str(exc)
+            if progress_callback:
+                progress_callback(i + 1, len(paths))
+        return result
+
+    def delete_image(self, filepath):
+        result = self.delete_images_batch([filepath])
+        return result['failed'] == 0 and result['deleted'] + result['missing_cleaned'] == 1
+
 
     def _persist_sync_key(self, filename, sync_key, file_size, mtime_ns, md5_val=None, strict=False):
         """持久化 sync_key 及其文件状态校验字段到 SQLite features.db"""
         try:
-            with sqlite3.connect(self.features_db_path) as conn:
+            with self.index.connect() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
                     INSERT INTO image_features (image_path, sync_key, file_size, mtime_ns, md5)
@@ -107,7 +694,7 @@ class StorageService:
     def _remove_feature_record(self, filename):
         """从 features.db 移除失效文件的特征记录"""
         try:
-            with sqlite3.connect(self.features_db_path) as conn:
+            with self.index.connect() as conn:
                 conn.execute("DELETE FROM image_features WHERE image_path = ?", (os.path.basename(filename),))
                 conn.commit()
         except Exception as e:
@@ -151,7 +738,7 @@ class StorageService:
             # A. 批量从 features.db 读取持久化数据
             db_records = {}
             try:
-                with sqlite3.connect(self.features_db_path) as conn:
+                with self.index.connect() as conn:
                     cursor = conn.cursor()
                     cursor.execute("SELECT image_path, sync_key, file_size, mtime_ns FROM image_features WHERE sync_key IS NOT NULL")
                     for row in cursor.fetchall():
@@ -159,7 +746,16 @@ class StorageService:
             except Exception as e:
                 print(f"[WARNING] 从 features.db 批量读取 sync_key 失败: {e}")
 
-            filenames = sorted(os.listdir(self.images_dir))
+            # Files already written by an interrupted import are not registered
+            # yet; scanning them too lets a retry recognise the orphan as a
+            # duplicate instead of writing the same picture a second time.
+            known = {r['filename'] for r in self.index.resources()}
+            try:
+                on_disk = {p.name for p in Path(self.images_dir).iterdir()
+                           if p.is_file() and p.suffix.lower().endswith(self.SUPPORTED_FORMATS)}
+            except OSError:
+                on_disk = set()
+            filenames = sorted(known | on_disk)
             missing_or_dirty = []
 
             for filename in filenames:
@@ -191,7 +787,7 @@ class StorageService:
 
                 if records_to_update:
                     try:
-                        with sqlite3.connect(self.features_db_path) as conn:
+                        with self.index.connect() as conn:
                             cursor = conn.cursor()
                             cursor.executemany("""
                                 INSERT INTO image_features (image_path, sync_key, file_size, mtime_ns)
@@ -239,203 +835,6 @@ class StorageService:
                 except Exception:
                     pass
 
-    # 别名兼容
-    _atomic_write_json = _atomic_save_json
-
-    def _ensure_db_tables(self):
-        """确保各模块 SQLite 数据库表结构健全"""
-        try:
-            # 1. features.db
-            with sqlite3.connect(self.features_db_path) as conn:
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS image_features (
-                        image_path TEXT PRIMARY KEY,
-                        md5 TEXT,
-                        dhash TEXT,
-                        phash TEXT,
-                        quality_score REAL DEFAULT 0.0,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                cursor = conn.cursor()
-                cursor.execute("PRAGMA table_info(image_features)")
-                columns = [row[1] for row in cursor.fetchall()]
-                if "sync_key" not in columns:
-                    cursor.execute("ALTER TABLE image_features ADD COLUMN sync_key TEXT")
-                if "file_size" not in columns:
-                    cursor.execute("ALTER TABLE image_features ADD COLUMN file_size INTEGER")
-                if "mtime_ns" not in columns:
-                    cursor.execute("ALTER TABLE image_features ADD COLUMN mtime_ns INTEGER")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_features_sync_key ON image_features(sync_key)")
-                conn.commit()
-
-            # 2. metadata.db
-            with sqlite3.connect(self.metadata_db_path) as conn:
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS image_metadata (
-                        image_path TEXT PRIMARY KEY,
-                        tags TEXT,
-                        keywords TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                conn.commit()
-
-            # 3. categories.db
-            with sqlite3.connect(self.categories_db_path) as conn:
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS categories (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        name TEXT UNIQUE NOT NULL,
-                        icon_path TEXT,
-                        sort_order INTEGER DEFAULT 0
-                    )
-                """)
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS category_images (
-                        category_name TEXT,
-                        image_path TEXT,
-                        PRIMARY KEY (category_name, image_path)
-                    )
-                """)
-                conn.execute("DELETE FROM categories WHERE name IN ('全部表情', '未分类', '新建分类')")
-                conn.execute("DELETE FROM category_images WHERE category_name IN ('全部表情', '未分类', '新建分类')")
-                conn.commit()
-
-            # 4. order.db
-            with sqlite3.connect(self.order_db_path) as conn:
-                conn.execute("""
-                    CREATE TABLE IF NOT EXISTS item_orders (
-                        image_path TEXT PRIMARY KEY,
-                        sort_order INTEGER NOT NULL
-                    )
-                """)
-                conn.commit()
-
-            # 5. recent.db
-            with sqlite3.connect(self.recent_db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS recent_history (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        image_path TEXT UNIQUE NOT NULL,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                # 检查旧表结构，若无 updated_at 字段则在线无缝升级
-                cursor.execute("PRAGMA table_info(recent_history)")
-                columns = [row[1] for row in cursor.fetchall()]
-                if "updated_at" not in columns:
-                    cursor.execute("""
-                        CREATE TABLE IF NOT EXISTS recent_history_new (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            image_path TEXT UNIQUE NOT NULL,
-                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        )
-                    """)
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO recent_history_new (image_path, updated_at)
-                        SELECT image_path, MAX(used_at) FROM recent_history GROUP BY image_path
-                    """)
-                    cursor.execute("DROP TABLE recent_history")
-                    cursor.execute("ALTER TABLE recent_history_new RENAME TO recent_history")
-                conn.commit()
-        except Exception as e:
-            print(f"[ERROR] 初始化 DB 表结构失败: {e}")
-
-    # ==========================
-    # 哈希缓存 (Hashes) - DB 与 JSON 双写双读
-    # ==========================
-
-    @_storage_locked
-    def _load_hashes(self):
-        hashes = {}
-        # 1. 先从 DB (features.db) 读取
-        if os.path.exists(self.features_db_path):
-            try:
-                with sqlite3.connect(self.features_db_path) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT image_path, md5 FROM image_features WHERE md5 IS NOT NULL")
-                    for row in cursor.fetchall():
-                        img_path, md5_val = row[0], row[1]
-                        if md5_val:
-                            hashes[md5_val] = img_path
-            except Exception as e:
-                print(f"[WARNING] 从 features.db 读取哈希失败: {e}")
-
-        # 2. 从 JSON (hashes.json) 读取补充
-        if os.path.exists(self.hashes_file):
-            try:
-                with open(self.hashes_file, 'r', encoding='utf-8') as f:
-                    json_data = json.load(f)
-                    if isinstance(json_data, dict):
-                        for k, v in json_data.items():
-                            if isinstance(v, str):
-                                if len(k) == 32 and all(c in '0123456789abcdefABCDEF' for c in k):
-                                    hashes[k] = v
-                                else:
-                                    hashes[v] = k
-            except Exception as e:
-                print(f"[WARNING] 从 hashes.json 读取哈希失败: {e}")
-
-        return hashes
-
-    def _save_hashes(self, strict=False):
-        with self.lock:
-            # 1. 保存到 JSON
-            self._atomic_write_json(self.hashes_file, self._hashes_cache)
-
-            # 2. 保存到 SQLite (features.db)
-            try:
-                records = []
-                for h_val, filename in self._hashes_cache.items():
-                    records.append((os.path.basename(filename), h_val))
-                if records:
-                    with sqlite3.connect(self.features_db_path) as conn:
-                        cursor = conn.cursor()
-                        cursor.executemany("""
-                            INSERT INTO image_features (image_path, md5)
-                            VALUES (?, ?)
-                            ON CONFLICT(image_path) DO UPDATE SET md5 = excluded.md5
-                        """, records)
-                        conn.commit()
-            except Exception as e:
-                print(f"[ERROR] 保存到 features.db 失败: {e}")
-                if strict:
-                    raise
-
-    def _repair_orphaned_resources(self):
-        """自愈孤儿资源：检查本地图片文件是否缺失 order 记录，缺失时仅做轻量补录。
-
-        优化说明：启动期不再全量读取文件字节计算 MD5（大库时极慢）。
-        孤儿文件的 MD5/phash/dhash 将由后台 run_full_deduplication 线程异步补全。
-        """
-        with self.lock:
-            if not os.path.exists(self.images_dir):
-                return
-            actual_filenames = sorted(f for f in os.listdir(self.images_dir) if f.lower().endswith(self.SUPPORTED_FORMATS))
-            if not actual_filenames:
-                return
-
-            all_saved = set(self.get_all_images())
-            repaired_order = False
-
-            for fname in actual_filenames:
-                abspath = self._to_abspath(fname)
-                # 仅检查 order 中是否存在，不检查哈希（哈希由后台补全）
-                if abspath not in all_saved:
-                    repaired_order = True
-
-            if repaired_order:
-                try:
-                    # 以磁盘文件为权威，重建 order（不触发文件读取）
-                    self._images_dirty = True
-                    all_imgs = self.get_all_images()
-                    self.save_order(all_imgs)
-                    print(f"[INFO] 自愈孤儿资源：已将孤儿文件补录到 order（哈希将由后台补全）")
-                except Exception as e:
-                    print(f"[WARNING] 保存自愈数据失败: {e}")
-
     def _calculate_pixel_hash(self, img):
         """计算图片纯像素数据的 MD5 哈希值，用于精准去重"""
         try:
@@ -450,597 +849,11 @@ class StorageService:
         """计算二进制数据的 MD5 哈希值"""
         return hashlib.md5(data_bytes).hexdigest()
 
-    def _to_filename(self, filepath):
-        """将绝对路径转换为单纯的文件名"""
-        return os.path.basename(filepath)
-
-    def _to_abspath(self, filename):
-        """将文件名转换为绝对路径"""
-        if os.path.isabs(filename):
-            return os.path.normcase(os.path.abspath(filename))
-        return os.path.normcase(os.path.abspath(os.path.join(self.images_dir, filename)))
-
-    # ==========================
-    # 所有图片与排序 (Order) - DB 与 JSON 双写双读
-    # ==========================
-
-    def get_all_images(self):
-        """扫描并返回所有保存的图片绝对路径列表（支持自定义排序）"""
-        if not self._images_dirty:
-            return self._images_cache
-            
-        if not os.path.exists(self.images_dir):
-            self._images_cache = []
-            self._images_dirty = False
-            return self._images_cache
-            
-        actual_filenames = []
-        for filename in os.listdir(self.images_dir):
-            if filename.lower().endswith(self.SUPPORTED_FORMATS):
-                actual_filenames.append(filename)
-        
-        actual_filenames.sort(reverse=True)
-        
-        saved_filenames = []
-
-        # 1. 尝试从 DB (order.db) 读取排序
-        if os.path.exists(self.order_db_path):
-            try:
-                with sqlite3.connect(self.order_db_path) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT image_path FROM item_orders ORDER BY sort_order ASC")
-                    rows = cursor.fetchall()
-                    if rows:
-                        saved_filenames = [self._to_filename(r[0]) for r in rows]
-            except Exception as e:
-                print(f"[WARNING] 从 order.db 读取失败: {e}")
-
-        # 2. 如果 DB 为空，尝试从 order.json 读取
-        if not saved_filenames and os.path.exists(self.order_file):
-            try:
-                with open(self.order_file, 'r', encoding='utf-8') as f:
-                    saved_order = json.load(f)
-                    saved_filenames = [self._to_filename(p) for p in saved_order]
-            except Exception as e:
-                print(f"[WARNING] 从 order.json 读取失败: {e}")
-
-        if saved_filenames:
-            actual_set = set(actual_filenames)
-            saved_set = set(saved_filenames)
-            
-            valid_saved_filenames = [f for f in saved_filenames if f in actual_set]
-            new_filenames = [f for f in actual_filenames if f not in saved_set]
-            
-            ordered_filenames = new_filenames + valid_saved_filenames
-            self._images_cache = [self._to_abspath(f) for f in ordered_filenames]
-            self._images_dirty = False
-            return self._images_cache
-                
-        self._images_cache = [self._to_abspath(f) for f in actual_filenames]
-        self._images_dirty = False
-        return self._images_cache
-
-    def move_image_to_front(self, filepath, target_category=None):
-        """将指定图片在主排序（全部表情）及所有其存在的分类夹（以及目标分类）中提升到最前面"""
-        abs_path = self._to_abspath(filepath)
-
-        # 1. 提升在主排序（全部表情）中的位置
-        all_images = list(self.get_all_images())
-        if abs_path in all_images:
-            all_images.remove(abs_path)
-            all_images.insert(0, abs_path)
-            self.save_order(all_images)
-
-        # 2. 若指定了目标分类，确保包含该图片
-        if target_category and target_category not in ("全部表情", "未分类"):
-            self.add_image_to_category(abs_path, target_category)
-
-        # 3. 提升在其关联的所有分类夹中的位置
-        categories = self.get_all_categories()
-        changed = False
-        for cat_name, paths in categories.items():
-            if abs_path in paths:
-                if abs_path in paths:
-                    paths.remove(abs_path)
-                paths.insert(0, abs_path)
-                changed = True
-        if changed:
-            self.save_categories(categories)
-
-    def save_order(self, filepaths):
-        """保存用户自定义的表情包排序顺序（只保存文件名）- DB 与 JSON 双写"""
-        filenames = [self._to_filename(p) for p in filepaths]
-        
-        # 1. 写 JSON
-        try:
-            self._atomic_write_json(self.order_file, filenames)
-            self._images_dirty = True
-        except Exception as e:
-            print(f"[ERROR] 保存 order.json 失败: {e}")
-
-        # 2. 写 order.db
-        try:
-            records = [(fname, idx) for idx, fname in enumerate(filenames)]
-            with sqlite3.connect(self.order_db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("DELETE FROM item_orders")
-                cursor.executemany("""
-                    INSERT INTO item_orders (image_path, sort_order)
-                    VALUES (?, ?)
-                """, records)
-                conn.commit()
-            self._images_dirty = True
-        except Exception as e:
-            print(f"[ERROR] 保存 order.db 失败: {e}")
-
-    # ==========================
-    # 分类 (Categories) - DB 与 JSON 双写双读
-    # ==========================
-    
-    @_storage_locked
-    def get_all_categories(self):
-        """获取所有分类及其包含的图片绝对路径列表"""
-        if not self._categories_dirty:
-            return self._categories_cache
-            
-        data = {}
-
-        # 1. 尝试从 categories.db 读取
-        if os.path.exists(self.categories_db_path):
-            try:
-                with sqlite3.connect(self.categories_db_path) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT name FROM categories ORDER BY sort_order ASC, id ASC")
-                    cat_rows = cursor.fetchall()
-
-                    for r in cat_rows:
-                        cat_name = r[0]
-                        cursor.execute("SELECT image_path FROM category_images WHERE category_name = ?", (cat_name,))
-                        img_rows = cursor.fetchall()
-                        data[cat_name] = [img_r[0] for img_r in img_rows]
-            except Exception as e:
-                print(f"[WARNING] 从 categories.db 读取失败: {e}")
-
-        # 2. 如果 DB 无数据且 JSON 存在，补充合并 categories.json
-        if not data and os.path.exists(self.categories_file):
-            try:
-                with open(self.categories_file, 'r', encoding='utf-8') as f:
-                    json_cat = json.load(f)
-                    if isinstance(json_cat, dict):
-                        data.update(json_cat)
-            except Exception as e:
-                print(f"[WARNING] 从 categories.json 读取失败: {e}")
-
-        try:
-            all_real_images = set(self.get_all_images())
-            cleaned_data = {}
-            reverse_map = {}
-            
-            for category, paths in data.items():
-                if category in ("全部表情", "未分类", "新建分类"):
-                    continue
-                abs_paths = [self._to_abspath(p) for p in paths]
-                valid_paths = [p for p in abs_paths if p in all_real_images]
-                cleaned_data[category] = valid_paths
-                
-                for p in valid_paths:
-                    if p not in reverse_map:
-                        reverse_map[p] = []
-                    reverse_map[p].append(category)
-                    
-            self._categories_cache = cleaned_data
-            self._image_to_categories_cache = reverse_map
-            self._categories_dirty = False
-            return self._categories_cache
-        except Exception as e:
-            print(f"[ERROR] StorageService.get_all_categories 失败: {e}")
-            self._categories_cache = {}
-            self._image_to_categories_cache = {}
-            self._categories_dirty = False
-            return self._categories_cache
-
-    @_storage_locked
-    def save_categories(self, categories_data, strict=False):
-        """保存分类数据 - DB 与 JSON 双写"""
-        portable_data = {}
-        for category, paths in categories_data.items():
-            portable_data[category] = [self._to_filename(p) for p in paths]
-            
-        # 1. 写 categories.json
-        try:
-            self._atomic_write_json(self.categories_file, portable_data)
-            self._categories_dirty = True
-        except Exception as e:
-            print(f"[ERROR] StorageService.save_categories JSON 失败: {e}")
-            if strict:
-                raise
-
-        # 2. 写 categories.db
-        try:
-            with sqlite3.connect(self.categories_db_path) as conn:
-                cursor = conn.cursor()
-                for idx, (cat_name, filenames) in enumerate(portable_data.items()):
-                    cursor.execute("""
-                        INSERT INTO categories (name, sort_order)
-                        VALUES (?, ?)
-                        ON CONFLICT(name) DO UPDATE SET sort_order = excluded.sort_order
-                    """, (cat_name, idx))
-
-                    cursor.execute("DELETE FROM category_images WHERE category_name = ?", (cat_name,))
-                    if filenames:
-                        rel_records = [(cat_name, fname) for fname in filenames]
-                        cursor.executemany("""
-                            INSERT OR IGNORE INTO category_images (category_name, image_path)
-                            VALUES (?, ?)
-                        """, rel_records)
-                conn.commit()
-            self._categories_dirty = True
-        except Exception as e:
-            print(f"[ERROR] StorageService.save_categories DB 失败: {e}")
-            if strict:
-                raise
-
-    def get_exportable_categories(self):
-        """获取可导出的用户分类名称列表，保持当前分类排序"""
-        categories = self.get_all_categories()
-        return list(categories.keys())
-
-    @_storage_locked
-    def add_category(self, category_name):
-        """新建一个分类"""
-        if not category_name or category_name in ("全部表情", "未分类", "新建分类"):
-            return False
-        categories = self.get_all_categories()
-        if category_name not in categories:
-            categories[category_name] = []
-            self.save_categories(categories)
-            return True
-        return False
-
-    def rename_category(self, old_name, new_name):
-        """重命名分类 (同步更新 categories.json、category_icons.json 及 SQLite 数据库事务)"""
-        if not new_name or new_name in ("全部表情", "未分类", "新建分类"):
-            return False
-        categories = self.get_all_categories()
-        if old_name not in categories or new_name in categories:
-            return False
-
-        # 1. 更新 categories.json (如果项目使用 JSON 文件)
-        if os.path.exists(self.categories_file):
-            try:
-                with open(self.categories_file, 'r', encoding='utf-8') as f:
-                    json_data = json.load(f)
-                if isinstance(json_data, dict) and old_name in json_data:
-                    new_json_data = {}
-                    for k, v in json_data.items():
-                        if k == old_name:
-                            new_json_data[new_name] = v
-                        else:
-                            new_json_data[k] = v
-                    self._atomic_write_json(self.categories_file, new_json_data)
-            except Exception as e:
-                print(f"[ERROR] 重命名更新 categories.json 失败: {e}")
-
-        # 2. 更新 category_icons.json (如果项目使用 JSON 文件)
-        if os.path.exists(self.icons_file):
-            try:
-                with open(self.icons_file, 'r', encoding='utf-8') as f:
-                    icons_data = json.load(f)
-                if isinstance(icons_data, dict) and old_name in icons_data:
-                    icons_data[new_name] = icons_data.pop(old_name)
-                    self._atomic_write_json(self.icons_file, icons_data)
-            except Exception as e:
-                print(f"[ERROR] 重命名更新 category_icons.json 失败: {e}")
-
-        # 3. 在事务中更新 SQLite categories.db
-        try:
-            with sqlite3.connect(self.categories_db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("UPDATE categories SET name = ? WHERE name = ?", (new_name, old_name))
-                cursor.execute("UPDATE category_images SET category_name = ? WHERE category_name = ?", (new_name, old_name))
-                conn.commit()
-        except Exception as e:
-            print(f"[ERROR] 重命名分类更新 DB 事务失败: {e}")
-            return False
-
-        self._categories_dirty = True
-        return True
-
-    def remove_category(self, category_name):
-        """删除一个分类"""
-        categories = self.get_all_categories()
-        if category_name in categories:
-            del categories[category_name]
-            self.save_categories(categories)
-            
-            icons = self.get_all_category_icons()
-            if category_name in icons:
-                del icons[category_name]
-                self.save_category_icons(icons)
-
-            # 同步删 categories.db 中的记录
-            try:
-                with sqlite3.connect(self.categories_db_path) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("DELETE FROM categories WHERE name = ?", (category_name,))
-                    cursor.execute("DELETE FROM category_images WHERE category_name = ?", (category_name,))
-                    conn.commit()
-            except Exception:
-                pass
-
-            return True
-        return False
-
-    @_storage_locked
-    def add_image_to_category(self, filepath, category_name, strict=False):
-        """将图片添加到指定分类"""
-        categories = {name: list(paths) for name, paths in self.get_all_categories().items()}
-        if category_name not in categories:
-            categories[category_name] = []
-            
-        abs_filepath = self._to_abspath(filepath)
-        if abs_filepath not in categories[category_name]:
-            categories[category_name].append(abs_filepath)
-            try:
-                self.save_categories(categories, strict=strict)
-                return "success"
-            except Exception:
-                self._categories_dirty = True
-                if strict:
-                    raise
-                return "error"
-        if strict:
-            # JSON 备份可能成功而 DB 失败；重试不能仅依赖内存/JSON 判定完成。
-            self.save_categories(categories, strict=True)
-        return "already_exists"
-
-    def remove_image_from_category(self, filepath, category_name):
-        """将图片从指定分类移除"""
-        categories = self.get_all_categories()
-        abs_filepath = self._to_abspath(filepath)
-        if category_name in categories and abs_filepath in categories[category_name]:
-            categories[category_name].remove(abs_filepath)
-            self.save_categories(categories)
-            return True
-        return False
-
-    @_storage_locked
-    def add_images_to_category(self, filepaths, category_name):
-        """批量添加图片到分类，一次性持久化。"""
-        categories = {n: list(v) for n, v in self.get_all_categories().items()}
-        if category_name not in categories:
-            categories[category_name] = []
-        existing = set(categories[category_name])
-        added = 0
-        for filepath in filepaths:
-            path = self._to_abspath(filepath)
-            if path not in existing:
-                categories[category_name].append(path); existing.add(path); added += 1
-        if added:
-            self.save_categories(categories, strict=True)
-        return added
-
-    @_storage_locked
-    def remove_images_from_category(self, filepaths, category_name):
-        """批量从分类移除图片，一次性持久化。"""
-        categories = {n: list(v) for n, v in self.get_all_categories().items()}
-        if category_name not in categories:
-            return 0
-        targets = {self._to_abspath(p) for p in filepaths}
-        old = categories[category_name]
-        categories[category_name] = [p for p in old if p not in targets]
-        removed = len(old) - len(categories[category_name])
-        if removed:
-            self.save_categories(categories, strict=True)
-        return removed
-        
-    def get_images_by_category(self, category_name):
-        """获取特定分类下的所有图片"""
-        all_ordered = self.get_all_images()
-        
-        if category_name == "全部表情" or category_name is None:
-            return all_ordered
-            
-        categories = self.get_all_categories()
-        paths = categories.get(category_name, [])
-        paths_set = set(paths)
-        result = [p for p in all_ordered if p in paths_set]
-        return result
-
-    def get_categories_by_image(self, filepath):
-        """反向查询：获取指定图片所属的所有分类名称列表"""
-        self.get_all_categories()
-        return self._image_to_categories_cache.get(filepath, [])
-
-    def get_image_to_categories_map(self):
-        """获取图片到分类的反向映射字典"""
-        self.get_all_categories()
-        return self._image_to_categories_cache
-
     def is_animated(self, filepath):
         """判断图片是否为动图格式"""
         ext = os.path.splitext(filepath)[1].lower()
         return ext in ['.gif', '.webp']
 
-    # ==========================
-    # 最近使用 (Recent) - DB 与 JSON 双写双读
-    # ==========================
-    
-    def _get_recent_limit(self):
-        """动态读取用户配置中的最近使用记录数量限制（完全无硬编码）"""
-        try:
-            from services.config import ConfigService
-            cfg = ConfigService()
-            val = cfg.get("recent_limit")
-            if val is not None:
-                return int(val)
-        except Exception:
-            pass
-        return 30
-
-    def get_recent_images(self, limit=None):
-        """获取最近使用的表情列表（绝对路径），完全动态绑定配置中的 limit 数量"""
-        if limit is None:
-            limit = self._get_recent_limit()
-
-        if self._recent_cache is not None:
-            return self._recent_cache[:limit]
-
-        recent_filenames = []
-
-        # 1. 尝试从 recent.db 读取（按最新使用时间降序获取 limit 条记录）
-        if os.path.exists(self.recent_db_path):
-            try:
-                with sqlite3.connect(self.recent_db_path) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT image_path FROM recent_history ORDER BY updated_at DESC, id DESC LIMIT ?", (limit,))
-                    rows = cursor.fetchall()
-                    recent_filenames = [r[0] for r in rows]
-            except Exception as e:
-                print(f"[WARNING] 从 recent.db 读取失败: {e}")
-
-        # 2. 如果 DB 无数据且 recent.json 存在，从 JSON 补充
-        if not recent_filenames and os.path.exists(self.recent_file):
-            try:
-                with open(self.recent_file, 'r', encoding='utf-8') as f:
-                    recent_filenames = json.load(f)
-            except Exception as e:
-                print(f"[ERROR] 读取 recent.json 失败: {e}")
-
-        all_images = set(self.get_all_images())
-        valid_paths = []
-        for fname in recent_filenames:
-            abs_path = self._to_abspath(fname)
-            if abs_path in all_images and abs_path not in valid_paths:
-                valid_paths.append(abs_path)
-
-        self._recent_cache = valid_paths
-        return self._recent_cache[:limit]
-
-    def add_recent_image(self, filepath, limit=None):
-        """添加一条最近使用记录（LRU机制）- DB 与 JSON 双写，完全动态绑定 limit 配置"""
-        if limit is None:
-            limit = self._get_recent_limit()
-
-        recent_paths = self.get_recent_images(limit=limit)
-        abs_path = self._to_abspath(filepath)
-
-        if abs_path in recent_paths:
-            recent_paths.remove(abs_path)
-
-        recent_paths.insert(0, abs_path)
-        if len(recent_paths) > limit:
-            recent_paths = recent_paths[:limit]
-
-        self._recent_cache = recent_paths
-        rel_filename = self._to_filename(filepath)
-
-        # 1. 保存 JSON
-        try:
-            filenames = [self._to_filename(p) for p in recent_paths]
-            self._atomic_write_json(self.recent_file, filenames)
-        except Exception as e:
-            print(f"[ERROR] 保存 recent.json 失败: {e}")
-
-        # 2. 保存 DB (UPSERT 刷新时间戳 + 动态限制超限数据清理)
-        try:
-            with sqlite3.connect(self.recent_db_path) as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO recent_history (image_path, updated_at)
-                    VALUES (?, CURRENT_TIMESTAMP)
-                    ON CONFLICT(image_path) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
-                """, (rel_filename,))
-                cursor.execute("""
-                    DELETE FROM recent_history
-                    WHERE image_path NOT IN (
-                        SELECT image_path FROM recent_history ORDER BY updated_at DESC LIMIT ?
-                    )
-                """, (limit,))
-                conn.commit()
-        except Exception as e:
-            print(f"[ERROR] 保存 recent.db 失败: {e}")
-
-    # ==========================
-    # 分类图标 (Category Icons) - DB 与 JSON 双写双读
-    # ==========================
-    
-    def get_all_category_icons(self):
-        icons = {}
-
-        # 1. 尝试从 categories.db 读取 icon_path
-        if os.path.exists(self.categories_db_path):
-            try:
-                with sqlite3.connect(self.categories_db_path) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT name, icon_path FROM categories WHERE icon_path IS NOT NULL AND icon_path != ''")
-                    for row in cursor.fetchall():
-                        cat_name, icon_p = row[0], row[1]
-                        if any(icon_p.lower().endswith(ext) for ext in IMAGE_SUFFIXES):
-                            icons[cat_name] = str(resolve_icon_path(self.data_dir, icon_p))
-                        else:
-                            icons[cat_name] = icon_p
-            except Exception as e:
-                print(f"[WARNING] 从 categories.db 读取图标失败: {e}")
-
-        # 2. 从 category_icons.json 补充
-        if os.path.exists(self.icons_file):
-            try:
-                with open(self.icons_file, 'r', encoding='utf-8') as f:
-                    json_icons = json.load(f)
-                    for cat, val in json_icons.items():
-                        if cat not in icons:
-                            if any(val.lower().endswith(ext) for ext in IMAGE_SUFFIXES):
-                                icons[cat] = str(resolve_icon_path(self.data_dir, val))
-                            else:
-                                icons[cat] = val
-            except Exception:
-                pass
-
-        return icons
-            
-    def save_category_icons(self, icons_data):
-        """保存分类图标数据 - DB 与 JSON 双写"""
-        portable_data = {}
-        for cat, val in icons_data.items():
-            if any(val.lower().endswith(ext) for ext in IMAGE_SUFFIXES):
-                portable_data[cat] = portable_icon_path(self.data_dir, val)
-            else:
-                portable_data[cat] = val
-
-        # 1. 写 JSON
-        try:
-            self._atomic_write_json(self.icons_file, portable_data)
-        except Exception as e:
-            print(f"[ERROR] StorageService.save_category_icons JSON 失败: {e}")
-
-        # 2. 写 categories.db
-        try:
-            with sqlite3.connect(self.categories_db_path) as conn:
-                cursor = conn.cursor()
-                for cat_name, icon_p in portable_data.items():
-                    cursor.execute("""
-                        INSERT INTO categories (name, icon_path)
-                        VALUES (?, ?)
-                        ON CONFLICT(name) DO UPDATE SET icon_path = excluded.icon_path
-                    """, (cat_name, icon_p))
-                conn.commit()
-        except Exception as e:
-            print(f"[ERROR] StorageService.save_category_icons DB 失败: {e}")
-
-    def set_category_icon(self, category_name, filepath):
-        icons = self.get_all_category_icons()
-        icons[category_name] = filepath
-        self.save_category_icons(icons)
-        
-    def get_category_icon(self, category_name):
-        icons = self.get_all_category_icons()
-        return icons.get(category_name, None)
-
-    # ==========================
-    # 关键词元数据 (Metadata) - DB 与 JSON 双写双读
-    # ==========================
-    
     @staticmethod
     def parse_tags(tags_str):
         if not tags_str: return []
@@ -1069,89 +882,6 @@ class StorageService:
         remove_list = StorageService.parse_tags(remove_tags_str)
         final_list = [tag for tag in existing_list if tag not in remove_list]
         return StorageService.serialize_tags(final_list)
-
-    def get_all_metadata(self):
-        """获取所有图片的关键词元数据，并映射回绝对路径 - DB 与 JSON 混合读取"""
-        if not self._metadata_dirty:
-            return self._metadata_cache
-            
-        data = {}
-
-        # 1. 尝试从 metadata.db 读取
-        if os.path.exists(self.metadata_db_path):
-            try:
-                with sqlite3.connect(self.metadata_db_path) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT image_path, keywords FROM image_metadata")
-                    for row in cursor.fetchall():
-                        data[row[0]] = row[1] or ""
-            except Exception as e:
-                print(f"[WARNING] 从 metadata.db 读取失败: {e}")
-
-        # 2. 从 metadata.json 补充
-        if os.path.exists(self.metadata_file):
-            try:
-                with open(self.metadata_file, 'r', encoding='utf-8') as f:
-                    json_meta = json.load(f)
-                    if isinstance(json_meta, dict):
-                        for k, v in json_meta.items():
-                            if k not in data:
-                                data[k] = v if isinstance(v, str) else str(v)
-            except Exception as e:
-                print(f"[WARNING] 从 metadata.json 读取失败: {e}")
-
-        self._metadata_cache = {self._to_abspath(k): v for k, v in data.items()}
-        self._metadata_dirty = False
-        return self._metadata_cache
-
-    def save_metadata(self, metadata):
-        """保存关键词元数据 - DB 与 JSON 双写"""
-        portable_data = {self._to_filename(k): str(v) for k, v in metadata.items()}
-
-        # 1. 写 JSON
-        try:
-            self._atomic_write_json(self.metadata_file, portable_data)
-            self._metadata_dirty = True
-        except Exception as e:
-            print(f"[ERROR] StorageService.save_metadata JSON 失败: {e}")
-
-        # 2. 写 metadata.db
-        try:
-            records = [(fname, kw) for fname, kw in portable_data.items()]
-            with sqlite3.connect(self.metadata_db_path) as conn:
-                cursor = conn.cursor()
-                cursor.executemany("""
-                    INSERT INTO image_metadata (image_path, keywords)
-                    VALUES (?, ?)
-                    ON CONFLICT(image_path) DO UPDATE SET keywords = excluded.keywords
-                """, records)
-                conn.commit()
-            self._metadata_dirty = True
-        except Exception as e:
-            print(f"[ERROR] StorageService.save_metadata DB 失败: {e}")
-
-    def get_image_keywords(self, filepath):
-        metadata = self.get_all_metadata()
-        return metadata.get(self._to_abspath(filepath), "")
-
-    def set_image_keywords(self, filepath, keywords_str):
-        metadata = self.get_all_metadata()
-        metadata[self._to_abspath(filepath)] = keywords_str
-        self.save_metadata(metadata)
-
-    def search_images(self, keyword, category_name="全部表情"):
-        images = self.get_images_by_category(category_name)
-        if not keyword or not keyword.strip():
-            return images
-            
-        keyword = keyword.strip().lower()
-        metadata = self.get_all_metadata()
-        result = []
-        for img in images:
-            img_kw = metadata.get(img, "").lower()
-            if keyword in img_kw:
-                result.append(img)
-        return result
 
     def generate_new_filename(self, extension=".png"):
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
@@ -1398,7 +1128,6 @@ class StorageService:
                 existing_path = self._to_abspath(existing_filename)
                 if os.path.exists(existing_path):
                     self._repair_saved_index(existing_path, file_hash, strict=strict)
-                    self.move_image_to_front(existing_path)
                     return existing_path, True
                 else:
                     del self._hashes_cache[file_hash]
@@ -1413,7 +1142,6 @@ class StorageService:
                     existing_path = self._to_abspath(existing_filename)
                     if os.path.exists(existing_path):
                         self._repair_saved_index(existing_path, file_hash, strict=strict)
-                        self.move_image_to_front(existing_path)
                         return existing_path, True
                     with self._sync_index_lock:
                         sync_index.pop(skey, None)
@@ -1484,7 +1212,7 @@ class StorageService:
             index[skey] = filename
         self._images_dirty = True
 
-    def save_image(self, qimage):
+    def _save_qimage_source(self, qimage):
         """
         保存剪贴板或传入的 QImage 对象
         针对静态位图在内存中直接转换为 RGBA PIL Image，消除多余的 Qt PNG 压缩与 PIL 二进制解码
@@ -1508,7 +1236,7 @@ class StorageService:
             qimage.save(buffer, "PNG")
             return self._standardize_and_save(byte_array.data(), ".png")
 
-    def save_file(self, source_path, strict=False):
+    def _save_file_source(self, source_path, strict=False):
         if not os.path.exists(source_path):
             if strict:
                 raise FileNotFoundError(source_path)
@@ -1529,373 +1257,3 @@ class StorageService:
                 raise
             print(f"[ERROR] 文件入库失败: {e}")
             return None, False
-
-    @_storage_locked
-    def force_reload(self):
-        """强制清空内存缓存，从 SQLite DB 重新加载并同步保存到 JSON 备份文件"""
-        self._images_dirty = True
-        self._categories_dirty = True
-        self._metadata_dirty = True
-        self._recent_cache = None
-        self._hashes_cache = self._load_hashes()
-        
-        # 从数据库加载最新数据
-        all_images = self.get_all_images()
-        categories = self.get_all_categories()
-        metadata = self.get_all_metadata()
-        category_icons = self.get_all_category_icons()
-
-        # 仅将获取到的最新数据写回 JSON 文件，避免再次写入 DB
-        # 1. 写 order.json
-        try:
-            filenames = [self._to_filename(p) for p in all_images]
-            self._atomic_write_json(self.order_file, filenames)
-        except Exception as e:
-            print(f"[ERROR] force_reload 保存 order.json 失败: {e}")
-
-        # 2. 写 categories.json
-        try:
-            portable_categories = {}
-            for category, paths in categories.items():
-                portable_categories[category] = [self._to_filename(p) for p in paths]
-            self._atomic_write_json(self.categories_file, portable_categories)
-        except Exception as e:
-            print(f"[ERROR] force_reload 保存 categories.json 失败: {e}")
-
-        # 3. 写 metadata.json
-        try:
-            portable_meta = {self._to_filename(k): str(v) for k, v in metadata.items()}
-            self._atomic_write_json(self.metadata_file, portable_meta)
-        except Exception as e:
-            print(f"[ERROR] force_reload 保存 metadata.json 失败: {e}")
-
-        # 4. 写 category_icons.json
-        try:
-            portable_icons = {}
-            for cat, val in category_icons.items():
-                if any(val.lower().endswith(ext) for ext in IMAGE_SUFFIXES):
-                    portable_icons[cat] = portable_icon_path(self.data_dir, val)
-                else:
-                    portable_icons[cat] = val
-            self._atomic_write_json(self.icons_file, portable_icons)
-        except Exception as e:
-            print(f"[ERROR] force_reload 保存 category_icons.json 失败: {e}")
-
-        # 5. 写 hashes.json
-        try:
-            self._atomic_write_json(self.hashes_file, self._hashes_cache)
-        except Exception as e:
-            print(f"[ERROR] force_reload 保存 hashes.json 失败: {e}")
-
-        # 重置脏标记为 False
-        self._images_cache = all_images
-        self._images_dirty = False
-        
-        self._categories_cache = categories
-        reverse_map = {}
-        for category, abs_paths in categories.items():
-            for p in abs_paths:
-                if p not in reverse_map:
-                    reverse_map[p] = []
-                reverse_map[p].append(category)
-        self._image_to_categories_cache = reverse_map
-        self._categories_dirty = False
-        
-        self._metadata_cache = metadata
-        self._metadata_dirty = False
-
-    def cleanup_dead_links(self):
-        """清除不存在的文件在排序、分类、元数据、哈希、最近记录及数据库中的残留记录(死链自愈)"""
-        with self.lock:
-            # A. 扫描实际存在的文件
-            if not os.path.exists(self.images_dir):
-                return
-            actual_filenames = set(f for f in os.listdir(self.images_dir) if f.lower().endswith(self.SUPPORTED_FORMATS))
-            actual_paths = set(self._to_abspath(f) for f in actual_filenames)
-            
-            # B. 自愈 order
-            all_images = self.get_all_images()
-            cleaned_images = [p for p in all_images if p in actual_paths]
-            if len(cleaned_images) != len(all_images):
-                self.save_order(cleaned_images)
-                
-            # C. 自愈 categories
-            categories = self.get_all_categories()
-            changed_cats = False
-            for cat, paths in categories.items():
-                cleaned_paths = [p for p in paths if p in actual_paths]
-                if len(cleaned_paths) != len(paths):
-                    categories[cat] = cleaned_paths
-                    changed_cats = True
-            if changed_cats:
-                self.save_categories(categories)
-                
-            # D. 自愈 metadata
-            metadata = self.get_all_metadata()
-            changed_meta = False
-            keys_to_del = [p for p in metadata if p not in actual_paths]
-            for k in keys_to_del:
-                del metadata[k]
-                changed_meta = True
-            if changed_meta:
-                self.save_metadata(metadata)
-                
-            # E. 自愈 recent
-            recent = self.get_recent_images()
-            cleaned_recent = [p for p in recent if p in actual_paths]
-            if len(cleaned_recent) != len(recent):
-                self._recent_cache = cleaned_recent
-                try:
-                    filenames = [self._to_filename(p) for p in self._recent_cache]
-                    self._atomic_write_json(self.recent_file, filenames)
-                except Exception:
-                    pass
-                    
-            # F. 自愈 hashes
-            changed_hashes = False
-            hash_keys_to_remove = []
-            for h, f in self._hashes_cache.items():
-                if f not in actual_filenames:
-                    hash_keys_to_remove.append(h)
-            for h in hash_keys_to_remove:
-                del self._hashes_cache[h]
-                changed_hashes = True
-            if changed_hashes:
-                self._save_hashes()
-                
-            # G. 自愈数据库中的记录
-            try:
-                db_paths = {
-                    'features': self.features_db_path,
-                    'metadata': self.metadata_db_path,
-                    'categories': self.categories_db_path,
-                    'order': self.order_db_path,
-                    'recent': self.recent_db_path
-                }
-                for db_name, db_path in db_paths.items():
-                    if os.path.exists(db_path):
-                        with sqlite3.connect(db_path) as conn:
-                            cursor = conn.cursor()
-                            table_name = {
-                                'features': 'image_features',
-                                'metadata': 'image_metadata',
-                                'categories': 'category_images',
-                                'order': 'item_orders',
-                                'recent': 'recent_history'
-                            }[db_name]
-                            
-                            cursor.execute(f"SELECT DISTINCT image_path FROM {table_name}")
-                            rows = cursor.fetchall()
-                            dead_in_db = []
-                            for r in rows:
-                                fname = self._to_filename(r[0])
-                                if fname not in actual_filenames:
-                                    dead_in_db.append((r[0],))
-                                    
-                            if dead_in_db:
-                                cursor.executemany(f"DELETE FROM {table_name} WHERE image_path = ?", dead_in_db)
-                                conn.commit()
-            except Exception as e:
-                print(f"[WARNING] 数据库死链清理提示: {e}")
-
-    def delete_images_batch(self, filepaths, progress_callback=None, cancel_check=None):
-        """批量删除指定的图片文件，并同步清理分类、元数据、哈希、最近使用（DB+JSON双写双删）"""
-        result = {
-            'requested': len(filepaths),
-            'deleted': 0,
-            'missing_cleaned': 0,
-            'failed': 0,
-            'cancelled': 0,
-            'unprocessed': 0,
-            'failure_details': {}
-        }
-        
-        if not filepaths:
-            return result
-            
-        norm_paths = []
-        seen = set()
-        for p in filepaths:
-            if not p:
-                continue
-            abs_p = self._to_abspath(p)
-            if abs_p not in seen:
-                seen.add(abs_p)
-                norm_paths.append(abs_p)
-                
-        result['requested'] = len(norm_paths)
-        
-        valid_paths = []
-        for p in norm_paths:
-            real_p = os.path.normcase(os.path.abspath(os.path.realpath(p)))
-            real_images_dir = os.path.normcase(os.path.abspath(os.path.realpath(self.images_dir)))
-            if not real_p.startswith(real_images_dir + os.sep) and real_p != real_images_dir:
-                result['failed'] += 1
-                result['failure_details'][p] = "拒绝删除：路径越出资源库边界"
-            else:
-                valid_paths.append(p)
-                
-        if not valid_paths:
-            return result
-
-        CHUNK_SIZE = 50
-        total_valid = len(valid_paths)
-        
-        db_paths = {
-            'features': self.features_db_path,
-            'metadata': self.metadata_db_path,
-            'categories': self.categories_db_path,
-            'order': self.order_db_path,
-            'recent': self.recent_db_path
-        }
-        
-        all_items_to_clean = []
-
-        # 物理删除过程移出全局大锁，仅做文件 I/O，避免阻塞主线程 UI 与其他非冲突查询
-        for chunk_idx in range(0, total_valid, CHUNK_SIZE):
-            if cancel_check and cancel_check():
-                result['cancelled'] += len(valid_paths) - chunk_idx
-                result['unprocessed'] = len(valid_paths) - chunk_idx
-                break
-
-            chunk = valid_paths[chunk_idx:chunk_idx + CHUNK_SIZE]
-
-            deleted_in_chunk = []
-            missing_in_chunk = []
-            failed_in_chunk = []
-
-            for p in chunk:
-                if cancel_check and cancel_check():
-                    break
-
-                if not os.path.exists(p):
-                    missing_in_chunk.append(p)
-                else:
-                    try:
-                        os.remove(p)
-                        deleted_in_chunk.append(p)
-                    except Exception as e:
-                        failed_in_chunk.append(p)
-                        result['failure_details'][p] = f"物理删除失败: {str(e)}"
-
-            items_to_clean = deleted_in_chunk + missing_in_chunk
-            if items_to_clean:
-                all_items_to_clean.extend(items_to_clean)
-
-            result['deleted'] += len(deleted_in_chunk)
-            result['missing_cleaned'] += len(missing_in_chunk)
-            result['failed'] += len(failed_in_chunk)
-
-            if progress_callback:
-                progress_callback(result['deleted'] + result['missing_cleaned'] + result['failed'], total_valid)
-
-        # 循环全部结束后，快速更新内存缓存及数据，极大提高大批量删除效率并保证内存状态一致性
-        if all_items_to_clean:
-            filenames_to_clean = [self._to_filename(p) for p in all_items_to_clean]
-            filenames_set = set(filenames_to_clean)
-            filepaths_set = set(all_items_to_clean)
-
-            with self.lock:
-                # 1. 批量清理并保存分类 JSON
-                categories = self.get_all_categories()
-                changed_cats = False
-                for cat_name, paths in categories.items():
-                    new_paths = [path for path in paths if path not in filepaths_set]
-                    if len(new_paths) != len(paths):
-                        categories[cat_name] = new_paths
-                        changed_cats = True
-                if changed_cats:
-                    self.save_categories(categories)
-
-                # 2. 批量清理并保存元数据 JSON
-                metadata = self.get_all_metadata()
-                changed_meta = False
-                for p in all_items_to_clean:
-                    if p in metadata:
-                        del metadata[p]
-                        changed_meta = True
-                if changed_meta:
-                    self.save_metadata(metadata)
-
-                # 3. 批量清理并保存最近缓存/JSON
-                if self._recent_cache is not None:
-                    new_recent = [p for p in self._recent_cache if p not in filepaths_set]
-                    if len(new_recent) != len(self._recent_cache):
-                        self._recent_cache = new_recent
-                        try:
-                            filenames = [self._to_filename(p) for p in self._recent_cache]
-                            self._atomic_write_json(self.recent_file, filenames)
-                        except Exception:
-                            pass
-
-                # 4. 批量清理并保存哈希缓存/JSON
-                changed_hashes = False
-                hash_keys_to_remove = []
-                for h, f in self._hashes_cache.items():
-                    if f in filenames_set:
-                        hash_keys_to_remove.append(h)
-                for h in hash_keys_to_remove:
-                    del self._hashes_cache[h]
-                    changed_hashes = True
-                if changed_hashes:
-                    self._save_hashes()
-
-                # 5. 批量清理并维护同步键索引缓存（避免昂贵的全库重新解码）
-                with self._sync_index_lock:
-                    if self._sync_key_index is not None:
-                        keys_to_del = [k for k, v in self._sync_key_index.items() if v in filenames_set]
-                        for k in keys_to_del:
-                            del self._sync_key_index[k]
-
-                        # 若需补充同 sync_key 的其它剩余图片，直接从 DB 极速反查，严禁全盘重新解码
-                        if keys_to_del and os.path.exists(self.features_db_path):
-                            try:
-                                with sqlite3.connect(self.features_db_path) as conn:
-                                    cursor = conn.cursor()
-                                    placeholders = ','.join('?' * len(keys_to_del))
-                                    cursor.execute(
-                                        f"SELECT sync_key, image_path FROM image_features WHERE sync_key IN ({placeholders})",
-                                        keys_to_del
-                                    )
-                                    for skey, img_name in cursor.fetchall():
-                                        if img_name not in filenames_set and skey not in self._sync_key_index:
-                                            self._sync_key_index[skey] = img_name
-                            except Exception as e:
-                                print(f"[WARNING] 维护 sync_key 索引替补记录失败: {e}")
-
-                # 6. 批量清理并保存全局列表顺序 JSON
-                all_images = self.get_all_images()
-                new_all_images = [p for p in all_images if p not in filepaths_set]
-                if len(new_all_images) != len(all_images):
-                    self.save_order(new_all_images)
-
-                self._images_dirty = True
-                self._categories_dirty = True
-                self._metadata_dirty = True
-
-            # 7. 批量提交 SQLite 数据库删除事务
-            try:
-                for db_name, db_path in db_paths.items():
-                    if os.path.exists(db_path):
-                        with sqlite3.connect(db_path) as conn:
-                            if db_name == 'features':
-                                conn.executemany("DELETE FROM image_features WHERE image_path = ?", [(f,) for f in filenames_to_clean])
-                            elif db_name == 'metadata':
-                                conn.executemany("DELETE FROM image_metadata WHERE image_path = ?", [(f,) for f in filenames_to_clean])
-                            elif db_name == 'categories':
-                                conn.executemany("DELETE FROM category_images WHERE image_path = ?", [(f,) for f in filenames_to_clean])
-                            elif db_name == 'order':
-                                conn.executemany("DELETE FROM item_orders WHERE image_path = ?", [(f,) for f in filenames_to_clean])
-                            elif db_name == 'recent':
-                                conn.executemany("DELETE FROM recent_history WHERE image_path = ?", [(f,) for f in filenames_to_clean])
-                            conn.commit()
-            except Exception as e:
-                print(f"[FATAL] 数据库批量删除事务失败: {e}")
-                raise e
-
-        return result
-
-    def delete_image(self, filepath):
-        """从本地删除指定的图片文件，并同步清理分类、元数据、哈希、最近使用（DB+JSON双写双删）"""
-        result = self.delete_images_batch([filepath])
-        return result.get('deleted', 0) > 0 or result.get('missing_cleaned', 0) > 0
