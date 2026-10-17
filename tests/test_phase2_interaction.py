@@ -171,7 +171,7 @@ def test_filter_continuous_checkbox_clear_and_context_sync(surface):
     assert g.context_strip.isVisible()
     chips = [g.chip_layout.itemAt(i).widget().text() for i in range(g.chip_layout.count())
              if g.chip_layout.itemAt(i).widget() is not None]
-    assert '无标签' in chips and '静态图片' in chips
+    assert '无标签' in chips and '静态表情' in chips
     g._update_filter('no_tag', False)
     assert not popup.checkboxes['no_tag'].isChecked()
     QTest.mouseClick(popup.clear_button, Qt.LeftButton)
@@ -312,9 +312,10 @@ def test_context_groups_phase1_guards_and_node_cleanup(surface):
             group.append(item.data(Qt.UserRole).text())
     groups.append(group)
     assert groups == [
-        ['使用 / 发送'], ['加入分类…', '移动到…', '移出当前分类', '标签…'],
+        ['使用 / 发送'], ['加入分类…', '移动到…', '移出当前分类', '标签…',
+                      '识别文字', '重新识别文字', '查看与编辑文字…'],
         ['在资源管理器中显示', '复制文件路径', '导出选中项到文件夹…'],
-        ['选择缩略图帧…'], ['设为当前分类图标', '设为软件图标'], ['删除资源（回收站）']]
+        ['选择缩略图帧…'], ['设为当前分类图标', '设为软件图标'], ['删除表情（回收站）']]
     g._select_single(s.paths[2])
     missing = actions(g._build_resource_menu(card(s, s.paths[2])))
     assert '使用 / 发送' not in missing and '选择缩略图帧…' not in missing
@@ -352,5 +353,5 @@ def test_narrow_bar_overflow_and_dropdown_elision(surface):
     assert not g._selection_overflow and all(w.isVisible() for w in g._organization_buttons)
     button = g.btn_content_sort
     assert button.width() == button.height() == visual.COMPACT_CONTROLS.action_extent
-    assert button.toolTip().startswith('资源显示排序')
+    assert button.toolTip().startswith('表情显示排序')
     old=g.content_sort;button.click();assert g.content_sort!=old

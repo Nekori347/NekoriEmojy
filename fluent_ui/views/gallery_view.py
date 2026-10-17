@@ -1832,9 +1832,15 @@ class GalleryInterface(QWidget):
 
     def on_image_clicked(self, image_path, modifiers=Qt.NoModifier):
         self.setFocus(Qt.MouseFocusReason)
-        if (self.mode != 'manage' and not self.selected_keys
+        if (self.mode != 'manage' and len(self.selected_keys) <= 1
                 and modifiers == Qt.NoModifier
                 and self.config.get('gallery_click_action', 'select') == 'send'):
+            # A resource context menu selects its target. A leftover single
+            # selection must not silently disable the configured send action.
+            # Modifiers, management and multiple selections still select only.
+            if self.selected_keys:
+                self.selected_keys.clear()
+                self._commit_selection_visuals()
             self._selection_parents.pop(image_path,None)
             self.use_resource(image_path)
             return
@@ -2189,7 +2195,7 @@ class GalleryInterface(QWidget):
             item.triggered.connect(lambda checked=False,force=force:request_recognition(self,self.storage,paths,force))
             menu.addAction(item)
         if len(paths)==1:
-            item=translated(Action,FIF.EDIT,'查看与编辑文字…',parent=menu)
+            item=translated(Action,FIF.DOCUMENT,'查看与编辑文字…',parent=menu)
             item.triggered.connect(lambda:edit_text(self,self.storage,paths[0]));menu.addAction(item)
 
     def _build_resource_menu(self, widget):
