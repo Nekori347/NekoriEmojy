@@ -74,6 +74,7 @@ class NekoriPackageService:
                 "library_added_seq": record["library_added_seq"],
                 "tags": record["tags"],
                 "ocr_text": record["ocr_text"],
+                "ocr_state": self.index._ocr_state(record),
                 "metadata": json.loads(record["metadata_json"] or "{}"),
                 "memberships": [{"node_id": m["node_id"], "position": m["position"]}
                                 for m in sorted(memberships.get(record["id"], []),
@@ -247,14 +248,14 @@ class NekoriPackageService:
         self.index.set_display_name(resource_id, entry.get("display_name"))
         tags = entry.get("tags") or ""
         merged = self.storage.merge_tags(record["tags"], tags) if tags else record["tags"]
-        self.index.set_search_fields(resource_id,
-                                     tags=merged,
-                                     ocr_text=entry.get("ocr_text") or record["ocr_text"])
+        self.index.set_search_fields(resource_id, tags=merged)
         metadata = entry.get("metadata")
         if isinstance(metadata, dict) and metadata:
             current = self.index.resource_metadata(resource_id)
             current.update(metadata)
             self.index.set_resource_metadata(resource_id, current)
+        if 'ocr_text' in entry:
+            self.index.restore_ocr(resource_id, entry.get('ocr_text') or '', entry.get('ocr_state') or {})
 
     def _apply_order(self, parent_id, order, node_map, resource_map, existing=()):
         """Restore the package's mixed order, keeping anything it did not know.

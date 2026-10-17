@@ -82,6 +82,8 @@ def main():
         "--windows-icon-from-ico=ico.ico",
         "--include-data-file=ico.ico=ico.ico",
         "--include-data-dir=fluent_ui/assets=fluent_ui/assets",
+        "--include-data-file=ocr-component.json=ocr-component.json",
+        "--include-package-data=opencc",
         "--output-dir=dist",
         "--output-filename=SuzuEmojy.exe",
         "--assume-yes-for-downloads",

@@ -29,6 +29,7 @@ class ConfigService:
             "tray_middle_click": "none",
             "show_taskbar_icon": True,  # 在任务栏显示应用图标（关闭后仍驻留托盘）
             "settings_preview": True, # 视觉设置实时预览
+            "ocr_auto": False, # 安装 OCR 后启用；已有表情仍需主动补识别
             "tooltip_delay": 120,     # 全局 Tooltip 延迟 (ms)
             "thumbnail_size": 120,
             "render_batch_size": 50,

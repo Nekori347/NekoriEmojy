@@ -68,6 +68,7 @@ echo Copying source code and assets to release folder...
 
 call :copy_required_file "main.py" "dist\SuzuEmojy_Release\"
 call :copy_required_file "requirements.txt" "dist\SuzuEmojy_Release\"
+call :copy_required_file "ocr-component.json" "dist\SuzuEmojy_Release\"
 call :copy_required_file "ico.ico" "dist\SuzuEmojy_Release\"
 call :copy_required_file "README.md" "dist\SuzuEmojy_Release\"
 call :copy_required_file "说明书.md" "dist\SuzuEmojy_Release\"

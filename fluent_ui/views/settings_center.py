@@ -110,7 +110,7 @@ class SettingsCenter(QWidget):
             ('常规', [('启动与窗口', self._page_startup), ('托盘', self._page_tray), ('语言', self._page_language), ('配置与重置', self._page_settings_file)]),
             ('外观', [('主题', self._page_theme), ('表情库', self._page_gallery_display), ('快速面板', self._page_quick_panel), ('软件图标', self._page_app_icon)]),
             ('交互', [('快捷键', self._page_hotkeys), ('发送', self._page_send), ('悬停预览', self._page_hover_preview)]),
-            ('表情与数据', [('表情库', self._page_library), ('表情合集', self._page_packages), ('Suzu 迁移', self._page_migration)]),
+            ('表情与数据', [('表情库', self._page_library), ('文字识别', self._page_ocr), ('表情合集', self._page_packages), ('Suzu 迁移', self._page_migration)]),
             ('关于', [('软件信息', self._page_about)]),
         ]
 
@@ -278,6 +278,11 @@ class SettingsCenter(QWidget):
     def _apply_language(self, code):
         if code:
             self._stage('language', code)
+
+    def _page_ocr(self):
+        if self.storage is None:return
+        from fluent_ui.components.ocr_controls import OcrSettings
+        self.ocr_controls=OcrSettings(self)
 
     def _page_library(self):
         section = self._section("CURRENT LIBRARY")

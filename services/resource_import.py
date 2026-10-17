@@ -44,7 +44,9 @@ class ResourceImporter:
             saved, duplicate = self.storage._save_file_source(source, strict=strict)
             if not saved:
                 return None, False
-            return self._accept(saved, duplicate, Path(source).name, target, library_added_seq)
+            result = self._accept(saved, duplicate, Path(source).name, target, library_added_seq)
+        self._notify(saved)
+        return result
 
     def image(self, image, target=ImportTarget()):
         with self.storage.lock:
@@ -52,7 +54,17 @@ class ResourceImporter:
             saved, duplicate = self.storage._save_qimage_source(image)
             if not saved:
                 return None, False
-            return self._accept(saved, duplicate, Path(saved).name, target)
+            result = self._accept(saved, duplicate, Path(saved).name, target)
+        self._notify(saved)
+        return result
+
+    def _notify(self,saved):
+        if not self.storage.import_listeners:return
+        record=self.storage.index.resource(saved)
+        if record:
+            for listener in tuple(self.storage.import_listeners):
+                try:listener(record['id'])
+                except Exception as exc:print('[OCR] Import remains successful:',exc)
 
     def _validate_target(self, target):
         with self.storage.index.connect() as db:

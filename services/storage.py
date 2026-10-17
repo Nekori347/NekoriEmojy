@@ -25,7 +25,7 @@ def _storage_locked(method):
 
 
 class StorageService:
-    SUPPORTED_FORMATS = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.webm', '.tgs', '.bmp', '.tiff')
+    SUPPORTED_FORMATS = ('.png', '.apng', '.jpg', '.jpeg', '.gif', '.webp', '.webm', '.tgs', '.bmp', '.tiff')
 
     def __init__(self, library_path=None, config=None):
         from services.app_paths import selected_library
@@ -58,6 +58,7 @@ class StorageService:
         self._sync_index_event = threading.Event()
         self._sync_index_event.set()
         self._sync_index_building = False
+        self.import_listeners = []
         self.importer = ResourceImporter(self)
         self._adopt_internal_data()
 
@@ -567,8 +568,9 @@ class StorageService:
         return {self.index.absolute_path(r): texts[r['id']] for r in self.index.resources()}
 
     def search_images(self, keyword, category_name='全部表情'):
+        from services.search_text import normalize_search
         images = self.get_images_by_category(category_name)
-        keyword = keyword.strip().casefold()
+        keyword = normalize_search(keyword.strip())
         if not keyword:
             return images
         texts = self.get_search_metadata()

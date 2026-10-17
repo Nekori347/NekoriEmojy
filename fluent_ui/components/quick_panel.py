@@ -72,6 +72,11 @@ class QuickPanel(QWidget):
             surface.setAcceptDrops(True)
             surface.installEventFilter(self)
         QApplication.instance().aboutToQuit.connect(self.shutdown)
+        from services.ocr_service import ocr_service
+        self._ocr_search_timer=QTimer(self)
+        self._ocr_search_timer.setSingleShot(True);self._ocr_search_timer.setInterval(600)
+        self._ocr_search_timer.timeout.connect(lambda:self._perform_search(force=True))
+        ocr_service(self.storage).text_changed.connect(self._ocr_text_changed)
         
         # 悬停预览组件
         self.preview_popup = HoverPreviewPopup(self)
@@ -183,6 +188,10 @@ class QuickPanel(QWidget):
         self.empty_label.setStyleSheet(f"color: {c['muted']}; background: transparent;")
         self.update()
 
+    def _ocr_text_changed(self,rid):
+        if self.isVisible() and self.search_box.text().strip() and not self._ocr_search_timer.isActive():
+            self._ocr_search_timer.start()
+
     def _on_search_text_changed(self, text):
         self.search_timer.start(150)
 
@@ -198,7 +207,7 @@ class QuickPanel(QWidget):
         from services.i18n import t
         keyword = self.search_box.text().strip()
         limit = self.config.get("recent_limit", 30)
-        query_key = (keyword, limit)
+        query_key = (keyword, limit, self.storage.index.search_revision)
         
         if not force and query_key == self._cached_query and self._cached_results is not None:
             return

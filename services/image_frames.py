@@ -62,3 +62,47 @@ def frame_at(path, index):
     except Exception as exc:
         print(f'[WARNING] 无法解码第 {index} 帧 {path}: {exc}')
         return None
+
+
+def sampled_frames(path, preferred=0, limit=5):
+    """Detached PIL frames, thumbnail first and then duration-spaced samples.
+
+    Timeline inspection may traverse every frame; recognition never does.
+    APNG default images are posters, not an extra animation frame to sample.
+    """
+    Image, _ = _pillow()
+    with Image.open(path) as image:
+        total=max(1,int(getattr(image,'n_frames',1)))
+        preferred=max(0,min(int(preferred or 0),total-1))
+        first=1 if image.info.get('default_image') and total>1 else 0
+        valid=list(range(first,total))
+        if preferred not in valid:valid.insert(0,preferred)
+        durations={}
+        centers={}
+        elapsed=0
+        for i in range(first,total):
+            image.seek(i)
+            duration=max(1,int(image.info.get('duration',100) or 100))
+            durations[i]=duration
+            centers[i]=elapsed+duration/2
+            elapsed+=duration
+        selected=[preferred]
+        if len(valid)<=limit:
+            selected.extend(i for i in valid if i not in selected)
+        else:
+            start,end=centers[first],centers[total-1]
+            for i in range(limit-1):
+                target=start+(end-start)*i/max(1,limit-2)
+                index=min(centers,key=lambda k:abs(centers[k]-target))
+                if index not in selected:selected.append(index)
+            while len(selected)<limit:
+                remaining=[i for i in valid if i not in selected]
+                selected.append(max(remaining,key=lambda i:min(abs(centers.get(i,0)-centers.get(j,0)) for j in selected)))
+        decoded={}
+        for i in sorted(selected):
+            image.seek(i)
+            rgba=image.convert('RGBA')
+            frame=Image.new('RGB',rgba.size,'white')
+            frame.paste(rgba,mask=rgba.getchannel('A'))
+            decoded[i]=frame
+        return [(i,decoded[i]) for i in selected]

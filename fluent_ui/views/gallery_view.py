@@ -641,6 +641,13 @@ class GalleryInterface(QWidget):
         self.sidebar.refresh_list(self.current_node)
         self.refresh_content()
         self.storage.availability.changed.connect(self._availability_changed)
+        from services.ocr_service import ocr_service
+        self.ocr=ocr_service(self.storage)
+        self._ocr_paths=set()
+        self._ocr_refresh_timer=QTimer(self)
+        self._ocr_refresh_timer.setSingleShot(True);self._ocr_refresh_timer.setInterval(600)
+        self._ocr_refresh_timer.timeout.connect(self._refresh_ocr_results)
+        self.ocr.text_changed.connect(self._ocr_text_changed)
         visual.theme.changed.connect(self.refresh_theme)
         i18n_engine.language_changed.connect(self.refresh_texts)
 
@@ -671,7 +678,7 @@ class GalleryInterface(QWidget):
 
 
     def _pick_import_files(self):
-        paths, _ = QFileDialog.getOpenFileNames(self, t("导入表情"), "", t("表情 (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.tiff *.tgs *.webm)"))
+        paths, _ = QFileDialog.getOpenFileNames(self, t("导入表情"), "", t("表情 (*.png *.apng *.jpg *.jpeg *.gif *.webp *.bmp *.tiff *.tgs *.webm)"))
         if paths:
             self.import_paths_to(paths, self.content_scope_node())
 
@@ -1033,9 +1040,21 @@ class GalleryInterface(QWidget):
     def _execute_search(self):
         self.refresh_content()
 
+    def _ocr_text_changed(self,rid):
+        record=self.storage.index.resource_by_id(rid)
+        if record and self.search_keyword.strip():
+            self._ocr_paths.add(self.storage.index.absolute_path(record))
+            if not self._ocr_refresh_timer.isActive():self._ocr_refresh_timer.start()
+
+    def _refresh_ocr_results(self):
+        paths=list(self._ocr_paths);self._ocr_paths.clear()
+        if paths and self.search_keyword.strip():
+            self.refresh_content_incremental(reason='ocr',paths=paths,parents=set())
+
     def _collect_entries(self):
+        from services.search_text import normalize_search
         content_node = self.content_scope_node()
-        keyword = self.search_keyword.strip().casefold()
+        keyword = normalize_search(self.search_keyword.strip())
         self._display_mode = 'search' if keyword else ('resources' if content_node == ROOT else 'mixed')
         texts = self.storage.get_search_metadata() if keyword else {}
         categories = self.storage.get_image_to_categories_map() if self.filter_state.unclassified else {}
@@ -2009,6 +2028,8 @@ class GalleryInterface(QWidget):
     def _build_selection_more_menu(self):
         menu = RoundMenu(parent=self)
         paths = self.get_selected_paths()
+        self._add_ocr_actions(menu,paths)
+        menu.addSeparator()
         context = self._action_context(paths, revalidate=True)
         def action(icon, label, callback, enabled):
             item = translated(Action, icon, label, parent=menu)
@@ -2158,6 +2179,19 @@ class GalleryInterface(QWidget):
             menu.addAction(item)
         return menu
 
+    def _add_ocr_actions(self,menu,paths):
+        from fluent_ui.components.ocr_controls import request_recognition,edit_text
+        from services.ocr_service import ocr_service
+        service=ocr_service(self.storage)
+        for title,force in [('识别文字',False),('重新识别文字',True)]:
+            item=translated(Action,FIF.SEARCH,title,parent=menu)
+            item.setEnabled(bool(paths) and service.available)
+            item.triggered.connect(lambda checked=False,force=force:request_recognition(self,self.storage,paths,force))
+            menu.addAction(item)
+        if len(paths)==1:
+            item=translated(Action,FIF.EDIT,'查看与编辑文字…',parent=menu)
+            item.triggered.connect(lambda:edit_text(self,self.storage,paths[0]));menu.addAction(item)
+
     def _build_resource_menu(self, widget):
         path = widget.image_path
         paths = self.get_selected_paths() if path in self.selected_keys else [path]
@@ -2187,6 +2221,7 @@ class GalleryInterface(QWidget):
             action(FIF.REMOVE, '移出当前分类', self._batch_remove_membership,
                    ActionPolicy.enabled('remove_from_category', context))
         action(FIF.TAG, '标签…', lambda: self._open_tag_editor(paths), ActionPolicy.enabled('tag_edit', context))
+        self._add_ocr_actions(menu,paths)
         menu.addSeparator()
         # Revealing the file replaces the path tooltip the cards used to show.
         action(FIF.FOLDER, '在资源管理器中显示', lambda: self.reveal_in_explorer(path),

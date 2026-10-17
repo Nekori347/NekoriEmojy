@@ -8,21 +8,25 @@ import json
 import os
 import sqlite3
 import uuid
+import itertools
 from contextlib import contextmanager
 from pathlib import Path
 
 ROOT = "__library__"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class LibraryIndex:
     def __init__(self, root):
+        self._changes = itertools.count()
+        self.search_revision = 0
+        self._search_projections = {}
         self.root = Path(root).expanduser().resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.path = self.root / "index.sqlite3"
         with self.connect() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, SCHEMA_VERSION):
+            if version not in (0, 1, 2, SCHEMA_VERSION):
                 raise ValueError(f"Unsupported library schema: {version}")
             db.execute("PRAGMA journal_mode=WAL")
             db.executescript("""
@@ -58,6 +62,8 @@ class LibraryIndex:
             db.execute("INSERT OR IGNORE INTO nodes(id,name) VALUES (?,?)", (ROOT, "Library"))
             db.execute("INSERT OR IGNORE INTO library_meta VALUES ('library_id',?)", (uuid.uuid4().hex,))
             columns = {row['name'] for row in db.execute('PRAGMA table_info(resources)')}
+            if 'ocr_state_json' not in columns:
+                db.execute("ALTER TABLE resources ADD COLUMN ocr_state_json TEXT NOT NULL DEFAULT '{}'")
             if 'library_added_seq' not in columns:
                 db.execute('ALTER TABLE resources ADD COLUMN library_added_seq INTEGER')
             # Best-effort history only. Same-second imports use the stable ID.
@@ -80,6 +86,8 @@ class LibraryIndex:
         try:
             with db:
                 yield db
+            if db.total_changes:
+                self.search_revision = next(self._changes) + 1
         finally:
             db.close()
 
@@ -398,6 +406,15 @@ class LibraryIndex:
         if not Path(path).is_file():
             raise FileNotFoundError(path)
         with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT * FROM resources WHERE id=?', (resource_id,)).fetchone()
+            if row:
+                state = self._ocr_state(dict(row))
+                state.update(source=None, revision=state.get('revision',0)+1)
+                if not state.get('manual'):
+                    state['status']='unrecognized'
+                    db.execute("UPDATE resources SET ocr_text='' WHERE id=?", (resource_id,))
+                db.execute('UPDATE resources SET ocr_state_json=? WHERE id=?', (json.dumps(state,ensure_ascii=False),resource_id))
             if not db.execute("UPDATE resources SET relative_path=?,status='normal' WHERE id=?",
                               (relative, resource_id)).rowcount:
                 raise KeyError(resource_id)
@@ -472,10 +489,76 @@ class LibraryIndex:
                 db.execute("UPDATE resources SET ocr_text=? WHERE id=?", (ocr_text, resource_id))
 
     def search_texts(self):
+        from services.search_text import search_projection
         with self.connect() as db:
             names = {}
             for resource_id, name in db.execute("SELECT c.resource_id,n.name FROM content c "
                     "JOIN nodes n ON c.parent_id=n.id WHERE c.resource_id IS NOT NULL AND n.id!=?", (ROOT,)):
                 names.setdefault(resource_id, []).append(name)
-            return {r["id"]: " ".join([r["display_name"], r["filename"], r["tags"], r["ocr_text"],
-                        *names.get(r["id"], [])]).casefold() for r in db.execute("SELECT * FROM resources")}
+            result={}
+            for r in db.execute('SELECT * FROM resources'):
+                raw=' '.join([r['display_name'],r['filename'],r['tags'],r['ocr_text'],*names.get(r['id'],[])])
+                cached=self._search_projections.get(r['id'])
+                if cached is None or cached[0]!=raw:
+                    cached=(raw,search_projection(raw))
+                    self._search_projections[r['id']]=cached
+                result[r['id']]=cached[1]
+            for rid in self._search_projections.keys()-result.keys():self._search_projections.pop(rid,None)
+            return result
+
+    @staticmethod
+    def _ocr_state(record):
+        state = json.loads(record.get('ocr_state_json') or '{}')
+        if not state and record.get('ocr_text'):
+            # Legacy/package text has no trustworthy automatic provenance.
+            state = dict(status='ready',manual=True,revision=0)
+        return {'status':'unrecognized','manual':False,'revision':0,**state}
+
+    def ocr_info(self, resource_id):
+        record = self.resource_by_id(resource_id)
+        return dict(text=record['ocr_text'],**self._ocr_state(record)) if record else None
+
+    def edit_ocr_text(self, resource_id, text):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT * FROM resources WHERE id=?',(resource_id,)).fetchone()
+            if not row:raise KeyError(resource_id)
+            state=self._ocr_state(dict(row))
+            state.update(manual=True,status='ready' if text.strip() else 'empty',error='',revision=state['revision']+1)
+            db.execute('UPDATE resources SET ocr_text=?,ocr_state_json=? WHERE id=?',
+                       (str(text),json.dumps(state,ensure_ascii=False),resource_id))
+
+    def commit_ocr(self, resource_id, result, *, revision, source, version, overwrite=False, error=''):
+        """Compare-and-set protects edits, rebinds and deletions during inference."""
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT * FROM resources WHERE id=?',(resource_id,)).fetchone()
+            if not row:return False
+            state=self._ocr_state(dict(row))
+            if state['revision'] != revision or (state.get('manual') and not overwrite):return False
+            state.update(status='failed' if error else ('ready' if result.get('text','').strip() else 'empty'),
+                revision=revision+1,source=source,version=version,error=str(error))
+            text=row['ocr_text'] if error else result.get('text','')
+            if not error:state.update(manual=False,raw_text=result.get('raw_text',''))
+            db.execute('UPDATE resources SET ocr_text=?,ocr_state_json=? WHERE id=?',
+                       (text,json.dumps(state,ensure_ascii=False),resource_id))
+            return True
+
+    def restore_ocr(self, resource_id, text, incoming):
+        """Package text is portable; a local manual edit always wins a merge."""
+        from services.ocr_data import source_stamp
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT * FROM resources WHERE id=?',(resource_id,)).fetchone()
+            if not row:return
+            record=dict(row)
+            current=self._ocr_state(record)
+            if current.get('manual'):return
+            state=dict(incoming) if isinstance(incoming,dict) else {}
+            if not state and text:state=dict(manual=True,status='ready')
+            if not state:return
+            state['revision']=current['revision']+1
+            try:state['source']=source_stamp(self,record)
+            except OSError:state['source']=None
+            db.execute('UPDATE resources SET ocr_text=?,ocr_state_json=? WHERE id=?',
+                       (str(text),json.dumps(state,ensure_ascii=False),resource_id))
