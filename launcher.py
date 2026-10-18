@@ -36,15 +36,20 @@ PYTHON_VERSION = "3.11.9"
 PYTHON_URL = f"https://www.python.org/ftp/python/{PYTHON_VERSION}/python-{PYTHON_VERSION}-embed-amd64.zip"
 GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py"
 
-RUNTIME_DIR = os.path.join(BASE_DIR, "runtime")
+LEGACY_RUNTIME_DIR = os.path.join(BASE_DIR, "runtime")
+USER_DATA_DIR = os.path.join(os.environ.get('NEKORI_APP_DATA') or
+    os.path.join(os.environ.get('LOCALAPPDATA') or os.path.expanduser('~/AppData/Local'),'NekoriEmojy'))
+RUNTIME_DIR = os.path.join(USER_DATA_DIR, 'runtime', 'python-'+PYTHON_VERSION+'-amd64')
+INSTALL_LOG = os.path.join(USER_DATA_DIR, 'runtime', 'install_error.log')
 REQUIREMENTS_FILE = os.path.join(BASE_DIR, "requirements.txt")
 MAIN_SCRIPT = os.path.join(BASE_DIR, "main.py")
 
 
 def launch_application(python_exe):
     # Argument forwarding follows Suzu dc14f4a1f5 (GPL-3.0), including --autostart.
+    environment=os.environ.copy();environment['PYTHONDONTWRITEBYTECODE']='1'
     return subprocess.Popen([python_exe, MAIN_SCRIPT] + sys.argv[1:],
-                            cwd=BASE_DIR, creationflags=subprocess.CREATE_NO_WINDOW)
+                            cwd=BASE_DIR, env=environment, creationflags=subprocess.CREATE_NO_WINDOW)
 
 def find_system_python():
     """扫描系统中已安装的 Python"""
@@ -190,7 +195,8 @@ class LauncherApp:
                     # 记录错误日志
                     error_log = f"System Python pip install failed.\nReturn code: {result.returncode}\nStdout:\n{result.stdout}\nStderr:\n{result.stderr}"
                     try:
-                        with open(os.path.join(BASE_DIR, "install_error.log"), "a", encoding="utf-8") as f:
+                        os.makedirs(os.path.dirname(INSTALL_LOG),exist_ok=True)
+                        with open(INSTALL_LOG, "a", encoding="utf-8") as f:
                             f.write(error_log + "\n\n")
                     except:
                         pass
@@ -291,18 +297,20 @@ class LauncherApp:
             error_msg = str(e)
             
             # 将完整错误写入日志文件
-            log_file = os.path.join(BASE_DIR, "install_error.log")
+            log_file = INSTALL_LOG
             try:
+                os.makedirs(os.path.dirname(log_file),exist_ok=True)
                 with open(log_file, "w", encoding="utf-8") as f:
                     f.write(error_msg)
             except:
                 pass
                 
             if len(error_msg) > 200:
-                error_msg = error_msg[:200] + "...\n(完整错误已保存至 install_error.log)"
+                error_msg = error_msg[:200] + "..."
                 
             self.update_status("初始化失败", f"错误: {error_msg}", 0)
-            messagebox.showerror("初始化失败", f"在配置环境时发生错误：\n\n{error_msg}\n\n请检查网络连接或重试。")
+            hint='请检查用户数据目录是否可写，然后重试。' if isinstance(e,PermissionError) else '请检查网络连接及用户数据目录，然后重试。'
+            messagebox.showerror("初始化失败", f"在配置环境时发生错误：\n\n{error_msg}\n\n{hint}")
 
 def main():
     # Local recovery only; never check or download releases during startup.
@@ -315,10 +323,11 @@ def main():
             messagebox.showerror("NekoriEmojy", "更新恢复失败，请保留 .update 目录并重试。\n" + str(error))
         return
     # 1. 优先检查本地独立环境
-    local_python = os.path.join(RUNTIME_DIR, "python.exe")
-    if os.path.exists(local_python) and check_dependencies(local_python):
-        launch_application(local_python)
-        return
+    for directory in (LEGACY_RUNTIME_DIR,RUNTIME_DIR):
+        local_python = os.path.join(directory, "python.exe")
+        if os.path.exists(local_python) and check_dependencies(local_python):
+            launch_application(local_python)
+            return
 
     # 2. 扫描系统 Python
     system_python = find_system_python()

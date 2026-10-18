@@ -313,17 +313,27 @@ class SettingsCenter(QWidget):
             "在文件管理器中打开", "直接查看表情库中的真实表情文件。",
             [("打开表情库目录", self._open_library, False)], self))
 
-    def _choose_library(self):
-        directory = QFileDialog.getExistingDirectory(self, t("选择或重新连接表情库"), self._library_path())
+    def _choose_library(self,mode=None):
+        if mode not in ('create','connect'):
+            from fluent_ui.components.safe_round_menu import SafeRoundMenu
+            from qfluentwidgets import Action
+            from PySide6.QtGui import QCursor
+            menu=SafeRoundMenu(parent=self)
+            for name,value in [('创建新表情库…','create'),('连接已有表情库…','connect')]:
+                action=Action(t(name),menu);action.triggered.connect(lambda checked=False,m=value:self._choose_library(m));menu.addAction(action)
+            menu.exec(QCursor.pos());return
+        directory = QFileDialog.getExistingDirectory(self, t('创建新表情库…' if mode=='create' else '连接已有表情库…'), self._library_path())
         if not directory:
             return
         try:
-            from services.library_index import LibraryIndex
-            LibraryIndex(directory)
+            from services.library_setup import check_target
+            actual=check_target(directory,mode)
         except Exception as exc:
-            self.show_error(t("连接失败"), str(exc))
+            from services.library_setup import LibraryLocationError
+            self.show_error(t("连接失败"), t(str(exc)) if isinstance(exc,LibraryLocationError) else t('无法访问此目录。请检查权限或选择其他位置。'))
             return
         self._stage("library_path", directory)
+        self._pending_library_mode=actual
         self.library_info.set_value(directory)
         self.library_info.set_hint(t('保存并重启后，将使用下面的表情库。'))
 
@@ -745,15 +755,23 @@ class SettingsCenter(QWidget):
         autostart_before = self._autostart_enabled()
         autostart_applied = False
         try:
-            if 'autostart' in keys:
-                self.autostart.set_enabled(keys['autostart'])
-                autostart_applied = True
-            self.config.config.update({k: v for k, v in keys.items() if k != 'autostart'})
-            self.config._save_config(self.config.config)
-        except (OSError, RuntimeError) as error:
+            from contextlib import nullcontext
+            from services.library_setup import prepare_library
+            preparation=prepare_library(keys['library_path'],getattr(self,'_pending_library_mode','connect'),self.config) if 'library_path' in keys else nullcontext()
+            with preparation:
+                if 'autostart' in keys:
+                    self.autostart.set_enabled(keys['autostart'])
+                    autostart_applied = True
+                self.config.config.update({k: v for k, v in keys.items() if k != 'autostart'})
+                self.config._save_config(self.config.config)
+        except Exception as error:
+            if 'library_path' not in keys and not isinstance(error,(OSError,RuntimeError)):raise
             self.config.config.clear()
             self.config.config.update(original)
             failure = str(error)
+            if 'library_path' in keys:
+                from services.library_setup import LibraryLocationError
+                failure=t(str(error)) if isinstance(error,LibraryLocationError) else t('无法准备表情库或保存设置。\n请检查目录是否可写，然后重试或选择其他位置。')
             if autostart_applied:
                 try:
                     self.autostart.set_enabled(autostart_before)

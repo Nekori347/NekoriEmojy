@@ -1518,5 +1518,20 @@
   "设置最近使用记录中显示的表情数量。\n主面板与快速面板共用此设置。": "Set how many emotes to show in recent history.\nThe main and quick panels share this setting.",
   "开机启动设置未能恢复，请检查后重试。": "The startup setting could not be restored. Check it and try again.",
   "目前没有可用的发布版本。": "No published version is available yet.",
-  "将表情导出为 Suzu 兼容的分享格式。\n不包含 Nekori 的完整分类和排序信息。": "Export emotes in a Suzu-compatible share format.\nNekori's full categories and ordering are not included."
+  "将表情导出为 Suzu 兼容的分享格式。\n不包含 Nekori 的完整分类和排序信息。": "Export emotes in a Suzu-compatible share format.\nNekori's full categories and ordering are not included.",
+  "设置表情库位置": "Set emote library location",
+  "选择保存表情及管理数据的位置。\n以后可以在设置中查看或重新连接表情库。": "Choose where to store emotes and their library data.\nYou can view or reconnect the library in Settings later.",
+  "无法找到表情库": "Cannot find the emote library",
+  "无法访问原来的表情库位置。\n请选择原有表情库的新位置，或明确创建新的表情库。": "The previous library location is unavailable.\nLocate the existing library, or choose to create a new one.",
+  "原来的表情库位置": "Previous library location",
+  "选择其他位置…": "Choose another location…",
+  "连接已有表情库…": "Connect an existing library…",
+  "重新定位表情库…": "Locate the library…",
+  "创建新表情库…": "Create a new library…",
+  "开始使用": "Get started",
+  "未找到 Nekori 表情库。\n可以将其中的表情导入现有表情库，或选择其他目录。": "No Nekori library was found.\nImport its emotes into your library, or choose another folder.",
+  "此目录已有其他文件。请选择空目录，或连接已有表情库。": "This folder already contains other files. Choose an empty folder, or connect an existing library.",
+  "此表情库的版本暂不受支持。请使用兼容的 Nekori 版本。": "This library version is not supported. Use a compatible Nekori version.",
+  "无法准备表情库或保存设置。\n请检查目录是否可写，然后重试或选择其他位置。": "Could not prepare the library or save settings.\nCheck folder write permissions, then retry or choose another location.",
+  "无法访问此目录。请检查权限或选择其他位置。": "This folder is unavailable. Check permissions or choose another location."
 }

@@ -62,7 +62,7 @@ def main():
         print(f'[WARNING] Login startup repair failed: {error}')
     
     from services.config import ConfigService
-    config_service = ConfigService()
+    config_service = ConfigService(defer_create=True)
     from fluent_ui.visual import load_fonts
     load_fonts()
     
@@ -96,17 +96,6 @@ def main():
 
     # Nekori owns one selected external library. Adoption is limited to data
     # already inside that library; startup never mutates an old installation.
-    storage_service = StorageService(config=config_service)
-    clipboard_service = ClipboardService(config_service)
-    storage_service.cleanup_dead_links()
-
-    # 初始化多语言引擎
-    i18n_engine.init(config_service)
-
-    # One short tooltip delay for the whole application; widgets only declare text.
-    from fluent_ui.components.tooltip import install_global_tooltips
-    install_global_tooltips(app, int(config_service.get('tooltip_delay', 120)))
-    
     # 外观模式使用 appearance_mode；兼容旧版本保存的 theme_mode
     theme_mode = config_service.get(
         "appearance_mode",
@@ -118,6 +107,19 @@ def main():
         setTheme(Theme.LIGHT)
     else:
         setTheme(Theme.AUTO)
+
+    from fluent_ui.components.library_setup import open_startup_library
+    storage_service = open_startup_library(config_service)
+    if storage_service is None:return
+    clipboard_service = ClipboardService(config_service)
+    storage_service.cleanup_dead_links()
+
+    # 初始化多语言引擎
+    i18n_engine.init(config_service)
+
+    # One short tooltip delay for the whole application; widgets only declare text.
+    from fluent_ui.components.tooltip import install_global_tooltips
+    install_global_tooltips(app, int(config_service.get('tooltip_delay', 120)))
 
     window = MainWindow(storage_service, clipboard_service, config_service)
     

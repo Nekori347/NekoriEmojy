@@ -2,10 +2,13 @@ import os
 import json
 
 class ConfigService:
-    def __init__(self, app_dir=None):
+    def __init__(self, app_dir=None, *, defer_create=False):
         from services.app_paths import app_data_dir
         self.base_dir = str(app_dir or app_data_dir())
         self.config_path = os.path.join(self.base_dir, "config.json")
+        self.defer_create=defer_create
+        self.config_existed=os.path.exists(self.config_path)
+        self.load_error=None
         
         self.default_config = {
             "light_theme_key": "nekori",
@@ -58,12 +61,13 @@ class ConfigService:
 
     def _load_config(self):
         if not os.path.exists(self.config_path):
-            self._save_config(self.default_config)
+            if not self.defer_create:self._save_config(self.default_config)
             return self.default_config.copy()
             
         try:
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 loaded = json.load(f)
+                if not isinstance(loaded,dict):raise ValueError('Configuration must be an object')
                 # 合并默认配置，防止新增字段时报错
                 config = self.default_config.copy()
                 config.update(loaded)
@@ -71,18 +75,21 @@ class ConfigService:
                     config['tag_panel_horizontal_extent'] = loaded['tag_panel_height']
                 return config
         except Exception as e:
+            self.load_error=e
             print(f"读取配置失败，使用默认配置: {e}")
             return self.default_config.copy()
 
     def _save_config(self, config_data):
+        temporary = self.config_path + '.tmp'
         try:
             # 确保 data 目录存在
             os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
-            temporary = self.config_path + '.tmp'
             with open(temporary, 'w', encoding='utf-8') as f:
                 json.dump(config_data, f, indent=4, ensure_ascii=False)
             os.replace(temporary, self.config_path)
         except Exception as e:
+            try:os.remove(temporary)
+            except OSError:pass
             raise RuntimeError(f"保存配置失败: {e}") from e
 
     def get_actual_theme_is_dark(self):

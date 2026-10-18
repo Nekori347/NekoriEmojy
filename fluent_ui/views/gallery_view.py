@@ -788,6 +788,10 @@ class GalleryInterface(QWidget):
         self.placeholder.setAlignment(Qt.AlignCenter)
         self.placeholder.setProperty("role", "data")
         self.placeholder.hide()
+        self.empty_import_button=translated(PushButton,'导入表情',self.placeholder)
+        self.empty_import_button.setFixedHeight(32)
+        self.empty_import_button.clicked.connect(lambda:self._pick_import_files())
+        self.empty_import_button.hide()
 
         # Right-clicking the empty content area is the position-aware entry for
         # the level being viewed; cards keep their own menus.
@@ -988,19 +992,10 @@ class GalleryInterface(QWidget):
     # Library selection
     # ==================================================================
     def _choose_library(self):
-        directory = QFileDialog.getExistingDirectory(self, t("选择或重新连接表情库"), self.storage.library_root)
-        if not directory:
-            return
-        try:
-            from services.library_index import LibraryIndex
-            LibraryIndex(directory)
-        except Exception as exc:
-            self.show_error(t("连接失败"), str(exc))
-            return
-        self.config.set("library_path", directory)
-        self.feedback_host.notice(
-            t("表情库已保存"),
-            t('下次启动将连接：\n{value_0}\n\n请退出托盘中的 Nekori 后重新启动以完成切换。').format(value_0=directory))
+        # Preserve the old entry without a second, immediate-write selection path.
+        self.window().show_settings()
+        center=self.window().settings_window.center
+        center._select_page(3);center._show_tab(0);center._choose_library()
 
     # ==================================================================
     # Navigation and content pipeline
@@ -1388,7 +1383,14 @@ class GalleryInterface(QWidget):
             text = t("该分类还没有内容\n把表情拖到左侧分类或此区域即可加入")
         self.placeholder.setText(text)
         self.placeholder.resize(self.scroll_area.viewport().size())
+        self.empty_import_button.setVisible(self.current_node==ALL_RESOURCES and self._display_mode!='search' and not getattr(self,'_recent_view',False))
+        self._position_empty_import()
         self.placeholder.show()
+
+    def _position_empty_import(self):
+        button=self.empty_import_button
+        button.resize(max(100,button.sizeHint().width()),32)
+        button.move((self.placeholder.width()-button.width())//2,self.placeholder.height()//2+30)
 
     # ==================================================================
     # Location header and compact active filter context
@@ -1886,6 +1888,7 @@ class GalleryInterface(QWidget):
         placeholder = getattr(self, "placeholder", None)
         if placeholder is not None and placeholder.isVisible():
             placeholder.resize(self.scroll_area.viewport().size())
+            self._position_empty_import()
 
     def eventFilter(self, obj, event):
         if obj == getattr(self, 'command_bar', None) and event.type() in (QEvent.Resize, QEvent.Show):
