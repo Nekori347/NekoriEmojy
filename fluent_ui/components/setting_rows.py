@@ -3,7 +3,6 @@
 Every row edits one key. Rows never write the config directly: the Settings
 Center collects pending values so Save / Discard stay meaningful.
 """
-from services.i18n import t, bind_text, translated, i18n_engine
 from PySide6.QtCore import Qt, Signal, QTimer, QPropertyAnimation, QSize
 from PySide6.QtGui import QFont, QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (

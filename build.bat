@@ -71,6 +71,7 @@ call :copy_required_file "requirements.txt" "dist\SuzuEmojy_Release\"
 call :copy_required_file "ocr-component.json" "dist\SuzuEmojy_Release\"
 call :copy_required_file "ico.ico" "dist\SuzuEmojy_Release\"
 call :copy_required_file "README.md" "dist\SuzuEmojy_Release\"
+call :copy_required_file "LICENSE" "dist\SuzuEmojy_Release\"
 call :copy_required_file "说明书.md" "dist\SuzuEmojy_Release\"
 if exist "依赖装不上,没招了你就试试点这个吧,记得附上报错日志.bat" (
     call :copy_required_file "依赖装不上,没招了你就试试点这个吧,记得附上报错日志.bat" "dist\SuzuEmojy_Release\"

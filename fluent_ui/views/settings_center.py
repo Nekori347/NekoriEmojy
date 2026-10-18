@@ -744,16 +744,27 @@ class SettingsCenter(QWidget):
         original = dict(self.config.config)
         original.update(self._preview_backup)
         autostart_before = self._autostart_enabled()
+        autostart_applied = False
         try:
             if 'autostart' in keys:
                 self.autostart.set_enabled(keys['autostart'])
+                autostart_applied = True
             self.config.config.update({k: v for k, v in keys.items() if k != 'autostart'})
             self.config._save_config(self.config.config)
         except (OSError, RuntimeError) as error:
+            self.config.config.clear()
             self.config.config.update(original)
+            failure = str(error)
+            if autostart_applied:
+                try:
+                    self.autostart.set_enabled(autostart_before)
+                except (OSError, RuntimeError):
+                    failure = t('开机启动设置未能恢复，请检查后重试。')
             if 'autostart' in keys:
-                self.autostart.set_enabled(autostart_before)
-            self.show_error(t('保存失败'), str(error))
+                self.pending.pop('autostart', None)
+                self._sync_autostart()
+            self._set_dirty(bool(self.pending))
+            self.show_error(t('保存失败'), failure)
             return False
         self.pending.clear()
         self.config.preview_values.clear()
@@ -955,7 +966,7 @@ class SettingsCenter(QWidget):
         QTimer.singleShot(0, self._update_sticky_header)
 
     def _sync_autostart(self):
-        row = self._rows.get("autostart", (None, None))[0]
+        row = self._all_rows.get("autostart", (None, None))[0]
         if row is not None and "autostart" not in self.pending:
             row.set_value(self._autostart_enabled())
 

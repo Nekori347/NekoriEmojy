@@ -32,7 +32,10 @@ def package_release(release_dir, flavor):
             files[name] = sha256(path)
     atomic_json(release_dir / MANIFEST, {"protocol": 1, "version": version["version"], "flavor": flavor, "files": files})
     read_manifest(release_dir, verify=True)
-    archive = release_dir.parent / "SuzuEmojy_Release.zip"
+    archive_name = version.get("update_asset", "SuzuEmojy_Release.zip")
+    if Path(archive_name).name != archive_name or not archive_name.endswith(".zip"):
+        raise ValueError("Invalid release archive name")
+    archive = release_dir.parent / archive_name
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as output:
         for name in sorted(files) + [MANIFEST]:
             output.write(release_dir / name, name)

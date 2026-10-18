@@ -87,7 +87,7 @@ def test_pointer_send_select_and_context_menu(surface, monkeypatch, ocr_state):
     assert not errors, [str(e[1]) for e in errors]
     opened = [m for m in g.findChildren(RoundMenu) if m.isVisible()]
     assert opened, 'resource menu did not open from pointer event'
-    assert any(a.text() == '查看与编辑文字…' for a in opened[0].actions())
+    assert any(a.text() == '查看与编辑文字' for a in opened[0].actions())
     for menu in opened:
         menu.hide()
     # A context click selects its target. That single selection must not turn

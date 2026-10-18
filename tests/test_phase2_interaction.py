@@ -63,6 +63,10 @@ def surface(tmp_path, monkeypatch):
     settle(app)
     yield SimpleNamespace(app=app, g=g, storage=storage, config=config, paths=paths,
                           parent=parent, child=child, other=other, clipboard=clipboard, tmp=tmp_path)
+    # A real application quits these shared services via aboutToQuit. Tests
+    # reuse QApplication, so shut them down before deleting their widgets.
+    g.imports.shutdown()
+    g.ocr.close()
     g.filter_flyout.hide()
     g.close()
     from fluent_ui.components.emoji_card import _thumbnail_pool

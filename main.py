@@ -39,7 +39,8 @@ from PySide6.QtCore import Qt, QTimer
 
 def main():
     # Windows login startup does not inherit the application's working directory.
-    base_dir = (os.path.dirname(os.path.abspath(sys.executable))
+    from services.autostart import _process_executable, AutostartService
+    base_dir = (str(_process_executable().parent)
                 if getattr(sys, "frozen", False) or globals().get("__compiled__")
                 else os.path.dirname(os.path.abspath(__file__)))
     os.chdir(base_dir)
@@ -54,6 +55,11 @@ def main():
     shared_memory = QSharedMemory(instance_key)
     if not shared_memory.create(1):
         sys.exit(0)
+
+    try:
+        AutostartService().repair_registration()
+    except OSError as error:
+        print(f'[WARNING] Login startup repair failed: {error}')
     
     from services.config import ConfigService
     config_service = ConfigService()
@@ -225,6 +231,16 @@ def main():
             print("NEKORI_DEV_PLACEMENT", selector() or 'unset',
                   monitor.name() if monitor else 'not-applied', window.geometry().getRect(), flush=True)
             print("NEKORI_STARTUP_OK", storage_service.library_root, flush=True)
+            # Existing opt-in smoke mode also supports the console-less EXE.
+            import json
+            from pathlib import Path
+            report = dict(argv=sys.argv, executable=sys.executable,
+                          script=os.path.abspath(__file__), cwd=os.getcwd(),
+                          visible=window.isVisible(), tray_available=QSystemTrayIcon.isSystemTrayAvailable(),
+                          startup_command=AutostartService().command(),
+                          library=str(storage_service.library_root))
+            (Path(config_service.base_dir) / 'smoke-result.json').write_text(
+                json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
             app.quit()
         QTimer.singleShot(1200, smoke_complete)
     sys.exit(app.exec())

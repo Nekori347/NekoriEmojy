@@ -8,7 +8,6 @@ from qfluentwidgets import SpinBox, Slider, ComboBox
 from services.config import ConfigService
 from fluent_ui.views.setting_view import (
     SettingInterface,
-    AboutInterface,
     RangeRow,
     disable_wheel_scroll_adjustment,
 )
@@ -98,9 +97,7 @@ class TestSettingWheelDisabled(unittest.TestCase):
         qq_view = QQScanInterface()
         tg_view = TGStickerInterface()
         exchange_view = ExchangeInterface()
-        about_view = AboutInterface()
-
-        for view in [qq_view, tg_view, exchange_view, about_view]:
+        for view in [qq_view, tg_view, exchange_view]:
             from PySide6.QtWidgets import QAbstractSpinBox, QAbstractSlider, QComboBox
             target_types = (QAbstractSpinBox, QAbstractSlider, QComboBox, SpinBox, Slider, ComboBox)
 

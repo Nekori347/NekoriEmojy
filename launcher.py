@@ -12,7 +12,7 @@ from tkinter import messagebox
 # 检查单例互斥锁，防止重复启动
 def check_already_running():
     import ctypes
-    mutex_name = "SuzuEmojy_App_Instance"
+    mutex_name = "NekoriEmojy_Launcher_Instance"
     mutex = ctypes.windll.kernel32.CreateMutexW(None, False, mutex_name)
     last_error = ctypes.windll.kernel32.GetLastError()
     if last_error == 183: # ERROR_ALREADY_EXISTS
@@ -39,6 +39,12 @@ GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py"
 RUNTIME_DIR = os.path.join(BASE_DIR, "runtime")
 REQUIREMENTS_FILE = os.path.join(BASE_DIR, "requirements.txt")
 MAIN_SCRIPT = os.path.join(BASE_DIR, "main.py")
+
+
+def launch_application(python_exe):
+    # Argument forwarding follows Suzu dc14f4a1f5 (GPL-3.0), including --autostart.
+    return subprocess.Popen([python_exe, MAIN_SCRIPT] + sys.argv[1:],
+                            cwd=BASE_DIR, creationflags=subprocess.CREATE_NO_WINDOW)
 
 def find_system_python():
     """扫描系统中已安装的 Python"""
@@ -96,7 +102,7 @@ class LauncherApp:
     def __init__(self, root, python_exe=None):
         self.root = root
         self.system_python = python_exe
-        self.root.title("SuzuEmojy - 初始化运行环境")
+        self.root.title("NekoriEmojy - 初始化运行环境")
         self.root.geometry("450x180")
         self.root.resizable(False, False)
         
@@ -277,7 +283,7 @@ class LauncherApp:
             
             # 7. 启动主程序
             self.root.destroy()
-            subprocess.Popen([python_exe, MAIN_SCRIPT], cwd=BASE_DIR, creationflags=subprocess.CREATE_NO_WINDOW)
+            launch_application(python_exe)
             
         except Exception as e:
             self.progress.stop()
@@ -306,18 +312,18 @@ def main():
             subprocess.Popen([os.path.join(update_dir, "SuzuEmojyUpdater.exe"), "--recover", "--root", BASE_DIR],
                              cwd=update_dir, creationflags=subprocess.CREATE_NO_WINDOW)
         except OSError as error:
-            messagebox.showerror("SuzuEmojy", "更新恢复失败，请保留 .update 目录并重试。\n" + str(error))
+            messagebox.showerror("NekoriEmojy", "更新恢复失败，请保留 .update 目录并重试。\n" + str(error))
         return
     # 1. 优先检查本地独立环境
     local_python = os.path.join(RUNTIME_DIR, "python.exe")
     if os.path.exists(local_python) and check_dependencies(local_python):
-        subprocess.Popen([local_python, MAIN_SCRIPT], cwd=BASE_DIR, creationflags=subprocess.CREATE_NO_WINDOW)
+        launch_application(local_python)
         return
 
     # 2. 扫描系统 Python
     system_python = find_system_python()
     if system_python and check_dependencies(system_python):
-        subprocess.Popen([system_python, MAIN_SCRIPT], cwd=BASE_DIR, creationflags=subprocess.CREATE_NO_WINDOW)
+        launch_application(system_python)
         return
 
     # 如果环境未就绪，先弹出确认框
@@ -338,7 +344,7 @@ def main():
             "是否立即开始下载？"
         )
     
-    if messagebox.askyesno("SuzuEmojy - 环境初始化", msg):
+    if messagebox.askyesno("NekoriEmojy - 环境初始化", msg):
         root.deiconify() # 恢复显示主窗口
         app = LauncherApp(root, python_exe=system_python)
         root.mainloop()

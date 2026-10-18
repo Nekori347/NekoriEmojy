@@ -1515,5 +1515,6 @@
   "字体、图标与界面资源": "Fonts, icons and interface resources",
   "框架与许可证": "Framework and license",
   "表情 {count} 张": "{count} emotes",
-  "设置最近使用记录中显示的表情数量。\n主面板与快速面板共用此设置。": "Set how many emotes to show in recent history.\nThe main and quick panels share this setting."
+  "设置最近使用记录中显示的表情数量。\n主面板与快速面板共用此设置。": "Set how many emotes to show in recent history.\nThe main and quick panels share this setting.",
+  "开机启动设置未能恢复，请检查后重试。": "The startup setting could not be restored. Check it and try again."
 }

@@ -184,7 +184,7 @@ def main():
                 os.remove(optional_file)
         
         # 3. 复制文档、图标和数据
-        files_to_copy = ["README.md", "说明书.md", "ico.ico"]
+        files_to_copy = ["README.md", "说明书.md", "ico.ico", "LICENSE"]
         for f in files_to_copy:
             if os.path.exists(f):
                 shutil.copy2(f, release_dir)
