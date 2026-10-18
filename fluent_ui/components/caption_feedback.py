@@ -93,12 +93,12 @@ class NoticeCover(QFrame):
         glyph,tone=appearance(job);self.icon.setPixmap(glyph.icon(color=tone).pixmap(16,16))
         self.label.setText(text);self.label.setToolTip(text);self.label.setStyleSheet('color:'+tone)
         self.action.setVisible(bool(job['resume']));self.action.setText(job['action_text'] or t('继续'))
-        self.action.move(self.width()-trailing,(self.height()-22)//2)
+        self.action.move(self.width()-112,(self.height()-22)//2)
         width=max(1,self.width()-trailing-38)
         x=8
         self.icon.setGeometry(x,(self.height()-16)//2,16,16);self.label.setGeometry(x+22,0,width,self.height())
         self.close.move(self.width()-30,(self.height()-20)//2)
-        self.detail.move(self.width()-54,(self.height()-20)//2);self.detail.setVisible(bool(job['details']))
+        self.detail.move(self.width()-(138 if job['resume'] else 54),(self.height()-20)//2);self.detail.setVisible(bool(job['details']))
         self.setVisible(self.view.window.isVisible());self.raise_()
 
 
@@ -296,9 +296,8 @@ class CaptionFeedback(QObject):
     @staticmethod
     def _place_actions(box,right,center):
         info,primary,close=box.members
-        # Retain dismissal of stopped/resumable tasks as a secondary action;
-        # the task's main action remains last. Ordinary notices end in Close.
-        order=(close,info,primary) if not primary.isHidden() else (info,primary,close)
+        # Details precede the task action; dismissal always stays far right.
+        order=(info,primary,close)
         layout=box.layout()
         if order!=box.order:
             for widget in box.members:layout.removeWidget(widget)

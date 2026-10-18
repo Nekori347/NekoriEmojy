@@ -1,7 +1,7 @@
 """Mixed flow layout index and a viewport-sized pool of existing card widgets."""
 from bisect import bisect_left, bisect_right
 from time import perf_counter
-from PySide6.QtCore import QPoint, QRect, Qt, QSignalBlocker, QTimer
+from PySide6.QtCore import QPoint, QRect, Qt, QSignalBlocker, QTimer, QAbstractAnimation
 from PySide6.QtWidgets import QWidget, QLabel
 from fluent_ui.components.gallery_model import occurrence_id
 from fluent_ui.components.gallery_thumbnails import GalleryThumbnails
@@ -190,7 +190,7 @@ class VirtualGallery:
             max(top-self.index.rects[wanted[key]].bottom(),
                 self.index.rects[wanted[key]].top()-(top+height), 0), wanted[key]))
         self._wanted = wanted
-        self._ordered = ordered
+        self.loader.wanted.clear()
         self._pending = list(ordered)
         self._drain()
 
@@ -198,7 +198,13 @@ class VirtualGallery:
         """Prepare visible cards first, yielding between small GUI-thread batches."""
         g = self.gallery
         started = perf_counter()
-        while self._pending:
+        batch = []
+        tree=g.sidebar.tree;navigation=tree.itemDelegate()
+        # Keep GUI-only card construction out of the short navigation motion.
+        # The selected location/data are already updated; only render prep yields.
+        navigation_busy=tree.isVisible() and (navigation._selection_timer.isActive() or
+                         navigation._selection_motion.state()==QAbstractAnimation.Running)
+        while self._pending and not navigation_busy:
             key = self._pending.pop(0)
             index = self._wanted[key]
             entry = g._entries[index]
@@ -214,6 +220,7 @@ class VirtualGallery:
                 card._renderer.show()
             if card.isHidden():
                 card.show()
+            batch.append(card)
             if perf_counter()-started >= .008:
                 break
         # Compatibility list now contains ONLY viewport/buffer renderers.
@@ -221,9 +228,9 @@ class VirtualGallery:
                                if key in self.active]
         g._loaded_count = len(g._all_card_widgets)
         g._target_load_count = len(self._wanted)
-        # request() replaces its queue: include earlier batches so pending
-        # decodes remain wanted while subsequent renderers are prepared.
-        self.loader.request([self.active[key] for key in self._ordered if key in self.active])
+        # Preserve earlier pending decodes without re-keying every active card
+        # on every batch. sync() discards obsolete viewport requests above.
+        self.loader.request(batch,append=True)
         if self._pending:
             self._batch_timer.start()
             return

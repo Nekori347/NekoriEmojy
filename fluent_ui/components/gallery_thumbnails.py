@@ -39,9 +39,9 @@ class GalleryThumbnails(QObject):
         digest = hashlib.sha256(repr(identity).encode()).hexdigest()
         return 'gallery:'+digest, tier, frame, self.cache_dir/(digest+'.png')
 
-    def request(self, cards):
-        """Input is ordered viewport first, then distance from the viewport."""
-        wanted = {}
+    def request(self, cards, *, append=False):
+        """Viewport replaces queued requests; incremental batches can append."""
+        wanted = self.wanted if append else {}
         for card in cards:
             entry = card.content_entry
             if entry['kind'] != 'resource':
@@ -56,7 +56,7 @@ class GalleryThumbnails(QObject):
                 self.attach(card, key, pixmap)
                 continue
             wanted.setdefault(key, [entry['path'], tier, frame, disk, []])[4].append(card)
-        self.wanted = wanted  # Obsolete queued requests disappear immediately.
+        self.wanted = wanted
         self.dispatch()
 
     def attach(self, card, key, pixmap):

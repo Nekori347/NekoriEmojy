@@ -67,22 +67,27 @@ def test_thumbnail_handle_press_keeps_value_and_drag_uses_same_span(surface,valu
     assert slider.value()>60 and slider.minimum()==60 and slider.maximum()==300
 
 
-def test_expanded_actions_are_optional_and_main_action_is_last(surface):
+def test_expanded_details_precede_action_and_close_stays_last(surface):
     h=surface.g.feedback_host;h.dock_to_caption(surface.g);u=h._caption_ui;calls=[]
     for key,state,details in [('run','running',''),('wait','waiting','错误明细'),
                               ('stopped','cancelled','错误明细'),('done','success','')]:
         h.upsert_task(key,'补充识别',kind='ocr',state=state,current=12,total=88,
                       cancel=lambda:calls.append('cancel'),resume=lambda:calls.append('resume'),details=details)
     u.expand();QTest.qWait(250);settle(surface.app)
+    assert u.cover.key=='stopped'
+    assert u.cover.detail.x()<u.cover.action.x()<u.cover.close.x()
     edges=[]
     for key in ('run','wait','stopped'):
         row,icon,label,bar,count,button,info,close=h._named_widgets[key]
         assert button.isVisible()
-        edges.append(button.mapTo(u.window,QPoint(button.width(),0)).x())
+        trailing=close if not close.isHidden() else button
+        edges.append(trailing.mapTo(u.window,QPoint(trailing.width(),0)).x())
         if key=='run':
             assert info.isHidden() and row.operations.width()==button.width()
         else:
             assert info.isVisible() and info.mapTo(row,QPoint(info.width(),0)).x()<button.mapTo(row,QPoint()).x()
+        if not close.isHidden():
+            assert button.mapTo(row,QPoint(button.width(),0)).x()<close.mapTo(row,QPoint()).x()
     assert len(set(edges))==1
     row,icon,label,bar,count,button,info,close=h._named_widgets['done']
     # Ordinary completion without a resume callback ends at Close.

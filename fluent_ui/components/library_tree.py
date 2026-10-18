@@ -100,9 +100,16 @@ class LibraryTree(QTreeWidget):
         # Indentation carries ancestry; the row owns its only selected stripe.
         pass
 
+    def paintEvent(self,event):
+        self._selection_layer_painted=False
+        super().paintEvent(event)
+
     def drawRow(self, painter, option, index):
         # QTreeView's native row panel also paints the branch/selection gutter.
         # Own the complete row instead, including its finite depth indentation.
+        if not self._selection_layer_painted:
+            self.itemDelegate().paint_selection_layer(painter)
+            self._selection_layer_painted=True
         depth, ancestor = 0, index.parent()
         while ancestor.isValid():
             depth += 1

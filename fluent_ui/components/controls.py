@@ -86,7 +86,9 @@ class ButtonPaint:
 
     def focusInEvent(self,event):
         if event.reason() in (Qt.TabFocusReason,Qt.BacktabFocusReason,Qt.ShortcutFocusReason):
-            self._focus_input.keyboard=True;self._focus_visible=True
+            # Qt also uses TabFocusReason to relocate focus when a mouse-opened
+            # child disappears. Only actual keyboard input enables its ring.
+            self._focus_visible=self._focus_input.keyboard
         elif event.reason() not in (Qt.ActiveWindowFocusReason,Qt.PopupFocusReason):self._focus_visible=False
         super().focusInEvent(event);self.update()
 

@@ -402,6 +402,24 @@ class NavigationItem(QStyledItemDelegate):
         painter.drawRoundedRect(indicator,1,1)
         painter.restore()
 
+    def _selection_background(self,indicator):
+        return QRectF(indicator.left()-6,indicator.top()-8,
+                      self.view.viewport().width()-indicator.left()+2,indicator.height()+16)
+
+    def paint_selection_layer(self,painter):
+        """Paint once in viewport coordinates, below item icons and text."""
+        if self._indicator_target().isEmpty():return
+        moving=self._selection_motion.state()==QVariantAnimation.Running or self._selection_timer.isActive()
+        indicator=self._indicator if moving else self._indicator_target()
+        if indicator.isEmpty():return
+        highlight=self._selection_background(indicator)
+        painter.save();painter.setClipRect(self.view.viewport().rect(),Qt.ReplaceClip)
+        painter.setRenderHint(QPainter.Antialiasing);painter.setPen(Qt.NoPen)
+        fill=QColor(visual.colors()['selected']);fill.setAlpha(180);painter.setBrush(fill)
+        painter.drawRoundedRect(highlight,4,4)
+        painter.setBrush(QColor(visual.accent()));painter.drawRoundedRect(indicator,1,1)
+        painter.restore()
+
     def sizeHint(self, option, index):
         from fluent_ui.components.section_index import SectionHeader
         height = SectionHeader.HEIGHT if index.data(SectionHeader.ROLE) else max(34, self.view.iconSize().height()+16)
@@ -472,20 +490,21 @@ class NavigationItem(QStyledItemDelegate):
         rect = QRectF(option.rect).adjusted(4, 3, -4, -3)
         painter.setPen(Qt.NoPen)
         if option.state & QStyle.State_MouseOver and not selected:
-            painter.setBrush(QColor(c['hover']))
-            painter.drawRoundedRect(rect, 4, 4)
-        # Background and stripe follow the same animation rectangle. Drawing
-        # only the new selection's background made it jump ahead of the stripe.
-        moving=self._selection_motion.state()==QVariantAnimation.Running or self._selection_timer.isActive()
-        indicator=self._indicator if moving else self._indicator_target()
-        if not indicator.isEmpty():
-            fill=QColor(c['selected']);fill.setAlpha(180)
-            painter.save();painter.setClipRect(rect)
-            painter.setBrush(fill)
-            highlight=QRectF(rect);highlight.moveCenter(QPointF(rect.center().x(),indicator.center().y()))
-            painter.drawRoundedRect(highlight,4,4)
-            painter.restore()
-        self._paint_indicator(painter,rect,selected)
+            hover=QPainterPath();hover.addRoundedRect(rect,4,4)
+            if not self._indicator_target().isEmpty():
+                moving=self._selection_motion.state()==QVariantAnimation.Running or self._selection_timer.isActive()
+                indicator=self._indicator if moving else self._indicator_target()
+                if not indicator.isEmpty():
+                    selection=QPainterPath();selection.addRoundedRect(self._selection_background(indicator),4,4)
+                    hover=hover.subtracted(selection)
+            painter.fillPath(hover,QColor(c['hover']))
+        if selected and self._indicator_target().isEmpty():
+            # Multi-selection keeps each actual selected row highlighted;
+            # only the single-location transition crosses item boundaries.
+            fill=QColor(c['selected']);fill.setAlpha(180);painter.setBrush(fill)
+            painter.drawRoundedRect(rect,4,4)
+            painter.setBrush(QColor(visual.accent()))
+            painter.drawRoundedRect(QRectF(rect.left()+6,rect.top()+8,2,rect.height()-16),1,1)
         if option.state & QStyle.State_HasFocus:
             painter.setPen(QPen(QColor(c['border']), 1, Qt.DotLine))
             painter.setBrush(Qt.NoBrush)

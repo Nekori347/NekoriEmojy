@@ -113,6 +113,11 @@ def test_real_mutation_paths_preserve_view_and_recycled_identity(tmp_path, monke
         # Recycling must never keep a closure pointing at a previous resource.
         for fraction in (1,0,.5):
             bar.setValue(int(bar.maximum()*fraction)); app.processEvents()
+        # Card preparation yields while navigation is animating. Keep the
+        # identity/click assertions after the actual asynchronous render exists.
+        until=time.monotonic()+2
+        while not any(c.content_entry['kind']=='resource' for c in g._all_card_widgets) and time.monotonic()<until:
+            QTest.qWait(10)
         card=next(c for c in g._all_card_widgets if c.content_entry['kind']=='resource')
         card.clicked.emit(card.image_path,Qt.NoModifier)
         assert g.selected_keys=={card.image_path}
