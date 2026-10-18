@@ -56,9 +56,9 @@ def test_recovery_preserves_original_and_rejects_ordinary_folder(setup_case,monk
     assert ui and recovery
     before=Path(loaded.config_path).read_bytes();ordinary=s.root/'pictures';ordinary.mkdir();(ordinary/'a.png').write_bytes(b'original')
     d=LibrarySetupDialog(loaded,path,recovery=True)
-    assert not d.start_button.isEnabled()
+    assert d.start_button.isEnabled() and not d._ready
     monkeypatch.setattr(QFileDialog,'getExistingDirectory',lambda *a:str(ordinary));d.choose('connect')
-    assert not d.start_button.isEnabled() and not d.error_label.isHidden()
+    assert d.start_button.isEnabled() and not d._ready and not d.error_label.isHidden()
     assert not (ordinary/'index.sqlite3').exists() and Path(loaded.config_path).read_bytes()==before
     replacement=s.root/'relocated';LibraryIndex(replacement)
     monkeypatch.setattr(QFileDialog,'getExistingDirectory',lambda *a:str(replacement));d.choose('connect');d.begin()
@@ -76,6 +76,11 @@ def test_failed_start_rolls_back_only_new_files_and_allows_retry(setup_case,monk
         d.begin()
     assert d.result()!=QDialog.DialogCode.Accepted and d.storage is None and d.start_button.isEnabled()
     assert s.config.config==original and list(path.iterdir())==[] and not Path(s.config.config_path).exists()
+    # A failed commit requires an explicit new selection before another start.
+    with monkeypatch.context() as picker:
+        picker.setattr(QFileDialog,'getExistingDirectory',lambda *a:str(path))
+        d.begin()
+    assert d.storage is None and d._ready and not d._failed
     d.begin();assert d.result()==QDialog.DialogCode.Accepted
 
 

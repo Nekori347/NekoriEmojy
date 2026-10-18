@@ -1533,5 +1533,21 @@
   "此目录已有其他文件。请选择空目录，或连接已有表情库。": "This folder already contains other files. Choose an empty folder, or connect an existing library.",
   "此表情库的版本暂不受支持。请使用兼容的 Nekori 版本。": "This library version is not supported. Use a compatible Nekori version.",
   "无法准备表情库或保存设置。\n请检查目录是否可写，然后重试或选择其他位置。": "Could not prepare the library or save settings.\nCheck folder write permissions, then retry or choose another location.",
-  "无法访问此目录。请检查权限或选择其他位置。": "This folder is unavailable. Check permissions or choose another location."
+  "无法访问此目录。请检查权限或选择其他位置。": "This folder is unavailable. Check permissions or choose another location.",
+  "首次使用 NekoriEmojy": "Welcome to NekoriEmojy",
+  "表情库位置": "Emote library location",
+  "选择保存表情及管理数据的位置。\n以后可以在设置中重新连接表情库。": "Choose where to store emotes and library data.\nYou can reconnect a library later in Settings.",
+  "无法访问上次使用的表情库。\n请选择原有表情库的新位置，或创建新的表情库。": "The last used emote library is unavailable.\nLocate your existing library, or create a new one.",
+  "无法在所选位置创建或保存表情库。\n请检查写入权限，或选择其他文件夹。": "The library cannot be created or saved here.\nCheck write permissions, or choose another folder.",
+  "推荐位置": "Recommended location",
+  "原表情库位置": "Previous library location",
+  "所选位置": "Selected location",
+  "复制完整路径": "Copy full path",
+  "连接并开始": "Connect and start",
+  "创建并开始": "Create and start",
+  "无法使用所选位置": "Selected location unavailable",
+  "无法写入该文件夹。": "Cannot write to this folder.",
+  "无法准备表情库或保存设置。": "Could not prepare the library or save settings.",
+  "查看错误详情": "View error details",
+  "收起错误详情": "Hide error details"
 }
