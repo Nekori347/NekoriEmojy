@@ -6,6 +6,7 @@ from fluent_ui.icons import Icon
 from services.i18n import t,i18n_engine,bind_text,translated
 from fluent_ui import visual
 from .surfaces import Surface
+from qfluentwidgets import IconWidget
 
 
 def build_quick(q):
@@ -13,9 +14,9 @@ def build_quick(q):
     q.bg_widget=QWidget(q);q.bg_layout=QVBoxLayout(q.bg_widget)
     q.bg_layout.setContentsMargins(0,0,0,0);q.bg_layout.setSpacing(10);q.layout.addWidget(q.bg_widget)
     title=QWidget(q.bg_widget);row=QHBoxLayout(title);row.setContentsMargins(4,0,2,0)
-    q.identity_icon=QLabel(title);q.identity_icon.setFixedSize(18,18);q.identity_icon.setPixmap(Icon.HISTORY.icon().pixmap(18,18))
+    q.identity_icon=IconWidget(Icon.HISTORY,title);q.identity_icon.setFixedSize(18,18)
     bind_text(q.identity_icon,'最近使用','setToolTip');q.identity_icon.setAccessibleName(t('最近使用'))
-    visual.theme.changed.connect(lambda:q.identity_icon.setPixmap(Icon.HISTORY.icon().pixmap(18,18)))
+    visual.theme.changed.connect(q.identity_icon.update)
     row.addWidget(q.identity_icon,0,Qt.AlignVCenter)
     name=QLabel('NekoriEmojy',title);name.setProperty('role','brand');name.setFont(visual.font('brand'))
     row.addWidget(name);row.addStretch()

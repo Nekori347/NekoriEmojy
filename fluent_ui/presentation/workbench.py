@@ -14,7 +14,7 @@ from fluent_ui.components.navigation import HierarchyLocationHeader,TabStrip,Con
 from fluent_ui.components.interaction_controls import IconDropDownButton,ResourceSortIcon,FilterCheckboxFlyout
 from fluent_ui.components.panel_host import PanelSplitter
 from fluent_ui.components.safe_round_menu import SafeRoundMenu
-from qfluentwidgets import Action
+from qfluentwidgets import Action, IconWidget
 from services.i18n import bind_text,translated
 from .surfaces import Surface,CommandWell
 
@@ -107,8 +107,8 @@ def build_workbench(g):
     g.top_bar_layout.addWidget(g.search_surface,1)
     size_host=QWidget(g.tab_row);size_host.setFixedHeight(28)
     size_row=QHBoxLayout(size_host);size_row.setContentsMargins(0,0,6,0);size_row.setSpacing(0);size_row.setAlignment(Qt.AlignVCenter)
-    glyph=QLabel(size_host);glyph.setFixedSize(16,16);glyph.setPixmap(I.PHOTO.icon().pixmap(16,16));bind_text(glyph,'缩略图大小','setToolTip');size_row.addWidget(glyph,0,Qt.AlignVCenter)
-    visual.theme.changed.connect(lambda:glyph.setPixmap(I.PHOTO.icon().pixmap(16,16)))
+    glyph=IconWidget(I.PHOTO,size_host);glyph.setFixedSize(16,16);bind_text(glyph,'缩略图大小','setToolTip');size_row.addWidget(glyph,0,Qt.AlignVCenter)
+    visual.theme.changed.connect(glyph.update)
     g.size_slider=SoftframeSlider(Qt.Horizontal,size_host);g.size_slider.setFixedWidth(88)
     g.size_slider.setRange(60,300);g.size_slider.setSingleStep(10);g.size_slider.setPageStep(10)
     g.size_slider.setValue(g.config.get('thumbnail_size',120));bind_text(g.size_slider,'缩略图大小','setToolTip')

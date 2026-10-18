@@ -67,6 +67,9 @@ class ButtonPaint:
         visual.theme.accent_changed.connect(self.update)
         self._hover_owner=self.window()
         self._hover_owner.installEventFilter(self)
+        self._hover_settle_timer=QTimer(self)
+        self._hover_settle_timer.setSingleShot(True)
+        self._hover_settle_timer.timeout.connect(self._settle_hover)
 
     def showEvent(self,event):
         owner=self.window()
@@ -78,7 +81,7 @@ class ButtonPaint:
     def eventFilter(self, obj, event):
         if obj is self.window() and event.type() in (QEvent.WindowDeactivate, QEvent.WindowActivate):
             self._settle_hover()
-            QTimer.singleShot(0, self._settle_hover)
+            self._hover_settle_timer.start(0)
         return super().eventFilter(obj, event)
 
     def focusInEvent(self,event):

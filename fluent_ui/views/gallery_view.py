@@ -706,8 +706,8 @@ class GalleryInterface(QWidget):
         self.imports=import_queue(self.storage)
         self._task_refresh_timer=QTimer(self);self._task_refresh_timer.setSingleShot(True);self._task_refresh_timer.setInterval(80)
         self._task_refresh_timer.timeout.connect(self._sync_background_tasks)
-        self.imports.changed.connect(lambda *_:self._task_refresh_timer.start())
-        self.ocr.changed.connect(lambda:self._task_refresh_timer.start())
+        self.imports.changed.connect(self._schedule_task_refresh)
+        self.ocr.changed.connect(self._schedule_task_refresh)
         self.imports.files_finished.connect(self._queued_files_finished)
         visual.theme.changed.connect(self.refresh_theme)
         i18n_engine.language_changed.connect(self.refresh_texts)
@@ -715,6 +715,9 @@ class GalleryInterface(QWidget):
     # ==================================================================
     # UI construction
     # ==================================================================
+    def _schedule_task_refresh(self, *_):
+        self._task_refresh_timer.start()
+
     def _init_ui(self):
         from fluent_ui.presentation.workbench import build_workbench
         build_workbench(self)
