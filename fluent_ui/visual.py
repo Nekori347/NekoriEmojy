@@ -12,6 +12,7 @@ Legacy key names (`background`, `elevated`, `hover`, `text`, ...) are still
 returned so existing call sites keep working while they migrate.
 """
 from dataclasses import dataclass
+from contextlib import contextmanager
 from pathlib import Path
 from PySide6.QtCore import QObject, Signal, QEasingCurve
 from PySide6.QtGui import QColor, QFont, QFontDatabase
@@ -75,9 +76,9 @@ TAB_LOCATION_GAP = 12
 @dataclass(frozen=True)
 class TagCollapsedMetrics:
     icon_size: int = COMPACT_CONTROLS.icon
-    visual_extent: int = COMPACT_CONTROLS.rail_visual_extent
+    visual_extent: int = 16
     compact_padding: int = COMPACT_CONTROLS.padding
-    edge_padding: int = SPACING_S
+    edge_padding: int = 4
     separator_extent: int = LINE_WIDTH
 
     @property
@@ -171,17 +172,51 @@ class UiTheme(QObject):
     def __init__(self):
         super().__init__()
         self.config = None
+        self._material_batch=None
+
+    @contextmanager
+    def transition(self):
+        """Commit a theme once: prepare Qt styles, then native tint, then paint."""
+        if self._material_batch is not None:
+            yield;return
+        from PySide6.QtWidgets import QApplication
+        windows=[w for w in QApplication.topLevelWidgets() if w.updatesEnabled()]
+        self._material_batch={}
+        for window in windows:window.setUpdatesEnabled(False)
+        try:
+            yield
+            # setUpdatesEnabled only queues a new backing store. Flush that
+            # store synchronously before changing DWM's immediately visible tint.
+            for window in windows:window.setUpdatesEnabled(True)
+            for window in windows:
+                if window.isVisible():window.repaint()
+            for window in windows:window.setUpdatesEnabled(False)
+            from fluent_ui.materials import native_material
+            for window in windows:
+                key=getattr(window,'_material_key',None)
+                if key:self._material_batch.setdefault(window,key[-1])
+            for window,overlay in self._material_batch.items():native_material(window,overlay=overlay)
+        finally:
+            self._material_batch=None
+            for window in windows:window.setUpdatesEnabled(True);window.update()
+
+    def material(self,window,*,overlay=False):
+        if self._material_batch is not None:self._material_batch[window]=overlay
+        else:
+            from fluent_ui.materials import native_material
+            native_material(window,overlay=overlay)
 
     def configure(self, config):
         self.config = config
         load_fonts()
 
     def refresh(self):
-        current=accent()
-        if current != getattr(self,'_applied_accent',None):
-            setThemeColor(QColor(current),lazy=True)
-            self._applied_accent=current
-        self.changed.emit()
+        with self.transition():
+            current=accent()
+            if current != getattr(self,'_applied_accent',None):
+                setThemeColor(QColor(current),lazy=True)
+                self._applied_accent=current
+            self.changed.emit()
 
     def preview_accent(self):
         # Preview only repaints token consumers; final apply refreshes QSS.

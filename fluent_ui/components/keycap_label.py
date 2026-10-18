@@ -15,15 +15,16 @@ KEY_TEXT=QTextFormat.UserProperty+9
 def paint_keycap(p,rect,text,font):
     p.save();p.setRenderHint(QPainter.Antialiasing);c=visual.colors()
     p.setPen(QPen(QColor(c['border']),.8));p.setBrush(QColor(c['surface_alt']))
-    p.drawRoundedRect(rect.adjusted(.5,1,-.5,-1),3,3)
+    p.drawRoundedRect(rect.adjusted(.5,.5,-.5,-.5),3,3)
     p.setPen(QColor(c['text']));p.setFont(font)
-    p.drawText(rect,Qt.AlignCenter,text);p.restore()
+    metrics=QFontMetricsF(font);ink=metrics.tightBoundingRect(text)
+    p.drawText(QPointF(rect.center().x()-ink.center().x(),rect.center().y()-ink.center().y()),text);p.restore()
 
 
 class KeyFace(QPyTextObject):
     def intrinsicSize(self,doc,pos,fmt):
         metrics=QFontMetricsF(fmt.toCharFormat().font())
-        return QSizeF(metrics.horizontalAdvance(fmt.property(KEY_TEXT))+12,metrics.height()+4)
+        return QSizeF(metrics.horizontalAdvance(fmt.property(KEY_TEXT))+12,metrics.height()+2)
 
     def drawObject(self,p,rect,doc,pos,fmt):
         paint_keycap(p,rect,fmt.property(KEY_TEXT),fmt.toCharFormat().font())
@@ -48,9 +49,10 @@ class KeycapLabel(QLabel):
         for match in KEY_PATTERN.finditer(text):
             cursor.insertText(text[start:match.start()])
             fmt=QTextCharFormat();fmt.setObjectType(KEY_OBJECT)
-            fmt.setVerticalAlignment(QTextCharFormat.AlignMiddle)
+            fmt.setVerticalAlignment(QTextCharFormat.AlignBaseline)
             fmt.setProperty(KEY_TEXT,match.group())
-            fmt.setFont(visual.font('data'))
+            key_font=visual.font('data');key_font.setPixelSize(self.font().pixelSize() if self.font().pixelSize()>0 else 12)
+            fmt.setFont(key_font)
             cursor.insertText('\ufffc',fmt);cursor.setCharFormat(QTextCharFormat())
             start=match.end()
         cursor.insertText(text[start:]);self.updateGeometry();self.update()

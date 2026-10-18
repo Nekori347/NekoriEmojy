@@ -22,7 +22,7 @@ from fluent_ui import visual
 from fluent_ui.components.navigation import NavigationItem, TabStrip, ContentPane
 from fluent_ui.components import dialogs
 from fluent_ui.components.setting_rows import (
-    ActionRow, AccentRow, ChoiceRow, InfoRow, HotkeyRow, RangeRow, SettingSection, SwitchRow,
+    SettingRow, ActionRow, AccentRow, ChoiceRow, InfoRow, HotkeyRow, RangeRow, SettingSection, SwitchRow,
     apply_row_theme, ModeRow, SpatialRow, FullPathRow,
 )
 from fluent_ui.theme import THEMES
@@ -107,10 +107,10 @@ class SettingsCenter(QWidget):
 
     def _icon_pages(self):
         return [
-            ('常规', [('启动与窗口', self._page_startup), ('托盘', self._page_tray), ('语言', self._page_language), ('配置与重置', self._page_settings_file)]),
-            ('外观', [('主题', self._page_theme), ('表情库', self._page_gallery_display), ('快速面板', self._page_quick_panel), ('软件图标', self._page_app_icon)]),
+            ('常规', [('启动与窗口', self._page_startup), ('托盘', self._page_tray), ('语言', self._page_language), ('配置管理', self._page_settings_file)]),
+            ('外观', [('主题', self._page_theme), ('表情库布局', self._page_gallery_display), ('快速面板', self._page_quick_panel), ('软件图标', self._page_app_icon)]),
             ('交互', [('快捷键', self._page_hotkeys), ('发送', self._page_send), ('悬停预览', self._page_hover_preview)]),
-            ('表情与数据', [('表情库', self._page_library), ('文字识别', self._page_ocr), ('表情合集', self._page_packages), ('Suzu 迁移', self._page_migration)]),
+            ('表情与数据', [('表情库管理', self._page_library), ('文字识别', self._page_ocr), ('表情合集', self._page_packages), ('Suzu 迁移', self._page_migration)]),
             ('关于', [('软件信息', self._page_about)]),
         ]
 
@@ -130,9 +130,20 @@ class SettingsCenter(QWidget):
                 self.nav.addItem(QListWidgetItem(t(name)))
         self.nav.setFixedWidth(min(245, max(175, max(self.nav.fontMetrics().horizontalAdvance(t(name)) for name, _ in pages)+44)))
         group_name, tabs = pages[max(0, min(self._current_page, len(pages) - 1))]
-        self.tab_bar.set_tabs([t(name) for name, _ in tabs])
+        self._set_tab_labels(tabs)
         self._tabs = tabs
         self._show_tab(0)
+
+    def _set_tab_labels(self,tabs,current=0):
+        from fluent_ui.icons import Icon
+        labels=[]
+        for name,builder in tabs:
+            label=t(name)
+            if builder.__name__=='_page_language' and str(label).casefold()!='language':label=str(label)+' / Language'
+            labels.append(label)
+        self.tab_bar.set_tabs(labels,current)
+        for index,(_,builder) in enumerate(tabs):
+            if builder.__name__=='_page_language':self.tab_bar.setTabIcon(index,Icon.LANGUAGE.icon())
 
     def _show_tab(self, index):
         index = max(0, min(index, len(self._tabs)-1))
@@ -175,7 +186,7 @@ class SettingsCenter(QWidget):
         for index, (name, _) in enumerate(self._icon_pages()):
             self.nav.item(index).setText(t(name))
         self.nav.blockSignals(False)
-        self.tab_bar.set_tabs([t(name) for name, _ in self._tabs], self._current_tab)
+        self._set_tab_labels(self._tabs,self._current_tab)
         self._set_dirty(bool(self.pending))
         self._update_sticky_header()
 
@@ -266,14 +277,13 @@ class SettingsCenter(QWidget):
         self._stage('autostart', row.value())
 
     def _page_language(self):
-        section = self._section("LANGUAGE")
         options = [(code, label) for code, label in SUPPORTED_LANGUAGES]
         row = ChoiceRow("界面语言", "更改软件的显示语言。", "language",
                         self.config.get("language", "zh"), options, self)
         self._rows["language"] = (row, "zh")
         self._all_rows['language'] = (row, 'zh')
         row.changed.connect(lambda: self._apply_language(row.value()))
-        section.add_row(row)
+        self.body_layout.addWidget(row)
 
     def _apply_language(self, code):
         if code:
@@ -293,6 +303,8 @@ class SettingsCenter(QWidget):
             "选择 / 重新连接表情库",
             "保存后需要重启程序才会切换到新的表情库。",
             [("选择文件夹…", self._choose_library, True)], self))
+        section.add_row(self._track(RangeRow("最近使用上限", "设置最近使用记录中显示的表情数量。\n主面板与快速面板共用此设置。", "recent_limit",
+                     self.config.get("recent_limit", 30), 1, 999, 1, self, count_only=True), "recent_limit", 30))
 
         section = self._section("MAINTENANCE")
         section.add_row(ActionRow(
@@ -339,31 +351,31 @@ class SettingsCenter(QWidget):
         section.add_row(self._track(row, 'accent_color', visual.DEFAULT_ACCENT))
 
     def _page_gallery_display(self):
-        section = self._section("GALLERY")
+        section = self._section("表情显示")
         section.add_row(self._track(
-            RangeRow("缩略图大小", "调整表情缩略图大小。\n也可按住 Ctrl 并滚动滚轮调整。",
+            RangeRow("缩略图大小", "调整主面板中表情的显示大小。\n也可在主面板中直接调整，或按住 Ctrl 滚动滚轮。\n两处调整会同步生效。",
                      "thumbnail_size", self.config.get("thumbnail_size", 120), 60, 300, 10, self),
             "thumbnail_size", 120))
 
         section = self._section("SIDEBAR")
         mode = self._track(ModeRow(
-            "分类显示方式", "也可以通过侧边栏顶部的视图切换按钮快速切换。", "sidebar_mode",
+            "分类栏显示方式", "切换分类树与分类图标视图。\n也可通过分类栏顶部按钮快速切换。", "sidebar_mode",
             self.config.get('sidebar_mode', 'tree'), [('tree', '分类树'), ('categorized_icons', '分类图标')], self),
             'sidebar_mode', 'tree')
         section.add_row(mode)
-        self.icon_options = SettingSection('图标视图选项', self)
-        self.icon_options.add_row(self._track(SwitchRow(
-            "显示分类图标名称", "", 'sidebar_show_labels', self.config.get('sidebar_show_labels', True), self),
-            'sidebar_show_labels', True))
+        self.icon_options = self._track(SwitchRow(
+            "显示分类名称", "在分类图标视图下显示分类名称。", 'sidebar_show_labels', self.config.get('sidebar_show_labels', True), self),
+            'sidebar_show_labels', True)
         section.add_row(self.icon_options)
         mode.changed.connect(lambda: self.icon_options.setEnabled(mode.value() == 'categorized_icons'))
         self.icon_options.setEnabled(mode.value() == 'categorized_icons')
         section.add_row(self._track(
-            RangeRow("侧边栏图标大小", "左侧分类树图标尺寸。",
+            RangeRow("分类树图标大小", "调整分类树中的图标尺寸。",
                      "sidebar_icon_size", self.config.get("sidebar_icon_size", 20), 14, 48, 1, self),
             "sidebar_icon_size", 20))
+        section = self._section('标签面板')
         section.add_row(self._track(SpatialRow(
-            "标签面板位置", "点击示意窗口的边缘，将标签栏放到对应一侧。", 'tag_panel_placement',
+            "标签面板位置", "选择标签面板在表情库中的停靠位置。\n点击示意窗口的对应边缘进行调整。", 'tag_panel_placement',
             self.config.get('tag_panel_placement', 'bottom'), self),
             'tag_panel_placement', 'bottom'))
 
@@ -379,10 +391,6 @@ class SettingsCenter(QWidget):
             RangeRow("面板高度", "快速调用面板的高度。", "quick_panel_height",
                      self.config.get("quick_panel_height", 480), 150, 1000, 10, self),
             "quick_panel_height", 480))
-        section.add_row(self._track(
-            RangeRow("最近使用上限", "快速面板中保留的最近使用表情数量。", "recent_limit",
-                     self.config.get("recent_limit", 30), 1, 999, 1, self, count_only=True),
-            "recent_limit", 30))
 
 
     def _page_app_icon(self):
@@ -425,7 +433,7 @@ class SettingsCenter(QWidget):
 
     def _pick_app_icon_file(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, t("选择程序图标"), "", t("表情 (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.ico)"))
+            self, t("选择软件图标"), "", t("图片文件 (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.ico)"))
         if not path:
             return
         self._set_icon(path)
@@ -452,7 +460,7 @@ class SettingsCenter(QWidget):
             self.show_error(t("设置图标失败"), str(exc))
             return
         self._apply_icon_change()
-        self.show_success(t("程序图标已更新"))
+        self.show_success(t("程序图标已更新"), quiet=True)
 
     def _reset_app_icon(self):
         from services.app_icon import ApplicationIconService
@@ -465,7 +473,7 @@ class SettingsCenter(QWidget):
             return
         ApplicationIconService(self.config).reset()
         self._apply_icon_change()
-        self.show_success(t("已恢复默认图标"))
+        self.show_success(t("已恢复默认图标"), quiet=True)
 
     def _page_hotkeys(self):
         section = self._section("GLOBAL HOTKEYS")
@@ -479,16 +487,16 @@ class SettingsCenter(QWidget):
             "quick_panel_hotkey", "alt+2"))
         section = self._section('Esc 隐藏面板')
         for key, title in (('esc_hide_main', '主面板'), ('esc_hide_quick', '快速面板')):
-            row = SwitchRow(title, '按 Esc 隐藏面板，程序会继续在托盘运行。',
+            row = SwitchRow(title, '按 Esc 隐藏主面板。' if key == 'esc_hide_main' else '按 Esc 隐藏快速面板。',
                             key, self.config.get(key, False), self)
             section.add_row(self._track(row, key, False))
 
     def _page_send(self):
         section = self._section("SENDING")
         section.add_row(self._track(ModeRow('主面板单击表情',
-            '选择表情：单击选中，按 Enter 发送。\n快速发送：单击即可发送。\n也可将表情拖到聊天窗口发送。\n快速面板始终为单击发送。',
+            '单击选中：单击表情后，按 Enter 发送。\n单击发送：单击表情后立即发送。\n两种模式均支持拖动表情至聊天窗口。\n快速面板始终使用单击发送。',
             'gallery_click_action', self.config.get('gallery_click_action', 'select'),
-            [('select', '选择表情'), ('send', '快速发送')], self), 'gallery_click_action', 'select'))
+            [('select', '单击选中'), ('send', '单击发送')], self), 'gallery_click_action', 'select'))
         section.add_row(self._track(
             SwitchRow("发送时将静态图转为 GIF",
                       "复制静态图时转为单帧 GIF，避免在聊天软件中显示为超大原图。",
@@ -498,21 +506,21 @@ class SettingsCenter(QWidget):
     def _page_packages(self):
         section = self._section("NEKORI PACKAGE")
         section.add_row(ActionRow(
-            "导出 Nekori 原生表情合集",
+            "导出 Nekori 表情合集",
             "保存全部表情，以及分类、图标、标签与排列顺序。",
             [("导出…", self.export_nekori_package, True)], self))
         section.add_row(ActionRow(
-            "导入 Nekori 原生表情合集",
-            "恢复表情合集中的内容与排列顺序。\n已有表情会合并分类与标签，不会重复保存。",
+            "导入 Nekori 表情合集",
+            "恢复表情合集中的内容与排列顺序。\n重复表情由你选择如何处理。",
             [("导入…", self.import_nekori_package, True)], self))
 
         section = self._section("SUZU SHARE PACKAGE")
         section.add_row(ActionRow(
-            "导入 Suzu 分享包",
+            "导入 Suzu 兼容表情合集",
             "导入 Suzu 分享的表情与标签。\nSuzu 格式不包含完整分类与排列顺序。",
             [("导入…", self.import_suzu_share, False)], self))
 
-        section.add_row(ActionRow('导出 Suzu 分享包', '导出为兼容 Suzu 的分享格式，不包含完整 NekoriEmojy 分类和排序信息。',
+        section.add_row(ActionRow('导出 Suzu 兼容表情合集', '导出为兼容 Suzu 的分享格式，不包含完整 NekoriEmojy 分类和排序信息。',
             [('导出全部…', lambda: self._legacy_share('all')), ('选择分类…', lambda: self._legacy_share('categories'))], self))
         section.add_row(ActionRow('拆分表情合集', '将表情 ZIP 拆分为不超过 100MB 的分享包。',
             [('拆分…', lambda: self._legacy_share('split'))], self))
@@ -538,53 +546,33 @@ class SettingsCenter(QWidget):
 
     def import_nekori_package(self):
         from services.nekori_package import NekoriPackageService
-        from fluent_ui.components.exchange_task_dialog import run_exchange_task
         path, _ = QFileDialog.getOpenFileName(
             self, t("导入 Nekori 表情合集"), "", t("Nekori 表情合集 (*.zip)"))
         if not path:
             return
         service = NekoriPackageService(self.storage)
-        try:
-            report = run_exchange_task(
-                self.window(), "正在导入 Nekori 表情合集",
-                lambda progress: service.import_package(path, progress))
-        except Exception as exc:
-            self.show_error(t("导入失败"), str(exc))
-            return
-        self.settings_changed.emit("library_rescan")
-        self.show_success(t("导入完成"),
-                          t('表情 {value_0} 项，分类 {value_1} 个，跳过重复 {value_2} 项').format(value_0=report['resources'], value_1=report['nodes'], value_2=report['duplicates']))
+        self._queue_import(path,lambda progress:service.import_package(path,progress))
 
     def import_suzu_share(self):
         from services.exchange_import import ExchangeImportService
-        from fluent_ui.components.exchange_task_dialog import run_exchange_task
-        path, _ = QFileDialog.getOpenFileName(self, t("导入 Suzu 分享包"), "", t("表情合集 (*.zip)"))
+        path, _ = QFileDialog.getOpenFileName(self, t("导入 Suzu 兼容表情合集"), "", t("表情合集 (*.zip)"))
         if not path:
             return
         service = ExchangeImportService(storage=self.storage)
-        try:
-            saved, skipped = run_exchange_task(
-                self.window(), "正在导入共享表情合集",
-                lambda progress: service.import_zip(path, progress))
-        except Exception as exc:
-            self.show_error(t("导入失败"), str(exc))
-            return
-        self.storage.force_reload()
-        self.settings_changed.emit("library_rescan")
-        self.show_success(t("导入完成"), t('新增 {value_0} 项，跳过 {value_1} 项').format(value_0=saved, value_1=skipped))
+        self._queue_import(path,lambda progress:service.import_zip(path,progress))
+
+    def _queue_import(self,source,operation,*,kind='import'):
+        from fluent_ui.components.import_queue import import_queue
+        from services.resource_import import ImportTarget
+        return import_queue(self.storage).submit([source],ImportTarget(),self,operation=operation,kind=kind)
 
     def _page_migration(self):
         section = self._section("Suzu 数据兼容")
         section.add_row(ActionRow(
             "Suzu 迁移",
-            "复制 Suzu 中的表情、分类与标签。\n导入前可预览，Suzu 中的内容保持不变。",
-            [("开始迁移", self._start_migration, True)], self))
-
-    def _start_migration(self):
-        source, accepted = dialogs.choose_item(self.window(), t('开始迁移'), t('选择迁移来源'),
-            [('running', t('从运行中的 Suzu 迁移')), ('package', t('从 Suzu 表情压缩包迁移'))])
-        if accepted:
-            (self.migrate_from_suzu_data if source == 'running' else self.migrate_from_suzu_package)()
+            "从 Suzu 复制表情、分类与标签。\n迁移前可预览，原有 Suzu 数据不受影响。",
+            [("从本机 Suzu 迁移", self.migrate_from_suzu_data, True),
+             ("从表情压缩包迁移", self.migrate_from_suzu_package, False)], self))
 
     def migrate_from_suzu_data(self):
         from services.suzu_migration import SuzuMigrationService
@@ -595,16 +583,7 @@ class SettingsCenter(QWidget):
         if not dialog.exec() or not dialog.selected_data_dir:
             return
         directory = dialog.selected_data_dir
-        try:
-            report = run_exchange_task(
-                self.window(), "正在从 Suzu 数据迁移",
-                lambda progress: service.migrate_from_data_dir(directory, progress))
-        except Exception as exc:
-            self.show_error(t("迁移失败"), str(exc))
-            return
-        self.settings_changed.emit("library_rescan")
-        summary = t('表情 {value_0} 项，分类 {value_1} 个，跳过重复 {value_2} 项，缺失 / 失败 {value_3} 项').format(value_0=report['resources'], value_1=report['nodes'], value_2=report['duplicates'], value_3=report.get('skipped', 0))
-        self.feedback_host.notice(t('迁移完成'), summary, error=bool(report.get('skipped')) and not report['resources'])
+        self._queue_import(directory,lambda progress:service.migrate_from_data_dir(directory,progress),kind='migration')
 
     def migrate_from_suzu_package(self):
         path, _ = QFileDialog.getOpenFileName(self, t("选择 Suzu 表情压缩包"), "", t("表情合集 (*.zip)"))
@@ -619,15 +598,10 @@ class SettingsCenter(QWidget):
                 t('表情 {value_0} 项，分类 {value_1} 个').format(value_0=preview['resources'], value_1=preview['nodes'])
                 + '\n' + '、'.join(preview['categories']), ok_text=t('开始迁移')):
                 return
-            report = run_exchange_task(
-                self.window(), "正在从 Suzu 压缩包迁移",
-                lambda progress: service.migrate_from_package(path, progress))
+            self._queue_import(path,lambda progress:service.migrate_from_package(path,progress),kind='migration')
         except Exception as exc:
             self.show_error(t("迁移失败"), str(exc))
             return
-        self.settings_changed.emit("library_rescan")
-        self.feedback_host.notice(t("迁移完成"),
-                          t('表情 {value_0} 项，分类 {value_1} 个').format(value_0=report['resources'], value_1=report['nodes']))
 
     def _page_settings_file(self):
         section = self._section("SETTINGS FILE")
@@ -649,18 +623,23 @@ class SettingsCenter(QWidget):
     def _page_about(self):
         from services.update_service import current_version
         section = self._section("APPLICATION")
-        self.version_row=InfoRow('版本','NekoriEmojy','v'+current_version())
-        self.btn_update=PushButton(FIF.CLOUD_DOWNLOAD,t('检查更新'),self.version_row)
+        self.version_row=SettingRow('版本')
+        from fluent_ui.components.update_center import VersionLabel
+        self.version_label=VersionLabel('v'+current_version(),self.version_row)
+        self.version_label.setFont(visual.font('data'))
+        self.version_row.layout().itemAt(0).layout().addWidget(self.version_label)
+        from fluent_ui.components.update_center import UpdateCheckButton
+        self.btn_update=UpdateCheckButton(self.version_row)
         self.btn_update.clicked.connect(self._open_updates);self.version_row.add_control(self.btn_update)
         section.add_row(self.version_row)
-        self.update_badge=TransparentToolButton(FIF.CLOUD_DOWNLOAD,self.version_row)
-        self.update_badge.setFixedSize(22,22);self.version_row.add_control(self.update_badge)
-        self.update_badge.clicked.connect(self._open_updates);self.update_badge.hide()
+        self.update_badge=QLabel(self.version_row)
+        self.version_row.layout().itemAt(0).layout().addWidget(self.update_badge)
+        self.update_badge.hide()
         from fluent_ui.components.update_center import update_center
         state=update_center();state.changed.connect(self._sync_update_status);self._sync_update_status()
-        section.add_row(ActionRow(
-            "关于 NekoriEmojy", "查看版本、作者与项目信息。",
-            [("查看详情", self.about_requested.emit, True)], self))
+        from fluent_ui.views.about_view import AboutInformation
+        self.about_information=AboutInformation(self.body_widget)
+        section.add_row(self.about_information)
 
     def _open_updates(self):
         from fluent_ui.components.update_center import update_center
@@ -670,8 +649,13 @@ class SettingsCenter(QWidget):
         if not hasattr(self,'update_badge'):return
         from fluent_ui.components.update_center import update_center
         release=update_center().release
+        self.version_label.set_update_available(bool(release))
         self.update_badge.setVisible(bool(release))
-        self.update_badge.setToolTip(t('可用更新')+(' · v'+release['version'] if release else ''))
+        self.update_badge.setText(t('有可用更新')+(' · v'+release['version'] if release else ''))
+        color=visual.colors()['warning'] if release else visual.colors()['text_secondary']
+        self.version_label.setStyleSheet(f'color:{color};')
+        self.update_badge.setStyleSheet(f'color:{color};')
+        self.btn_update.set_available(bool(release))
 
     # ==================================================================
     # Save / discard / defaults / settings file
@@ -779,7 +763,7 @@ class SettingsCenter(QWidget):
                 i18n_engine.set_language(keys[key])
             self.settings_changed.emit(key)
         self._set_dirty(False)
-        self.show_success(t('设置已保存'))
+        self.show_success(t('设置已保存'), quiet=True)
         return True
 
     def _hotkeys_valid(self, keys):
@@ -819,7 +803,7 @@ class SettingsCenter(QWidget):
             self.library_info.set_hint(t('保存后重启切换表情库。'))
         if hasattr(self, 'icon_options'):
             self.icon_options.setEnabled(self.config.get('sidebar_mode', 'tree') == 'categorized_icons')
-        self.show_success(t("已放弃修改"))
+        self.show_success(t("已放弃修改"), quiet=True)
 
     def _restore_page_defaults(self):
         if self.pending:
@@ -840,7 +824,7 @@ class SettingsCenter(QWidget):
             row.set_value(defaults[key])
             self._stage(key, defaults[key])
         self._set_dirty(bool(self.pending))
-        self.show_success(t("已恢复本页默认值"), t("点击保存后生效"))
+        self.show_success(t("已恢复本页默认值"), t("点击保存后生效"), quiet=True)
 
     def _restore_all_defaults(self):
         if self.pending:
@@ -856,7 +840,7 @@ class SettingsCenter(QWidget):
         for key, (row, _) in self._all_rows.items():
             if key in defaults:
                 row.set_value(defaults[key])
-        self.show_success(t('默认值已载入'), t('点击保存后生效'))
+        self.show_success(t('默认值已载入'), t('点击保存后生效'), quiet=True)
 
     def _default_config(self):
         return dict(self.config.default_config, autostart=False)
@@ -912,7 +896,7 @@ class SettingsCenter(QWidget):
         for key, (row, _) in self._all_rows.items():
             if key in values:
                 row.set_value(values[key])
-        self.show_success(t('设置已载入'), t('{value_0} 项待保存，可放弃修改').format(value_0=len(values)))
+        self.show_success(t('设置已载入'), t('{value_0} 项待保存，可放弃修改').format(value_0=len(values)), quiet=True)
 
     # ==================================================================
     # Sticky header, navigation guard, status
@@ -975,17 +959,21 @@ class SettingsCenter(QWidget):
         if row is not None and "autostart" not in self.pending:
             row.set_value(self._autostart_enabled())
 
-    def show_success(self, title, content=""):
-        if getattr(title, 'source', str(title)) not in {'设置已保存', '已放弃修改', '程序图标已更新', '已恢复默认图标',
-                                                      '默认值已载入', '设置已载入', '已恢复本页默认值', '导入完成'}:
-            self.feedback_host.toast(title, content)
+    def show_success(self, title, content="",*,quiet=False):
+        if not quiet:self.feedback_host.toast(title,content,kind='success')
 
     def show_error(self, title, content=""):
-        self.feedback_host.notice(title, content, error=True)
+        details=str(content) if content and not hasattr(content,'source') else ''
+        self.feedback_host.notice(title,t('操作未完成，请查看详情后重试。') if details else content,error=True,details=details)
 
     def refresh_theme(self):
         self._apply_style()
+        if hasattr(self,'_tabs'):
+            from fluent_ui.icons import Icon
+            for index,(_,builder) in enumerate(self._tabs):
+                if builder.__name__=='_page_language':self.tab_bar.setTabIcon(index,Icon.LANGUAGE.icon())
         self._update_sticky_header()
+        self._sync_update_status()
 
     def _page_hover_preview(self):
             section = self._section("HOVER PREVIEW")

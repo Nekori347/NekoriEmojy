@@ -10,6 +10,7 @@ import zipfile
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from services.resource_import import ImportSkipped
 
 from PySide6.QtCore import (
     Qt, QSize, Signal, QCoreApplication, QRect, QThread,
@@ -506,7 +507,8 @@ class ImportPackThread(QThread):
         self._is_cancelled = True
 
     def _cancelled(self):
-        return self._is_cancelled or (self.cancel_event is not None and self.cancel_event.is_set())
+        cancelled=getattr(getattr(self.storage,'import_context',None),'cancelled',None)
+        return self._is_cancelled or (self.cancel_event is not None and self.cancel_event.is_set()) or bool(cancelled and cancelled())
 
     def run(self):
         temp_dir = tempfile.mkdtemp(prefix="tg_import_")
@@ -518,6 +520,7 @@ class ImportPackThread(QThread):
         dup_count = 0
         fail_count = 0
         failures = []
+        self.errors=failures
 
         try:
             if self._cancelled():
@@ -580,6 +583,11 @@ class ImportPackThread(QThread):
                         except Exception as exc:
                             raise RuntimeError(f"加入收藏夹失败: {exc}") from exc
                         res = True, is_dup, sticker.index, None
+                    except ImportSkipped:
+                        done_count+=1
+                        continue
+                    except InterruptedError:
+                        break
                     except Exception as exc:
                         failures.append(f"贴纸 #{sticker.index + 1}: {exc}")
                         res = False, False, sticker.index, str(exc)
@@ -624,6 +632,7 @@ class ImportPackThread(QThread):
             if not self._cancelled():
                 self.failed.emit(str(e))
         finally:
+            self.failed_count=fail_count
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     def _export_resource_package(self):
@@ -1397,7 +1406,7 @@ class TGStickerInterface(QWidget):
                 notify(self, t("连通性测试"), msg)
         except Exception as e:
             self.log(t("❌ 测试出错: {error}").format(error=e))
-            notify(self, t("测试出错"), t("发生异常: {error}").format(error=e))
+            notify(self, t("测试出错"), t("发生异常: {error}").format(error=e), kind='error')
 
     # ==========================================
     # 解析贴纸包逻辑与懒加载体系
@@ -1885,7 +1894,7 @@ class TGStickerInterface(QWidget):
             return
         storage = getattr(self.window(), "storage", None)
         if storage is None:
-            notify(self, t("错误"), t("无法获取表情合集表情库存储服务！"))
+            notify(self, t("错误"), t("无法获取表情合集表情库存储服务！"), kind='error')
             return
         from fluent_ui.components.tg_batch_dialog import TGBatchPackageDialog
         downloader = self._get_configured_downloader()
@@ -1917,7 +1926,7 @@ class TGStickerInterface(QWidget):
             return
         storage = getattr(self.window(), "storage", None)
         if storage is None:
-            notify(self, t("错误"), t("无法获取表情合集表情库存储服务！"))
+            notify(self, t("错误"), t("无法获取表情合集表情库存储服务！"), kind='error')
             return
         package_id, accepted = dialogs.prompt_text(
             self, t("导出为表情合集"),
@@ -2013,7 +2022,7 @@ class TGStickerInterface(QWidget):
         main_win = self.window()
         if not hasattr(main_win, 'storage') or not main_win.storage:
             self.log(t("❌ 导入失败，无法获取表情合集表情库存储服务！"))
-            notify(self, t("错误"), t("无法获取表情合集表情库存储服务！"))
+            notify(self, t("错误"), t("无法获取表情合集表情库存储服务！"), kind='error')
             return
 
         storage = main_win.storage
@@ -2033,33 +2042,19 @@ class TGStickerInterface(QWidget):
         if total_count == 0:
             return
 
-        self._set_busy(True)
-        self.log(
-            t("💬 开始异步并发导入表情到表情库，分类: [{category}]...").format(
-                category=category_name
-            )
-        )
-
-        self.tooltip.show(
-            t("正在导入 Telegram 表情..."),
-            t("准备入库 {count} 张表情至 [{category}]").format(
-                count=total_count, category=category_name
-            ),
-        )
         downloader = self._get_configured_downloader()
-
-        self._import_thread = ImportPackThread(
-            downloader=downloader,
-            storage_service=storage,
-            target_stickers=target_stickers,
-            category_name=category_name,
-            max_workers=4,
-            parent=self
-        )
-        self._import_thread.progress.connect(self._onImportProgress)
-        self._import_thread.finished_all.connect(self._onImportFinished)
-        self._import_thread.failed.connect(self._onImportFailed)
-        self._import_thread.start()
+        stickers=list(target_stickers)
+        def operation(progress):
+            worker=ImportPackThread(downloader,storage,stickers,category_name,max_workers=4)
+            errors=[];worker.failed.connect(errors.append)
+            worker.progress.connect(lambda done,total,*_:progress(done,total))
+            worker.run()
+            if errors:raise RuntimeError('\n'.join(errors))
+            return {'skipped':getattr(worker,'failed_count',0)+worker.skipped_count,
+                    'errors':getattr(worker,'errors',[])+worker.skipped_details}
+        from fluent_ui.components.import_queue import import_queue
+        from services.resource_import import ImportTarget
+        return import_queue(storage).submit([s.file_id for s in stickers],ImportTarget(),self,operation=operation)
 
     def _onImportProgress(self, done: int, total: int, msg: str):
         self.log(msg)

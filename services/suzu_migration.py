@@ -14,6 +14,7 @@ from pathlib import Path
 
 from services.exchange_import import ExchangeImportService
 from services.library_index import ROOT
+from services.resource_import import ImportSkipped
 
 SUPPORTED = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.webm', '.tgs', '.bmp', '.tiff')
 
@@ -217,6 +218,11 @@ class SuzuMigrationService:
         for source in sources:
             try:
                 saved, duplicate = self.storage.save_file(str(source))
+            except ImportSkipped:
+                step+=1
+                continue
+            except InterruptedError:
+                break
             except Exception as exc:
                 print(f"[WARNING] Suzu 迁移跳过 {source}: {exc}")
                 step += 1

@@ -1,4 +1,4 @@
-"""Tabler outline icons, named by product action. Brand icons stay independent."""
+"""Product action icons with shared outline styling and theme foregrounds."""
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
@@ -26,6 +26,12 @@ class Icon(FluentIconBase, Enum):
     CHEVRON_LEFT = 'chevron-left'
     CLOSE = 'x'
     CLOUD_DOWNLOAD = 'cloud-download'
+    UPDATE = 'circle-arrow-up'
+    SCAN_TEXT = 'scan-text'
+    SUCCESS = 'check-circle'
+    WARNING = 'alert-triangle'
+    ERROR = 'circle-x'
+    IMPORT = 'folder-input'
     COMMAND_PROMPT = 'terminal-2'
     COPY = 'copy'
     DELETE = 'trash'
@@ -36,6 +42,7 @@ class Icon(FluentIconBase, Enum):
     FOLDER = 'folder'
     GITHUB = 'brand-github'
     HEART = 'heart'
+    HISTORY = 'recent-history'
     HELP = 'help-circle'
     INFO = 'info-circle'
     EYE = 'eye'
@@ -48,6 +55,10 @@ class Icon(FluentIconBase, Enum):
     MORE = 'dots'
     MOVE = 'folder-symlink'
     PASTE = 'clipboard'
+    PASTE_ADD = 'clipboard-plus'
+    LANGUAGE = 'language-hiragana'
+    BRAND_X = 'brand-x'
+    BILIBILI = 'brand-bilibili'
     PEOPLE = 'users'
     PHOTO = 'photo'
     REMOVE = 'minus'
@@ -69,6 +80,8 @@ class Icon(FluentIconBase, Enum):
     SORT = 'sort-descending'
     SORT_ASC = 'sort-ascending-letters'
     SORT_DESC = 'sort-descending-letters'
+    TIME_ASC = 'sort-ascending-2'
+    TIME_DESC = 'sort-descending-2'
 
     def path(self, theme=Theme.AUTO):
         return str(ASSETS / f'{self.value}.svg')

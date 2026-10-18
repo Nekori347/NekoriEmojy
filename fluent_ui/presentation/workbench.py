@@ -4,9 +4,10 @@ Glass navigation | opaque workspace -> hierarchy -> attached tabs -> raised
 resource sheet. The tag dock is an auxiliary surface inside the sheet. No
 storage, selection, navigation or drag decisions are made here.
 """
-from PySide6.QtCore import Qt,QTimer
+from PySide6.QtCore import Qt,QTimer,QSize
 from PySide6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QBoxLayout,QLabel,QSizePolicy
 from fluent_ui import visual
+from services.i18n import t
 from fluent_ui.icons import Icon as I
 from fluent_ui.components.controls import TransparentToolButton,SplitPushButton,SearchLineEdit
 from fluent_ui.components.navigation import HierarchyLocationHeader,TabStrip,ContentPane,AttachedTabRow
@@ -41,10 +42,10 @@ def build_workbench(g):
 
     # The content foundation is a single rounded paper/ink plate. Its inset
     # exposes the glass edge of the window rather than piling up card borders.
-    g.right_container=Surface('base',g,radius=12)
+    g.right_container=Surface('base',g,radius=visual.WINDOW_RADIUS-6)
     g.right_container.setObjectName('WorkspaceFoundation')
     g.right_layout=QVBoxLayout(g.right_container)
-    g.right_layout.setContentsMargins(6,2,6,4);g.right_layout.setSpacing(0)
+    g.right_layout.setContentsMargins(6,2,6,6);g.right_layout.setSpacing(0)
     g.top_bar=HeadingBand(g.right_container)
     g.top_bar_layout=QHBoxLayout(g.top_bar)
     g.top_bar_layout.setContentsMargins(2,0,2,0);g.top_bar_layout.setSpacing(6)
@@ -63,7 +64,7 @@ def build_workbench(g):
     g.tab_row.setFixedHeight(g.category_tabs.height())
     g.right_layout.addWidget(g.tab_row)
     g.content_pane=ContentPane(g.right_container)
-    g.content_pane.content_layout.setContentsMargins(1,0,1,0)
+    g.content_pane.content_layout.setContentsMargins(1,0,1,1)
     g.right_layout.addWidget(g.content_pane,1)
 
     from fluent_ui.components.softframe import SoftframeSlider
@@ -82,11 +83,11 @@ def build_workbench(g):
     search.addWidget(g.btn_filter);rows.addLayout(search)
     g._search_timer=QTimer(g);g._search_timer.setSingleShot(True)
     g._search_timer.timeout.connect(g._execute_search);g.search_box.textChanged.connect(g.set_search_keyword)
-    commands=QWidget(g.search_surface);commands.setFixedHeight(24);g.view_commands=commands;row=QHBoxLayout(commands)
-    row.setContentsMargins(0,0,0,0);row.setSpacing(2);row.addStretch()
+    commands=QWidget(g.search_surface);commands.setFixedHeight(32);g.view_commands=commands;row=QHBoxLayout(commands)
+    row.setContentsMargins(0,0,0,0);row.setSpacing(4);row.addStretch()
     g.btn_paste=SplitPushButton(ClipboardImportIcon(),'',commands)
-    g.btn_paste.button.ghost=True;g.btn_paste.button.setFixedSize(26,24)
-    g.btn_paste.dropButton.setIcon(I.DOWNLOAD);g.btn_paste.dropButton.setFixedSize(24,24)
+    g.btn_paste.button.ghost=True;g.btn_paste.button.setFixedSize(32,32);g.btn_paste.button.setIconSize(QSize(18,18))
+    g.btn_paste.dropButton.setIcon(I.IMPORT);g.btn_paste.dropButton.setFixedSize(32,32);g.btn_paste.dropButton.setIconSize(QSize(18,18));g.btn_paste.layout().setSpacing(4)
     bind_text(g.btn_paste.button,'从剪贴板粘贴表情 (Ctrl+V)','setToolTip')
     bind_text(g.btn_paste.dropButton,'导入表情','setToolTip')
     g.btn_paste.clicked.connect(g.handle_global_paste)
@@ -94,9 +95,9 @@ def build_workbench(g):
     for text,callback in [('导入文件…',g._pick_import_files),('导入文件夹为分类…',lambda:g.sidebar.import_folder_as_node(g.content_scope_node()))]:
         action=translated(Action,text,parent=g.import_menu);action.triggered.connect(callback);g.import_menu.addAction(action)
     g.btn_paste.setFlyout(g.import_menu);row.addWidget(g.btn_paste)
-    g.btn_manage=TransparentToolButton(I.MANAGE,commands);g.btn_manage.setFixedSize(24,24);g.btn_manage.setCheckable(True)
+    g.btn_manage=TransparentToolButton(I.MANAGE,commands);g.btn_manage.setFixedSize(32,32);g.btn_manage.setIconSize(QSize(18,18));g.btn_manage.setCheckable(True)
     bind_text(g.btn_manage,'管理模式','setToolTip');g.btn_manage.clicked.connect(g.toggle_manage_mode);row.addWidget(g.btn_manage)
-    g.btn_content_sort=TransparentToolButton(ResourceSortIcon(),commands);g.btn_content_sort.setFixedSize(24,24)
+    g.btn_content_sort=TransparentToolButton(ResourceSortIcon(),commands);g.btn_content_sort.setFixedSize(32,32);g.btn_content_sort.setIconSize(QSize(18,18))
     def cycle_sort():
         modes=list(ResourceSort);g.set_content_sort(modes[(modes.index(ResourceSort(g.content_sort))+1)%len(modes)])
     g.btn_content_sort.clicked.connect(cycle_sort);g._update_resource_sort_label();row.addWidget(g.btn_content_sort)
@@ -104,10 +105,11 @@ def build_workbench(g):
     g.filter_flyout=FilterCheckboxFlyout(g.btn_filter)
     g.filter_flyout.changed.connect(g._update_filter);g.filter_flyout.clear_requested.connect(g._clear_filter)
     g.top_bar_layout.addWidget(g.search_surface,1)
-    size_host=QWidget(g.tab_row);size_row=QHBoxLayout(size_host);size_row.setContentsMargins(6,0,6,1);size_row.setSpacing(8)
-    glyph=QLabel(size_host);glyph.setPixmap(I.PHOTO.icon().pixmap(16,16));bind_text(glyph,'缩略图大小','setToolTip');size_row.addWidget(glyph)
+    size_host=QWidget(g.tab_row);size_host.setFixedHeight(28)
+    size_row=QHBoxLayout(size_host);size_row.setContentsMargins(0,0,6,0);size_row.setSpacing(0);size_row.setAlignment(Qt.AlignVCenter)
+    glyph=QLabel(size_host);glyph.setFixedSize(16,16);glyph.setPixmap(I.PHOTO.icon().pixmap(16,16));bind_text(glyph,'缩略图大小','setToolTip');size_row.addWidget(glyph,0,Qt.AlignVCenter)
     visual.theme.changed.connect(lambda:glyph.setPixmap(I.PHOTO.icon().pixmap(16,16)))
-    g.size_slider=SoftframeSlider(Qt.Horizontal,size_host);g.size_slider.setFixedWidth(116)
+    g.size_slider=SoftframeSlider(Qt.Horizontal,size_host);g.size_slider.setFixedWidth(88)
     g.size_slider.setRange(60,300);g.size_slider.setSingleStep(10);g.size_slider.setPageStep(10)
     g.size_slider.setValue(g.config.get('thumbnail_size',120));bind_text(g.size_slider,'缩略图大小','setToolTip')
     def resize_tiles(value):
@@ -115,11 +117,17 @@ def build_workbench(g):
         if g.size_slider.value()!=value:
             g.size_slider.blockSignals(True);g.size_slider.setValue(value);g.size_slider.blockSignals(False)
         if value==g.config.get('thumbnail_size',120):return
-        g.config.set('thumbnail_size',value);g._apply_thumbnail_size(value)
-    g.size_slider.valueChanged.connect(resize_tiles);size_row.addWidget(g.size_slider)
-    tab_layout.addWidget(size_host,0,Qt.AlignBottom)
+        g._commit_thumbnail_size(value)
+    g.size_slider.valueChanged.connect(resize_tiles);size_row.addSpacing(8);size_row.addWidget(g.size_slider)
+    g.category_tabs.tabBarClicked.connect(lambda index:g._on_category_tab(index) if getattr(g,'_recent_view',False) else None)
+    g.btn_recent=TransparentToolButton(I.HISTORY,size_host);g.btn_recent.setFixedSize(26,26);g.btn_recent.setIconSize(QSize(18,18));g.btn_recent.setCheckable(True)
+    bind_text(g.btn_recent,'最近使用','setToolTip');g.btn_recent.setAccessibleName(t('最近使用'))
+    g.btn_recent.clicked.connect(g.toggle_recent_view)
+    size_row.insertWidget(0,g.btn_recent,0,Qt.AlignVCenter);size_row.insertSpacing(1,5)
+    tab_layout.addSpacing(8);tab_layout.addWidget(size_host,0,Qt.AlignBottom)
 
-    g.workspace=Surface('raised',g.content_pane,radius=10,edge=False)
+    g.content_pane.corner_radius=10
+    g.workspace=Surface('raised',g.content_pane,radius=9,edge=False)
     g.workspace_layout=QVBoxLayout(g.workspace)
     g.workspace_layout.setContentsMargins(0,0,0,0);g.workspace_layout.setSpacing(0)
     g._build_context_strip();g._build_grid();g._build_command_bar();g._build_tag_panel()

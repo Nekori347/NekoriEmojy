@@ -1,6 +1,6 @@
 from PySide6.QtCore import Qt,QRectF
 from PySide6.QtGui import QPainter,QColor,QPen,QIcon,QAction
-from PySide6.QtWidgets import QStyledItemDelegate,QStyle
+from PySide6.QtWidgets import QStyledItemDelegate,QStyle,QWidget
 from fluent_ui import visual
 from fluent_ui.icons import Icon
 
@@ -18,7 +18,7 @@ class MenuDelegate(QStyledItemDelegate):
             p.setPen(QPen(QColor(c['accent']),2));p.drawLine(r.left()+4,r.top()+7,r.left()+4,r.bottom()-7)
         p.setFont(visual.font());p.setPen(QColor(c['text']))
         action=index.data(Qt.UserRole)
-        text=action.text() if isinstance(action,QAction) else action.title() if hasattr(action,'title') else str(index.data(Qt.DisplayRole) or '').lstrip()
+        text=action.text() if isinstance(action,QAction) else action.title() if isinstance(action,QWidget) and callable(getattr(action,'title',None)) else str(index.data(Qt.DisplayRole) or '').lstrip()
         shortcut=action.shortcut().toString() if isinstance(action,QAction) else ''
         reserve=p.fontMetrics().horizontalAdvance(shortcut)+36 if shortcut else 0
         rect=r.adjusted(30,0,-14-reserve,0)

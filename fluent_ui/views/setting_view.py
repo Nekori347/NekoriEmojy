@@ -3,7 +3,6 @@
 The real implementation lives in ``settings_center``. This module keeps the
 historical import path used by the main window and by tests.
 """
-from fluent_ui.views.about_view import AboutInterface
 from fluent_ui.views.settings_center import PREVIEW_KEYS, SettingsCenter
 from fluent_ui.components.setting_rows import RangeRow, SettingRow
 
@@ -34,6 +33,6 @@ def disable_wheel_scroll_adjustment(widget):
 # Historical name for the sliders + spin box row.
 SpinBoxRangeSettingCard = RangeRow
 
-__all__ = ["SettingInterface", "AboutInterface", "SettingsCenter", "PREVIEW_KEYS",
+__all__ = ["SettingInterface", "SettingsCenter", "PREVIEW_KEYS",
            "RangeRow", "SettingRow", "SpinBoxRangeSettingCard",
            "disable_wheel_scroll_adjustment"]

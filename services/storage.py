@@ -11,6 +11,7 @@ from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from PIL import Image
+from PySide6.QtCore import QObject, Signal
 from services.library_index import LibraryIndex, ROOT
 from services.resource_import import ResourceImporter, ImportTarget
 from services.exchange_icons import IMAGE_SUFFIXES, resolve_icon_path, portable_icon_path
@@ -22,6 +23,10 @@ def _storage_locked(method):
         with self.lock:
             return method(self, *args, **kwargs)
     return locked
+
+
+class RecentEvents(QObject):
+    changed = Signal()
 
 
 class StorageService:
@@ -53,12 +58,15 @@ class StorageService:
         self._hashes_cache = self._load_hashes()
         self._images_dirty = self._categories_dirty = self._metadata_dirty = True
         self._recent_cache = None
+        self._recent_events = RecentEvents()
+        self.recent_changed = self._recent_events.changed
         self._sync_key_index = None
         self._sync_index_lock = threading.RLock()
         self._sync_index_event = threading.Event()
         self._sync_index_event.set()
         self._sync_index_building = False
         self.import_listeners = []
+        self.import_context = threading.local()
         self.importer = ResourceImporter(self)
         self._adopt_internal_data()
 
@@ -564,8 +572,13 @@ class StorageService:
         self.index.set_search_fields(self._resource_id(filepath), tags=keywords_str)
 
     def get_search_metadata(self):
+        revision=self.index.search_revision
+        cached=getattr(self,'_search_metadata_snapshot',None)
+        if cached is not None and cached[0]==revision:return cached[1]
         texts = self.index.search_texts()
-        return {self.index.absolute_path(r): texts[r['id']] for r in self.index.resources()}
+        result={self.index.absolute_path(r): texts.get(r['id'],'') for r in self.index.resources()}
+        if self.index.search_revision==revision:self._search_metadata_snapshot=(revision,result)
+        return result
 
     def search_images(self, keyword, category_name='全部表情'):
         from services.search_text import normalize_search
@@ -592,6 +605,7 @@ class StorageService:
                        (resource_id, time.time_ns()))
             db.execute('DELETE FROM recent WHERE resource_id NOT IN (SELECT resource_id FROM recent ORDER BY used_at DESC LIMIT ?)',
                        (limit if limit is not None else self._get_recent_limit(),))
+        self.recent_changed.emit()
 
     def _load_hashes(self):
         with self.index.connect() as db:
@@ -604,6 +618,51 @@ class StorageService:
 
     def save_file(self, source_path, strict=False, target=None, *, library_added_seq=None):
         return self.importer.file(source_path, target or ImportTarget(), strict, library_added_seq=library_added_seq)
+
+    def replace_normalized(self,existing,normalized):
+        """Keep catalog identity. Stage bytes before atomic replacement and roll back on failure."""
+        import shutil
+        data,ext,digest=normalized
+        with self.lock:
+            record=self.index.resource(existing)
+            if not record:raise FileNotFoundError(existing)
+            old=Path(self.index.absolute_path(record))
+            if old.read_bytes()==data:return str(old)
+            target=old.with_suffix(ext)
+            if target!=old and target.exists():target=old.with_name(uuid.uuid4().hex+ext)
+            stage=old.with_name('.'+uuid.uuid4().hex+'.new')
+            backup=old.with_name('.'+uuid.uuid4().hex+'.old')
+            replaced=False;restored=False
+            try:
+                with stage.open('wb') as f:f.write(data);f.flush();os.fsync(f.fileno())
+                if target==old:shutil.copy2(old,backup)
+                os.replace(stage,target);replaced=True
+                state=self.index._ocr_state(record)
+                state.update(source=None,revision=state.get('revision',0)+1)
+                if not state.get('manual'):state.update(status='unrecognized',error='')
+                metadata=json.loads(record.get('metadata_json') or '{}');metadata.pop('thumb_frame',None)
+                with self.index.connect() as db:
+                    db.execute('BEGIN IMMEDIATE')
+                    db.execute('UPDATE resources SET relative_path=?,status=\'normal\',ocr_text=?,ocr_state_json=?,metadata_json=? WHERE id=?',
+                        (self.index.relative_path(target),record['ocr_text'] if state.get('manual') else '',json.dumps(state,ensure_ascii=False),json.dumps(metadata,ensure_ascii=False),record['id']))
+                    db.execute('DELETE FROM image_features WHERE image_path=?',(self._to_filename(str(old)),))
+                    db.execute('INSERT INTO image_features(image_path,md5) VALUES (?,?) ON CONFLICT(image_path) DO UPDATE SET md5=excluded.md5',
+                        (self._to_filename(str(target)),digest))
+                restored=True
+                if target!=old:old.unlink()
+                old_name=self._to_filename(str(old))
+                self._hashes_cache={k:v for k,v in self._hashes_cache.items() if v!=old_name}
+                self._hashes_cache[digest]=self._to_filename(str(target))
+                self._sync_key_index=None;self._images_dirty=True
+                return str(target)
+            except Exception:
+                if replaced and not restored:
+                    if target==old:os.replace(backup,old)
+                    else:target.unlink(missing_ok=True)
+                raise
+            finally:
+                stage.unlink(missing_ok=True)
+                if restored or not replaced:backup.unlink(missing_ok=True)
 
     def save_image(self, qimage, target=None):
         return self.importer.image(qimage, target or ImportTarget())
@@ -1087,7 +1146,7 @@ class StorageService:
         return data_bytes, fmt, False
 
     @_storage_locked
-    def _standardize_and_save(self, data_bytes, original_ext, source_path=None, pil_source=None, strict=False):
+    def _standardize_and_save(self, data_bytes, original_ext, source_path=None, pil_source=None, strict=False, force_new=False):
         stage = "清洗失败"
         try:
             # 步骤 1：格式归一化预处理
@@ -1125,7 +1184,8 @@ class StorageService:
             # 步骤 3：哈希查重与去重入库
             stage = "索引保存失败"
             # L1 快路径：用最终入库文件的 file_md5 在 _hashes_cache 中查找
-            if file_hash and file_hash in self._hashes_cache:
+            self.import_context.normalized=(final_bytes,final_ext,file_hash)
+            if not force_new and file_hash and file_hash in self._hashes_cache:
                 existing_filename = self._hashes_cache[file_hash]
                 existing_path = self._to_abspath(existing_filename)
                 if os.path.exists(existing_path):
@@ -1137,7 +1197,7 @@ class StorageService:
             # L2 也扫描已落盘但缺少哈希记录的资源，支持重启后的恢复。
             pixel_hash = self._calculate_pixel_hash(clean_img) if not is_animated else None
             skey = f"f:{file_hash}" if is_animated else (f"p:{pixel_hash}" if pixel_hash else None)
-            if skey:
+            if skey and not force_new:
                 sync_index = self._get_sync_key_index()
                 existing_filename = sync_index.get(skey)
                 if existing_filename:

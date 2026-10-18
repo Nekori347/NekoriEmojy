@@ -42,6 +42,7 @@ class SafeRoundMenu(RoundMenu):
         # Upstream animation managers resolve the cursor's screen separately
         # from `pos`. Position once from the actual trigger, including submenus.
         self.view.setFixedHeight(min(self.view.itemsHeight()+4, max(40, area.height()-24)))
+        self.view.setFixedWidth(min(self.view.width(),max(80,area.width()-48)))
         self.adjustSize()
         x = max(area.left(), min(pos.x(), area.right()-self.width()+1))
         y = max(area.top(), min(pos.y(), area.bottom()-self.height()+1))
@@ -49,6 +50,20 @@ class SafeRoundMenu(RoundMenu):
         self.show()
         if self.isSubMenu:
             self.menuItem.setSelected(True)
+
+    def popup_at(self, trigger, *, prefer_up=False):
+        from PySide6.QtGui import QGuiApplication
+        anchor = QRect(trigger.mapToGlobal(QPoint()), trigger.size())
+        area = (QGuiApplication.screenAt(anchor.center()) or trigger.screen()).availableGeometry()
+        self.view.setFixedHeight(min(self.view.itemsHeight()+4, max(40, area.height()-24)))
+        self.adjustSize()
+        self.layout().activate()
+        inset=self.layout().contentsMargins()
+        up = anchor.top()-self.height()+inset.bottom()-4
+        down = anchor.bottom()+1-inset.top()+4
+        y = up if prefer_up and up >= area.top() else down
+        if y+self.height()>area.bottom()+1 and up>=area.top():y=up
+        self._show_menu(QPoint(anchor.left()-inset.left(), y))
 
     def _adjustItemText(self,item,action):
         from fluent_ui import visual
@@ -94,6 +109,8 @@ class SafeRoundMenu(RoundMenu):
         widget = self.view.itemWidget(self.lastHoverSubMenuItem)
         if widget is None or widget.menu.parentMenu.isHidden():
             return
+        prepare=getattr(widget.menu,'prepare',None)
+        if prepare:prepare()
 
         item_rect = QRect(
             widget.mapToGlobal(widget.rect().topLeft()),

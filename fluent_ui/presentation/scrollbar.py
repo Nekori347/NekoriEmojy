@@ -7,6 +7,7 @@ from fluent_ui import visual
 
 class ScrollPaint(QObject):
     def eventFilter(self,bar,event):
+        if event.type()==QEvent.ContextMenu:return True
         if event.type()!=QEvent.Paint:return False
         if bar.maximum()<=bar.minimum():return True
         option=QStyleOptionSlider();bar.initStyleOption(option)

@@ -20,10 +20,10 @@ class DecisionBar(QWidget):
         stacked=width<natural+preview+16
         action_width=width if stacked else natural
         action_height=self.actions.layout().heightForWidth(action_width)
-        y=46 if stacked else 8
-        self.preview.setGeometry(margin,8,preview,34)
+        y=48 if stacked else 10
+        self.preview.setGeometry(margin,10 if stacked else y+(action_height-34)//2,preview,34)
         self.actions.setGeometry(margin if stacked else self.width()-margin-action_width,y,action_width,action_height)
-        self.setFixedHeight(y+action_height+8)
+        self.setFixedHeight(y+action_height+10)
 
 
 def build_settings(c):

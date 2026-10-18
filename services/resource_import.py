@@ -16,6 +16,11 @@ class ImportResult:
     imported: int = 0
     duplicates: int = 0
     errors: dict[str, str] = field(default_factory=dict)
+    cancelled: int = 0
+
+
+class ImportSkipped(Exception):
+    """The user skipped only this item; not an import failure."""
 
 
 class ResourceImporter:
@@ -44,8 +49,11 @@ class ResourceImporter:
             saved, duplicate = self.storage._save_file_source(source, strict=strict)
             if not saved:
                 return None, False
+            normalized=getattr(self.storage.import_context,'normalized',None)
+        if duplicate:saved,duplicate=self._resolve_duplicate(saved,source,normalized)
+        with self.storage.lock:
             result = self._accept(saved, duplicate, Path(source).name, target, library_added_seq)
-        self._notify(saved)
+        self._notify(saved,duplicate)
         return result
 
     def image(self, image, target=ImportTarget()):
@@ -54,11 +62,32 @@ class ResourceImporter:
             saved, duplicate = self.storage._save_qimage_source(image)
             if not saved:
                 return None, False
+            normalized=getattr(self.storage.import_context,'normalized',None)
+        if duplicate:saved,duplicate=self._resolve_duplicate(saved,image,normalized)
+        with self.storage.lock:
             result = self._accept(saved, duplicate, Path(saved).name, target)
-        self._notify(saved)
+        self._notify(saved,duplicate)
         return result
 
-    def _notify(self,saved):
+    def _resolve_duplicate(self,saved,source,normalized):
+        resolver=getattr(self.storage.import_context,'duplicate_resolver',None)
+        if not resolver:return saved,True
+        # No storage/database lock is held while the GUI waits for a choice.
+        decision=resolver(saved,source)
+        if decision=='skip':
+            context=self.storage.import_context
+            context.skipped=getattr(context,'skipped',0)+1
+            raise ImportSkipped()
+        if decision=='keep':
+            with self.storage.lock:
+                return self.storage._standardize_and_save(normalized[0],normalized[1],strict=True,force_new=True)
+        if decision=='replace':return self.storage.replace_normalized(saved,normalized),True
+        raise ValueError('Unknown duplicate decision')
+
+    def _notify(self,saved,duplicate=False):
+        accepted=getattr(self.storage.import_context,'accepted',None)
+        if accepted is not None:accepted.append((saved,duplicate))
+        if getattr(self.storage.import_context,'job_id',None):return
         if not self.storage.import_listeners:return
         record=self.storage.index.resource(saved)
         if record:
@@ -67,6 +96,8 @@ class ResourceImporter:
                 except Exception as exc:print('[OCR] Import remains successful:',exc)
 
     def _validate_target(self, target):
+        cancelled=getattr(self.storage.import_context,'cancelled',None)
+        if cancelled and cancelled():raise InterruptedError()
         with self.storage.index.connect() as db:
             if not db.execute("SELECT 1 FROM nodes WHERE id=?", (target.parent_node,)).fetchone():
                 raise KeyError(target.parent_node)
@@ -76,6 +107,8 @@ class ResourceImporter:
         self._validate_target(target)
 
         def visit(source, destination):
+            cancelled=getattr(self.storage.import_context,'cancelled',None)
+            if cancelled and cancelled():raise InterruptedError()
             path = Path(source)
             try:
                 if path.is_symlink() or (hasattr(path, 'is_junction') and path.is_junction()):
@@ -101,10 +134,15 @@ class ResourceImporter:
                     result.imported += 1
                 if progress:
                     progress(result.imported + result.duplicates + len(result.errors), str(path))
+            except ImportSkipped:
+                result.cancelled+=1
+            except InterruptedError:
+                raise
             except Exception as exc:
                 result.errors[str(path)] = str(exc)
 
         for offset, source in enumerate(sources):
             position = None if target.insert_position is None else target.insert_position + offset
-            visit(source, ImportTarget(target.parent_node, position))
+            try:visit(source, ImportTarget(target.parent_node, position))
+            except InterruptedError:break
         return result

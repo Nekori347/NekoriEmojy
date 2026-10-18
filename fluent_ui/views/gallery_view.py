@@ -106,6 +106,12 @@ class ImportThread(QThread):
         self.target_node = target_node or ALL_RESOURCES
         self.insert_position = insert_position
         self.delete_after = delete_after
+        import threading
+        self.cancel_event=threading.Event();self.job_id='';self.duplicate_resolver=None
+        self.result_paths=[];self.errors=[];self.cancelled_count=0
+        self.operation=None;self.result=None
+
+    def cancel(self):self.cancel_event.set()
 
     def _handle_failed_import(self, filepath):
         import shutil
@@ -133,25 +139,72 @@ class ImportThread(QThread):
 
     def run(self):
         from services.resource_import import ImportTarget
+        from services.resource_import import ImportSkipped
+        from PySide6.QtGui import QImage
         saved_count = skipped_count = failed_count = 0
         total = len(self.sources)
+        context=self.storage.import_context
+        context.job_id=self.job_id;context.duplicate_resolver=self.duplicate_resolver
+        context.cancelled=self.cancel_event.is_set
+        if self.operation is not None:
+            self._run_operation(context)
+            return
         for i, source in enumerate(self.sources):
+            if self.cancel_event.is_set():break
+            temporary=None
             try:
-                target = ImportTarget(self.target_node, self.insert_position)
-                result = self.storage.import_paths([source], target)
-                saved_count += result.imported
-                skipped_count += result.duplicates
-                failed_count += len(result.errors)
-                if result.errors:
-                    self._handle_failed_import(source)
-                elif self.delete_after and os.path.isfile(source):
-                    os.remove(source)
+                target = ImportTarget(self.target_node, None if self.insert_position is None else self.insert_position+i)
+                if isinstance(source,str) and source.startswith(('https://','http://')):
+                    response=[];download=DownloadThread(source)
+                    download.finished.connect(lambda *args:response.append(args));download.run()
+                    if not response or not response[0][0]:raise RuntimeError(response[0][2] if response else 'Download failed')
+                    temporary=source=response[0][1]
+                if isinstance(source,QImage):
+                    saved,duplicate=self.storage.save_image(source,target)
+                    if not saved:raise RuntimeError('Image could not be saved')
+                    self.result_paths.append(saved);skipped_count+=int(duplicate);saved_count+=int(not duplicate)
+                else:
+                    result = self.storage.import_paths([source], target)
+                    self.result_paths.extend(result.paths)
+                    self.cancelled_count+=result.cancelled
+                    saved_count += result.imported;skipped_count += result.duplicates;failed_count += len(result.errors)
+                    self.errors.extend(result.errors.values())
+                    if result.errors:self._handle_failed_import(source)
+                    elif self.delete_after and os.path.isfile(source):os.remove(source)
+            except ImportSkipped:self.cancelled_count+=1
+            except InterruptedError:break
             except Exception as exc:
-                print(f"[ERROR] Import failed: {source}: {exc}")
-                self._handle_failed_import(source)
+                self.errors.append(str(exc))
+                if isinstance(source,str):self._handle_failed_import(source)
                 failed_count += 1
+            finally:
+                if temporary:
+                    from pathlib import Path
+                    Path(temporary).unlink(missing_ok=True)
             self.progress.emit(i + 1, total)
+        context.job_id='';context.duplicate_resolver=None;context.cancelled=None;context.normalized=None
         self.finished.emit(saved_count, skipped_count, failed_count)
+
+    def _run_operation(self,context):
+        context.accepted=[];context.skipped=0
+        before={r['id'] for r in self.storage.index.resources()}
+        failed=0
+        def progress(done,total,message=''):
+            if self.cancel_event.is_set():raise InterruptedError()
+            self.progress.emit(done,total)
+        try:self.result=self.operation(progress)
+        except InterruptedError:pass
+        except Exception as exc:
+            if not self.cancel_event.is_set():failed=1;self.errors.append(str(exc))
+        finally:
+            accepted=context.accepted;self.result_paths=list(dict.fromkeys(path for path,_ in accepted))
+            self.cancelled_count=context.skipped
+            saved=len({r['id'] for path in self.result_paths if (r:=self.storage.index.resource(path))}-before)
+            duplicates=sum(int(duplicate) for _,duplicate in accepted)
+            if isinstance(self.result,dict):
+                failed+=self.result.get('skipped',0);self.errors.extend(self.result.get('errors',[]))
+            context.job_id='';context.duplicate_resolver=None;context.cancelled=None;context.normalized=None;context.accepted=None;context.skipped=0
+        self.finished.emit(saved,duplicates,failed)
 
 
 class FilterState:
@@ -357,13 +410,13 @@ class CategorySidebar(Surface):
         self.refresh_list(self.tree.current_node_id)
         if self.gallery_view:
             self.gallery_view.refresh_content_incremental(reason='create_node')
-            self.gallery_view.show_success(t("分类已创建"), name.strip())
+            self.gallery_view.show_success(t("分类已创建"), name.strip(), quiet=True)
 
     def rename_node(self, node_id):
         node = self.storage.node(node_id)
         if not node or node_id == ROOT:
             return
-        name, ok = dialogs.prompt_text(self.window(), t("重命名分类"), t("分类名称"), node["name"], code="NODE/RENAME")
+        name, ok = dialogs.prompt_text(self.window(), t("重命名分类"), t("分类名称"), node["name"], ok_text=t('重命名'),code="NODE/RENAME")
         if not ok or not name.strip() or name.strip() == node["name"]:
             return
         try:
@@ -440,7 +493,7 @@ class CategorySidebar(Surface):
             self.window(), t("删除分类"),
             t('删除分类“{value_0}”？').format(value_0=node['name']),
             ok_text=t("删除"), danger=True, code="NODE/DELETE",
-            hint=(t('只删除分类关系，表情文件保留在表情库中。\n其 {value_0} 个直接子分类会提升到上一级。\n直接属于它的 {value_1} 个表情会从该分类移出。').format(value_0=stats['children'], value_1=stats['resources'])))
+            hint=(t('分类本身将被删除，表情文件不会删除。\n其下 {child_count} 个子分类将提升到上一级。\n直接属于该分类的 {emote_count} 张表情将移出分类。').format(child_count=stats['children'], emote_count=stats['resources'])))
         if not confirmed:
             return
         self.storage.delete_node(node_id)
@@ -448,7 +501,7 @@ class CategorySidebar(Surface):
             self.gallery_view.set_node(ALL_RESOURCES)
         self.refresh_list(self.tree.current_node_id)
         if self.gallery_view:
-            self.gallery_view.show_success(t("分类已删除"))
+            self.gallery_view.show_success(t("分类已删除"), quiet=True)
 
     def export_node(self, node_id):
         from services.exchange_export import ExchangeExportService
@@ -641,6 +694,7 @@ class GalleryInterface(QWidget):
         self.sidebar.refresh_list(self.current_node)
         self.refresh_content()
         self.storage.availability.changed.connect(self._availability_changed)
+        self.storage.recent_changed.connect(self._recent_changed)
         from services.ocr_service import ocr_service
         self.ocr=ocr_service(self.storage)
         self._ocr_paths=set()
@@ -648,6 +702,13 @@ class GalleryInterface(QWidget):
         self._ocr_refresh_timer.setSingleShot(True);self._ocr_refresh_timer.setInterval(600)
         self._ocr_refresh_timer.timeout.connect(self._refresh_ocr_results)
         self.ocr.text_changed.connect(self._ocr_text_changed)
+        from fluent_ui.components.import_queue import import_queue
+        self.imports=import_queue(self.storage)
+        self._task_refresh_timer=QTimer(self);self._task_refresh_timer.setSingleShot(True);self._task_refresh_timer.setInterval(80)
+        self._task_refresh_timer.timeout.connect(self._sync_background_tasks)
+        self.imports.changed.connect(lambda *_:self._task_refresh_timer.start())
+        self.ocr.changed.connect(lambda:self._task_refresh_timer.start())
+        self.imports.files_finished.connect(self._queued_files_finished)
         visual.theme.changed.connect(self.refresh_theme)
         i18n_engine.language_changed.connect(self.refresh_texts)
 
@@ -998,6 +1059,8 @@ class GalleryInterface(QWidget):
         thumbnails or relayout the grid. `force=True` is for the paths that
         really do need a rebuild after an external change.
         """
+        if getattr(self, '_recent_view', False):
+            self.toggle_recent_view(False)
         node_id = node_id or ALL_RESOURCES
         if not self.storage.index.node(node_id):
             node_id = ALL_RESOURCES
@@ -1061,6 +1124,11 @@ class GalleryInterface(QWidget):
         def matches(entry):
             tags = set(self.storage.parse_tags(entry['tags']))
             return (not keyword or keyword in texts.get(entry['path'], '').casefold()) and self.active_tags.issubset(tags) and self._matches_filter(entry, tags, categories)
+        if getattr(self, '_recent_view', False):
+            self._display_mode = 'recent'
+            entries = {e['path']: e for e in self.entry_model.entries_of(ROOT) if e['kind'] == 'resource'}
+            return [dict(entries[path], _parent=ROOT, _depth=0) for path in self.storage.get_recent_images()
+                    if path in entries and matches(entries[path])]
         def collect(parent, depth):
             result = []
             for original in self.entry_model.entries_of(parent):
@@ -1135,7 +1203,34 @@ class GalleryInterface(QWidget):
     def _view_signature(self):
         return (self.content_scope_node(), self.search_keyword.strip(), self.content_sort,
                 tuple(vars(self.filter_state).values()), tuple(sorted(self.active_tags)),
-                tuple(sorted(self._expanded_nodes)))
+                tuple(sorted(self._expanded_nodes)), getattr(self, '_recent_view', False))
+
+    def toggle_recent_view(self, checked=None):
+        active = getattr(self, '_recent_view', False)
+        enabled = not active if checked is None else bool(checked)
+        if enabled == active:return
+        if enabled:
+            self._save_view_state()
+            self._before_recent_anchor = self.renderer.anchor()
+            self._before_recent_scroll = self.scroll_area.verticalScrollBar().value()
+            self._before_recent_controls = (self.search_keyword, self.filter_state, set(self.active_tags), self.content_sort)
+            self.search_keyword = ''; self.filter_state = FilterState(); self.active_tags.clear(); self.content_sort = 'manual'
+        else:
+            self.search_keyword, self.filter_state, self.active_tags, self.content_sort = self._before_recent_controls
+        self.search_box.blockSignals(True); self.search_box.setText(self.search_keyword); self.search_box.blockSignals(False)
+        self._search_timer.stop()
+        self.finish_selection()
+        self._recent_view = enabled
+        self.btn_recent.setChecked(enabled)
+        self.entry_model.snapshots.clear()
+        self._initial_anchor = None
+        self.refresh_content(anchor=None if enabled else getattr(self, '_before_recent_anchor', None))
+        if not enabled and not getattr(self, '_before_recent_anchor', None):
+            self.scroll_area.verticalScrollBar().setValue(getattr(self, '_before_recent_scroll', 0))
+
+    def _recent_changed(self):
+        if getattr(self, '_recent_view', False):
+            self.refresh_content_incremental(reason='recent',parents=set())
 
     def refresh_content_incremental(self, *, reason='', paths=(), parents=None):
         if self._view_signature_at_build != self._view_signature() or not self.storage.index.node(self.current_node):
@@ -1145,7 +1240,7 @@ class GalleryInterface(QWidget):
         anchor = self.renderer.anchor()
         old_scroll = self.scroll_area.verticalScrollBar().value()
         self.entry_model.sync(parents=parents, paths=paths)
-        plain = not self.search_keyword.strip() and not self.filter_state.is_active() and not self.active_tags and self.content_sort == 'manual'
+        plain = not getattr(self,'_recent_view',False) and not self.search_keyword.strip() and not self.filter_state.is_active() and not self.active_tags and self.content_sort == 'manual'
         if plain:
             first = self.entry_model.patch_normal(self._entries, self.content_scope_node(), self._expanded_nodes)
         else:
@@ -1256,6 +1351,7 @@ class GalleryInterface(QWidget):
         self._position_geometry = self.scroll_area.viewport().size()
 
     def _remember_location_anchor(self):
+        if getattr(self,'_recent_view',False):return
         anchor = self._current_anchor()
         if anchor:
             self._location_anchors[self.content_scope_node()] = anchor
@@ -1279,7 +1375,9 @@ class GalleryInterface(QWidget):
         if self._entries:
             self.placeholder.hide()
             return
-        if self._display_mode == "search":
+        if getattr(self,'_recent_view',False):
+            text = t('暂无最近使用的表情')
+        elif self._display_mode == "search":
             text = t("没有匹配的表情")
         elif self.current_node == ALL_RESOURCES:
             text = t("表情库还是空的\n把表情、文件夹或截图拖进来，或按 Ctrl+V 粘贴")
@@ -1316,6 +1414,9 @@ class GalleryInterface(QWidget):
         children = 0 if self.current_node == ROOT else sum(e['kind'] == 'node' for e in location_entries)
         self.location_rail.set_counts(t('{value_0} 项表情').format(value_0=resources) + '\n' +
                                    t('{value_0} 个子分类').format(value_0=children))
+        if getattr(self,'_recent_view',False):
+            self.location_rail.set_path([dict(id=self.current_node,name=t('最近使用'))],None)
+            self.location_rail.set_counts(t('表情 {count} 张').format(count=len(self._entries)))
         for field, label in (('no_tag', '无标签'), ('unclassified', '未分类'),
                              ('is_gif', '动图'), ('is_static', '静态表情'), ('missing', '已失效的表情')):
             if getattr(self.filter_state, field):
@@ -1335,7 +1436,7 @@ class GalleryInterface(QWidget):
         """
         if not hasattr(self, 'tag_panel'):
             return
-        if self.search_keyword.strip() or self.filter_state.is_active():
+        if getattr(self,'_recent_view',False) or self.search_keyword.strip() or self.filter_state.is_active():
             # The result set already carries its tag text; counting it needs no
             # query at all.
             texts = [e['resource']['tags'] for e in self._entries
@@ -1369,7 +1470,7 @@ class GalleryInterface(QWidget):
             return
         self.show_success(t('标签已更新'),
                           t('已为 {value_0} 项表情添加标签「{value_1}」').format(
-                              value_0=len(paths), value_1=tag))
+                              value_0=len(paths), value_1=tag), quiet=True)
 
     def apply_tags(self, resource_ids, tag_ids):
         """One relation commit for either drag direction and selection blocks."""
@@ -1423,6 +1524,7 @@ class GalleryInterface(QWidget):
 
     def _on_category_tab(self, index):
         if 0 <= index < len(self._tab_nodes):
+            if getattr(self,'_recent_view',False):self.toggle_recent_view(False)
             self.set_relative_view(self._tab_nodes[index])
 
     def refresh_texts(self, *_):
@@ -1736,6 +1838,14 @@ class GalleryInterface(QWidget):
             self.size_slider.blockSignals(True);self.size_slider.setValue(size);self.size_slider.blockSignals(False)
         self._trigger_responsive_layout(force=True)
 
+    def _commit_thumbnail_size(self, size):
+        """Main-panel controls commit; Settings preview remains an unsaved overlay."""
+        self.config.set('thumbnail_size', size)
+        center = getattr(getattr(self.window(), 'settings_window', None), 'center', None)
+        if center is not None:
+            center.sync_external_preference('thumbnail_size', size)
+        self._apply_thumbnail_size(size)
+
     def _on_splitter_moved(self, pos, index):
         sizes = self.splitter.sizes()
         if sizes:
@@ -1801,8 +1911,7 @@ class GalleryInterface(QWidget):
                 current = self.config.get("thumbnail_size", 120)
                 new_size = max(60, min(300, current + step))
                 if new_size != current:
-                    self.config.set("thumbnail_size", new_size)
-                    self._apply_thumbnail_size(new_size)
+                    self._commit_thumbnail_size(new_size)
                 return True
         return super().eventFilter(obj, event)
 
@@ -1868,7 +1977,7 @@ class GalleryInterface(QWidget):
         elif result == SendResult.SENT and self.config.get('hide_main_after_paste', False):
             self.hide_after_paste_requested.emit()
         elif result == SendResult.COPIED_ONLY:
-            self.feedback_host.notice(t('已复制，但未找到可发送窗口'))
+            self.feedback_host.notice(t('表情已复制'),t('未找到可发送的聊天窗口，可手动粘贴。'))
 
     def _handle_missing_click(self, image_path):
         if dialogs.confirm(self.window(), t("表情已失效"),
@@ -1924,7 +2033,7 @@ class GalleryInterface(QWidget):
                 source_node=None if copy else parent, position=position)
         self.sidebar.refresh_list(self.current_node)
         self.refresh_content_incremental(reason='assign_resources', parents=set(groups)|{node_id})
-        self.show_success(t('分类已更新'), t('{value_0} 项').format(value_0=added))
+        self.show_success(t('分类已更新'), t('{value_0} 项').format(value_0=added), quiet=True)
 
     def _drag_from_entry(self, entry, path):
         self._selection_parents[path] = entry['_parent']
@@ -2000,7 +2109,7 @@ class GalleryInterface(QWidget):
         dialog = dialogs.TagEditorDialog(self.window(), self.storage, paths)
         if dialog.exec():
             self.refresh_content_incremental(reason="batch_tags", paths=paths, parents=set())
-            self.show_success(t("标签已更新"))
+            self.show_success(t("标签已更新"), quiet=True)
 
     def _batch_delete(self):
         entries = [e for e in self._selected_entries() if e["kind"] == "resource"]
@@ -2026,7 +2135,7 @@ class GalleryInterface(QWidget):
         if result['failed']:
             self.show_error(t("部分删除失败"), t('{value_0} 项未能移入回收站，记录已保留').format(value_0=result['failed']))
         self.show_success(t("删除完成"),
-                          t('已删除 {value_0} 项，清理失效记录 {value_1} 项').format(value_0=result['deleted'], value_1=result['missing_cleaned']))
+                          t('已删除 {value_0} 项，清理失效记录 {value_1} 项').format(value_0=result['deleted'], value_1=result['missing_cleaned']), quiet=True)
 
     def _show_more_menu(self):
         self._build_selection_more_menu().exec(self.btn_more.mapToGlobal(self.btn_more.rect().bottomLeft()))
@@ -2190,12 +2299,12 @@ class GalleryInterface(QWidget):
         from services.ocr_service import ocr_service
         service=ocr_service(self.storage)
         for title,force in [('识别文字',False),('重新识别文字',True)]:
-            item=translated(Action,FIF.SEARCH,title,parent=menu)
+            item=translated(Action,FIF.SCAN_TEXT,title,parent=menu)
             item.setEnabled(bool(paths) and service.available)
             item.triggered.connect(lambda checked=False,force=force:request_recognition(self,self.storage,paths,force))
             menu.addAction(item)
         if len(paths)==1:
-            item=translated(Action,FIF.DOCUMENT,'查看与编辑文字…',parent=menu)
+            item=translated(Action,FIF.DOCUMENT,'查看与编辑文字',parent=menu)
             item.triggered.connect(lambda:edit_text(self,self.storage,paths[0]));menu.addAction(item)
 
     def _build_resource_menu(self, widget):
@@ -2213,27 +2322,26 @@ class GalleryInterface(QWidget):
         single = len(paths) == 1
         context = self._action_context(paths, revalidate=True)
         if self.mode == 'normal' and ActionPolicy.enabled('send', context):
-            action(FIF.SEND, '使用 / 发送', lambda: self.use_resource(path))
+            action(FIF.SEND, '发送表情', lambda: self.use_resource(path))
             menu.addSeparator()
-        # The target is picked in one searchable dialog instead of enumerating
-        # every node as a menu item, which stopped being usable past a handful
-        # of categories.
-        for copy, title, icon in ((True, '加入分类…', FIF.COPY), (False, '移动到…', FIF.MOVE)):
+        from fluent_ui.components.category_menu import CategoryTargetMenu
+        for copy, title, icon in ((True, '添加到分类', FIF.COPY), (False, '移动到分类', FIF.MOVE)):
             can_move = any(self._selection_parents.get(p, parent) != ROOT for p in paths)
-            action(icon, title,
-                   lambda checked=False, c=copy: self._batch_assign(c),
-                   ActionPolicy.enabled('category_membership', context) and (copy or can_move))
+            branch=CategoryTargetMenu(title,self.storage,lambda target,c=copy:self.assign_resources(paths,target,copy=c),menu)
+            branch.setIcon(icon);menu.addMenu(branch)
+            if not (ActionPolicy.enabled('category_membership', context) and (copy or can_move)):
+                branch.menuItem.setFlags(branch.menuItem.flags()&~Qt.ItemIsEnabled)
         if context.active_view != ROOT:
             action(FIF.REMOVE, '移出当前分类', self._batch_remove_membership,
                    ActionPolicy.enabled('remove_from_category', context))
-        action(FIF.TAG, '标签…', lambda: self._open_tag_editor(paths), ActionPolicy.enabled('tag_edit', context))
+        action(FIF.TAG, '编辑标签', lambda: self._open_tag_editor(paths), ActionPolicy.enabled('tag_edit', context))
         self._add_ocr_actions(menu,paths)
         menu.addSeparator()
         # Revealing the file replaces the path tooltip the cards used to show.
-        action(FIF.FOLDER, '在资源管理器中显示', lambda: self.reveal_in_explorer(path),
+        action(FIF.FOLDER, '在文件资源管理器中显示', lambda: self.reveal_in_explorer(path),
                ActionPolicy.enabled('show_in_explorer', context))
         action(FIF.COPY, '复制文件路径', lambda: self._copy_paths(paths), ActionPolicy.enabled('copy_path', context))
-        action(FIF.SHARE, '导出选中项到文件夹…', self._execute_batch_export, ActionPolicy.enabled('export', context))
+        action(FIF.SHARE, '导出所选表情', self._execute_batch_export, ActionPolicy.enabled('export', context))
         if ActionPolicy.enabled('thumbnail_frame', context) or (single and not context.existing):
             menu.addSeparator()
         if single and not context.existing:
@@ -2267,7 +2375,7 @@ class GalleryInterface(QWidget):
     def _quick_tag(self, path, tag):
         self.storage.apply_tags([path], [tag], "add")
         self.refresh_content_incremental(reason='quick_tag', paths=[path], parents=set())
-        self.show_success(t("标签已更新"), tag)
+        self.show_success(t("标签已更新"), tag, quiet=True)
 
     def _open_tag_editor(self, paths):
         if not ActionPolicy.enabled('tag_edit', self._action_context(paths)):
@@ -2288,14 +2396,14 @@ class GalleryInterface(QWidget):
         for widget in self._all_card_widgets:
             if getattr(widget, "image_path", None) == path and hasattr(widget, "set_frame"):
                 widget.set_frame(frame)
-        self.show_success(t("缩略图帧已更新"))
+        self.show_success(t("缩略图帧已更新"), quiet=True)
 
     def _set_category_icon(self, path, node_id):
         if not ActionPolicy.enabled('set_icon', self._action_context([path], revalidate=True)):
             return
         self.storage.set_node_icon(node_id, path)
         self.sidebar.refresh_list(self.current_node)
-        self.show_success(t("分类图标已更新"))
+        self.show_success(t("分类图标已更新"), quiet=True)
 
     def _remove_from_current(self, path):
         if not ActionPolicy.enabled('remove_from_category', self._action_context([path])):
@@ -2303,7 +2411,7 @@ class GalleryInterface(QWidget):
         if self.storage.remove_image_from_category(path, self.content_scope_node()):
             self.sidebar.refresh_list(self.current_node)
             self.refresh_content_incremental(reason='remove', parents={self.content_scope_node()})
-            self.show_success(t("已移出分类"))
+            self.show_success(t("已移出分类"), quiet=True)
 
     def _delete_single(self, path):
         self._select_single(path)
@@ -2323,7 +2431,7 @@ class GalleryInterface(QWidget):
             self.show_error(t("设置软件图标失败"), str(exc))
             return
         self.reload_application_icon()
-        self.show_success(t("软件图标已更新"))
+        self.show_success(t("软件图标已更新"), quiet=True)
 
     def reload_application_icon(self):
         window = self.window()
@@ -2349,7 +2457,7 @@ class GalleryInterface(QWidget):
             return
         self.renderer.loader.invalidate([path, target])
         self.refresh_content_incremental(reason='rebind', paths=[target])
-        self.show_success(t("重新绑定成功"), t("分类、排序、标签与已有元数据均已保留"))
+        self.show_success(t("重新绑定成功"), t("分类、排序、标签与已有元数据均已保留"), quiet=True)
 
     def _ensure_inside_library(self, path):
         """Rebinding accepts library files; outside files are imported first."""
@@ -2378,7 +2486,7 @@ class GalleryInterface(QWidget):
         self.storage.forget_resource(record["id"])
         self.sidebar.refresh_list(self.current_node)
         self.refresh_content_incremental(reason="forget")
-        self.show_success(t("记录已删除"))
+        self.show_success(t("记录已删除"), quiet=True)
 
     # ==================================================================
     # Import
@@ -2393,18 +2501,51 @@ class GalleryInterface(QWidget):
         """
         if not paths:
             return
-        if self.import_thread and self.import_thread.isRunning():
-            self.show_error(t("导入中"), t("当前有导入任务正在进行，请稍候"))
-            return
         insert_position = 0 if position is None else position
-        self.import_thread = ImportThread(paths, self.storage, node_id or ALL_RESOURCES,
-                                          parent=self, insert_position=insert_position)
-        self.import_thread.progress.connect(self._on_import_progress)
-        self.import_thread.finished.connect(
-            lambda s, k, f: self._on_import_finished(s, k, f))
-        self.task_status.show(t('正在导入'))
-        self._import_info_bar = None
-        self.import_thread.start()
+        from services.resource_import import ImportTarget
+        return self.imports.submit(paths,ImportTarget(node_id or ALL_RESOURCES,insert_position),self)
+
+    def _queued_files_finished(self,request):
+        self.renderer.loader.invalidate(request.paths)
+        self.sidebar.refresh_list(self.current_node)
+        parents={ROOT,request.target.parent_node}
+        if request.operation:parents.update(n['id'] for n in self.storage.index.nodes())
+        self.refresh_content_incremental(reason='queued_import',paths=set(request.paths),parents=parents)
+
+    def _sync_background_tasks(self):
+        host=self.feedback_host
+        for key,request in tuple(self.imports.requests.items()):
+            job=self.ocr.jobs.get(key,{})
+            state=request.state;details='\n'.join(request.errors)
+            summary=t('新增 {saved} 张，已处理重复 {duplicates} 张，跳过 {skipped} 张，失败 {failed} 张').format(
+                saved=request.saved,duplicates=request.duplicates,skipped=request.skipped,failed=request.failed)
+            if state=='waiting':title=t('等待导入表情');outcome='waiting';done=0;total=request.total
+            elif state=='running':title=t('正在导入表情');outcome='running';done=request.done;total=request.total
+            elif state=='recognizing':
+                title=t('正在识别新表情文字');outcome='running'
+                done=sum(job.get(k,0) for k in ('done','failed','skipped'));total=job.get('total',0)
+            else:
+                title=(t('导入部分完成') if request.failed else t('导入处理完成')) if state=='completed' else t('导入失败') if state=='failed' else t('导入处理已停止')
+                outcome='error' if state=='failed' else 'cancelled' if state=='cancelled' else 'partial' if request.failed else 'success'
+                done=request.done;total=request.total
+            if request.kind=='migration' and state!='recognizing':
+                title=t('等待 Suzu 迁移') if state=='waiting' else t('正在 Suzu 迁移') if state=='running' else (t('Suzu 迁移部分完成') if request.failed else t('Suzu 迁移完成')) if state=='completed' else t('Suzu 迁移失败') if state=='failed' else t('Suzu 迁移已停止')
+            if job.get('failed'):
+                summary+=' · '+t('文字识别失败 {count} 张').format(count=job['failed'])
+                details+='\n'+job.get('error','')
+                if outcome=='success':outcome='partial'
+            host.upsert_task(key,title,current=done,total=total,state=outcome,content=summary,kind='import',
+                cancel=lambda k=key:self.imports.cancel(k),details=details.strip())
+        for key,job in tuple(self.ocr.jobs.items()):
+            if key in self.imports.requests:continue
+            done=sum(job.get(k,0) for k in ('done','failed','skipped'));state=job['state']
+            outcome=state if state in {'cancelled','interrupted'} else 'running' if state=='running' else ('partial' if job.get('done') or job.get('skipped') else 'error') if job.get('failed') else 'success' if state=='completed' else state
+            title=t('重新识别全部表情') if job.get('force') and job.get('origin')=='library' else t('补充识别') if job.get('origin')=='library' else t('识别表情文字')
+            content=t('表情 {done}/{total} 张，失败 {failed} 张，跳过 {skipped} 张').format(done=done,total=job.get('total',0),failed=job.get('failed',0),skipped=job.get('skipped',0))
+            if state in {'cancelled','interrupted'}:title=t('文字识别已停止')
+            resume=(lambda k=key,f=job.get('force',False):self.ocr.supplement(force=f,job_id=k)) if job.get('origin')=='library' and state in {'cancelled','interrupted'} else None
+            host.upsert_task(key,title,current=done,total=job.get('total',0),state=outcome,content=content,kind='ocr',
+                cancel=lambda k=key:self.ocr.cancel(job_id=k),resume=resume,details=job.get('error',''))
 
     def _on_import_progress(self, current, total):
         self.task_status.update(t('正在处理: {value_0} / {value_1}').format(value_0=current, value_1=total), current=current, total=total)
@@ -2436,26 +2577,10 @@ class GalleryInterface(QWidget):
                 node_id = self.storage.resolve_category(target_category)
             except KeyError:
                 node_id = ALL_RESOURCES
-        if self.import_thread and self.import_thread.isRunning():
-            if not silent:
-                self.show_error(t("导入中"), t("当前有导入任务正在进行，请稍候"))
-            return
-        self.import_thread = ImportThread(filepaths, self.storage, node_id,
-                                          delete_after=delete_after, parent=self)
-        self.import_thread.progress.connect(self._on_import_progress)
-        self.import_thread.finished.connect(
-            lambda s, k, f: self._on_import_finished(s, k, f, silent, folder_stats))
-        if silent:
-            self._import_info_bar = None
-        else:
-            self.task_status.show(t('正在导入'))
-            self._import_info_bar = None
-        self.import_thread.start()
+        from services.resource_import import ImportTarget
+        return self.imports.submit(filepaths,ImportTarget(node_id),self,delete_after=delete_after)
 
     def _import_dropped_folders(self, folders, local_files):
-        if self.import_thread and self.import_thread.isRunning():
-            self.show_error(t("导入中"), t("当前有导入任务正在进行，请稍候"))
-            return
         self._start_background_import([*folders, *local_files], target_category=self.content_scope_node())
 
     def handle_global_paste(self):
@@ -2475,21 +2600,12 @@ class GalleryInterface(QWidget):
             self.import_paths_to(data, parent, position=position)
         elif data_type == 'image':
             from services.resource_import import ImportTarget
-            saved_path, is_duplicate = self.storage.save_image(
-                data, ImportTarget(parent, insert_position=position))
-            if saved_path:
-                self.sidebar.refresh_list(self.current_node)
-                self.refresh_content_incremental(reason='clipboard_import', parents={ROOT, parent})
-                self.show_success(t("导入完成"), t("该表情已存在，已跳过保存") if is_duplicate else t("已保存到表情库"))
+            self.imports.submit([data.copy()],ImportTarget(parent,position),self)
         elif data_type == 'network_url':
             # A download finishes later, so an index captured now could point
             # into a stream that changed meanwhile; it appends by design.
-            self.task_status.show(t("正在下载"), t("正在从网络获取表情，请稍候…"))
-            thread = DownloadThread(data, self)
-            self.download_threads.append(thread)
-            thread.finished.connect(lambda ok, path, error, url, target=parent:
-                                    self._on_download_finished(ok, path, error, url, target))
-            thread.start()
+            from services.resource_import import ImportTarget
+            self.imports.submit([data],ImportTarget(parent,position),self)
         else:
             self.feedback_host.toast(t('剪贴板中没有可导入的表情'))
 
@@ -2796,13 +2912,8 @@ class GalleryInterface(QWidget):
         for url in mime.urls():
             if not url.isLocalFile():
                 if url.scheme() in ("http", "https"):
-                    self.task_status.show(t("正在下载"), t("正在从网络获取表情，请稍候…"))
-                    thread = DownloadThread(url.toString(), self)
-                    self.download_threads.append(thread)
-                    thread.finished.connect(lambda ok, path, error, url,
-                                            node=target.container_id or self.content_scope_node():
-                                            self._on_download_finished(ok, path, error, url, node))
-                    thread.start()
+                    from services.resource_import import ImportTarget
+                    self.imports.submit([url.toString()],ImportTarget(target.container_id or self.content_scope_node(),target.index),self)
                 continue
             local = url.toLocalFile()
             if os.path.isdir(local):
@@ -2934,15 +3045,12 @@ class GalleryInterface(QWidget):
     # ==================================================================
     # Status surfaces and settings hooks
     # ==================================================================
-    def show_success(self, title, content=''):
-        # Visible mutations already communicate their result in the projection.
-        visible = {'分类已删除', '分类已更新', '标签已更新', '删除完成', '导入完成', '图标已更新',
-                   '程序图标已更新', '缩略图已更新', '重新绑定成功', '记录已删除', '收件箱自动导入完成', '分类已创建', '已移出分类', '缩略图帧已更新', '分类图标已更新', '软件图标已更新'}
-        if getattr(title, 'source', str(title)) not in visible:
-            self.feedback_host.toast(title, content)
+    def show_success(self, title, content='',*,quiet=False):
+        if not quiet:self.feedback_host.toast(title, content,kind='success')
 
     def show_error(self, title, content=''):
-        self.feedback_host.notice(title, content, error=True)
+        details=str(content) if content and not hasattr(content,'source') else ''
+        self.feedback_host.notice(title,t('操作未完成，请查看详情后重试。') if details else content,error=True,details=details)
 
     def force_refresh_sidebar_icons(self):
         self.sidebar.refresh_list(self.current_node)
@@ -2967,6 +3075,19 @@ class GalleryInterface(QWidget):
 
     def _show_tools_menu(self):
         menu = RoundMenu(parent=self)
+        from fluent_ui.components.ocr_controls import recognize_all,offer_install
+        from services.ocr_service import ocr_service
+        service=ocr_service(self.storage)
+        ocr_menu=RoundMenu(t('文字识别'),menu);ocr_menu.setIcon(FIF.SCAN_TEXT)
+        supplement=translated(Action,'补充识别',parent=ocr_menu)
+        supplement.setEnabled(not service.library_busy)
+        supplement.triggered.connect(lambda:service.supplement() if service.available else offer_install(self))
+        ocr_menu.addAction(supplement)
+        all_action=translated(Action,'重新识别全部表情…',parent=ocr_menu);all_action.setEnabled(not service.library_busy)
+        all_action.triggered.connect(lambda:recognize_all(self,self.storage));ocr_menu.addAction(all_action)
+        if service.library_busy:
+            status=translated(Action,'正在识别',parent=ocr_menu);status.setEnabled(False);ocr_menu.addAction(status)
+        menu.addMenu(ocr_menu)
         for icon, label, callback in (
             (FIF.SEARCH, '相似表情', self.similarity_requested.emit),
             (FIF.APPLICATION, 'QQ 导入', self.qq_requested.emit),
@@ -2976,12 +3097,11 @@ class GalleryInterface(QWidget):
             action = translated(Action, icon, label, parent=menu)
             action.triggered.connect(callback)
             menu.addAction(action)
-        menu.exec(self.btn_tools.mapToGlobal(self.btn_tools.rect().topLeft()))
+        menu.popup_at(self.btn_tools,prefer_up=True)
 
     def _change_thumbnail(self, step):
         size = max(60, min(300, self.config.get('thumbnail_size', 120)+step))
-        self.config.set('thumbnail_size', size)
-        self._apply_thumbnail_size(size)
+        self._commit_thumbnail_size(size)
 
 
 
@@ -3040,7 +3160,7 @@ class GalleryInterface(QWidget):
     def _update_resource_sort_label(self):
         label = {ResourceSort.MANUAL: '自定义顺序', ResourceSort.RECENT_ADDED: '最近添加',
                  ResourceSort.OLDEST_ADDED: '最早添加'}[ResourceSort(self.content_sort)]
-        self.btn_content_sort.setIcon({ResourceSort.MANUAL:FIF.SORT,ResourceSort.RECENT_ADDED:FIF.SORT_DESC,ResourceSort.OLDEST_ADDED:FIF.SORT_ASC}[ResourceSort(self.content_sort)])
+        self.btn_content_sort.setIcon({ResourceSort.MANUAL:FIF.SORT,ResourceSort.RECENT_ADDED:FIF.TIME_DESC,ResourceSort.OLDEST_ADDED:FIF.TIME_ASC}[ResourceSort(self.content_sort)])
         bind_text(self.btn_content_sort, t('表情显示排序') + ' · ' + t(label), 'setToolTip')
         self.btn_content_sort.setAccessibleName(self.btn_content_sort.toolTip())
         for mode, action in getattr(self, 'resource_sort_actions', {}).items():
@@ -3109,6 +3229,7 @@ class GalleryInterface(QWidget):
         self._save_view_state()
 
     def _save_view_state(self):
+        if getattr(self,'_recent_view',False):return
         self._remember_location_anchor()
         states = dict(self.config.config.get('library_view_states', {}))
         state = {'location': self.current_node,

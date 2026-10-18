@@ -1,7 +1,7 @@
 """Categorized icon navigation projected from the existing LibraryTree."""
 from enum import Enum
-from PySide6.QtCore import Qt, QPoint, QRect, QSize
-from PySide6.QtGui import QPainter, QColor, QPen
+from PySide6.QtCore import Qt, QPoint, QRect, QRectF, QSize
+from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath
 from PySide6.QtWidgets import QScrollArea, QWidget, QApplication, QLabel
 from fluent_ui import visual
 from fluent_ui.components.navigation import CompactTitleLabel
@@ -71,7 +71,7 @@ class SidebarIcons(QScrollArea):
 class IconCanvas(QWidget):
     def __init__(self, host):
         super().__init__(host)
-        self.setFont(visual.font())
+        self.setFont(visual.font('secondary'))
         self.host = host
         self.items, self.rects = [], []
         self._press = None
@@ -91,19 +91,22 @@ class IconCanvas(QWidget):
         labels = bool(self.host.config.get('sidebar_show_labels', True))
         spacing = 4
         label_height = 2*self.fontMetrics().height() if labels else 0
-        tile_width = max(size+12, self.fontMetrics().height()*3+8 if labels else 0)
-        tile_height = size+12+(label_height+4 if labels else 0)
+        tile_width = max(32,size+8, self.fontMetrics().height()*3 if labels else 0)
+        tile_height = max(32,size+14+(label_height+2 if labels else 0))
         rects, y, column, active_depth = [], 4, 0, None
         starts = {self.projection.itemsBySection[key][0]['id']: key for key in self.projection.sections}
         self.section_headers = {}
-        for _node, _name, _icon, depth, group in self.items:
+        for item_index, (_node, _name, _icon, depth, group) in enumerate(self.items):
+            if depth==0 and item_index and (group or self.items[item_index-1][3]>0 or self.items[item_index-1][4]):
+                if column:y+=tile_height+spacing;column=0
+                y+=10
             if _node in starts:
                 if column:
                     y += tile_height+spacing
                 column = 0
                 self.section_headers[starts[_node]] = QRect(8, y, max(1, self.width()-16), SectionHeader.HEIGHT)
                 y += SectionHeader.HEIGHT
-            indent = min(depth, 5)*10
+            indent = min(depth, 3)*4
             available = max(1, self.width()-16-indent)
             capacity = max(1, (available+spacing)//(tile_width+spacing))
             if group or depth != active_depth:
@@ -111,12 +114,13 @@ class IconCanvas(QWidget):
                     y += tile_height+spacing
                 column = 0
             if group:
-                height = max(28, size+8)
+                height = max(38, size+18)
                 rects.append(QRect(8+indent, y, available, height))
                 y += height+spacing
             else:
-                width = available//capacity
-                rects.append(QRect(8+indent+column*width, y, width-spacing, tile_height))
+                width = tile_width+spacing
+                grid_left=8+indent+(available-(capacity*width-spacing))//2
+                rects.append(QRect(grid_left+column*width, y, tile_width, tile_height))
                 column += 1
                 if column == capacity:
                     column = 0
@@ -125,13 +129,14 @@ class IconCanvas(QWidget):
         if column:
             y += tile_height+spacing
         self.rects = rects
-        self.group_rects=[]
+        self.group_rects=[];self.group_by_index={}
         for i,(_,_,_,depth,group) in enumerate(self.items):
             if not group or depth!=0:continue
             end=i
             while end+1<len(self.items) and self.items[end+1][3]>depth:end+=1
             bottom=max(rect.bottom() for rect in rects[i:end+1])
-            self.group_rects.append(QRect(3,rects[i].top(),max(1,self.width()-6),bottom-rects[i].top()+4))
+            card=QRect(4,rects[i].top()-2,max(1,self.width()-8),bottom-rects[i].top()+6)
+            self.group_rects.append(card);self.group_by_index[i]=card
         self.setMinimumHeight(y+8)
         self.update()
 
@@ -163,10 +168,14 @@ class IconCanvas(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+        painter.setFont(self.font())
         palette=visual.colors()
-        for group in getattr(self,'group_rects',[]):
-            painter.setBrush(QColor(palette['surface_alt']));painter.setPen(QPen(QColor(palette['border_soft']),1))
-            painter.drawRoundedRect(group,12,12)
+        selected = {item.data(0, Qt.UserRole) for item in self.host.tree.selectedItems()}
+        for index,group in getattr(self,'group_by_index',{}).items():
+            color=QColor(palette['surface_alt']);color.setAlpha(85)
+            painter.setBrush(color);edge=QColor(palette['border_soft']);edge.setAlpha(90)
+            painter.setPen(QPen(edge,1));painter.drawRoundedRect(group,10,10)
+            if self.items[index][0] in selected:self._selection(painter,group,palette,True)
         size = int(self.host.config.get('sidebar_icon_size', 20))
         labels = bool(self.host.config.get('sidebar_show_labels', True))
         palette = visual.colors()
@@ -177,23 +186,34 @@ class IconCanvas(QWidget):
             rect = self.rects[index]
             if not event.rect().intersects(rect):
                 continue
-            if node_id in selected or index == self._hovered:
-                painter.fillRect(rect, QColor(palette['hover'] if index == self._hovered else palette['selected']))
-                painter.setPen(QPen(QColor(palette['accent']),2))
-                painter.drawLine(rect.left()+3,rect.top()+7,rect.left()+3,rect.bottom()-7)
+            chosen=node_id in selected
+            if index not in self.group_by_index and (chosen or index==self._hovered):
+                self._selection(painter,rect,palette,chosen,top_line=group)
+            elif index==self._hovered:
+                painter.setPen(Qt.NoPen);painter.setBrush(QColor(palette['hover']))
+                painter.drawRoundedRect(rect,8,8)
             painter.setPen(QColor(palette['text']))
             if group:
-                icon.paint(painter, QRect(rect.left()+12, rect.center().y()-size//2, size, size))
+                icon.paint(painter, QRect(rect.left()+8, rect.center().y()-size//2+3, size, size))
                 if labels:
-                    painter.drawText(rect.adjusted(size+18, 0, -4, 0), Qt.AlignVCenter,
-                                     self.fontMetrics().elidedText(name, Qt.ElideRight, rect.width()-size-22))
+                    painter.drawText(rect.adjusted(size+14, 6, -4, 0), Qt.AlignVCenter,
+                                     self.fontMetrics().elidedText(name, Qt.ElideRight, rect.width()-size-18))
             else:
-                icon.paint(painter, QRect(rect.center().x()-size//2, rect.top()+5, size, size))
-                if labels:
-                    line_height = self.fontMetrics().height()
-                    for line_number, line in enumerate(self._label_lines(name, max(1, rect.width()-8))):
-                        painter.drawText(QRect(rect.left()+4, rect.top()+size+8+line_number*line_height,
-                                               rect.width()-8, line_height), Qt.AlignCenter, line)
+                lines=self._label_lines(name,max(1,rect.width()-6)) if labels else ()
+                line_height=self.fontMetrics().height()
+                content_height=size+(2+len(lines)*line_height if lines else 0)
+                top=rect.top()+(rect.height()-content_height)//2-3
+                icon.paint(painter,QRect(rect.center().x()-size//2,top,size,size))
+                for n,line in enumerate(lines):
+                    painter.drawText(QRect(rect.left()+3,top+size+2+n*line_height,rect.width()-6,line_height),Qt.AlignCenter,line)
+
+    def _selection(self,painter,rect,palette,selected,*,top_line=True):
+        path=QPainterPath();path.addRoundedRect(QRectF(rect).adjusted(.5,.5,-.5,-.5),8,8)
+        painter.fillPath(path,QColor(palette['selected'] if selected else palette['hover']))
+        if selected:
+            painter.save();painter.setClipPath(path)
+            y=rect.top()+4 if top_line else rect.bottom()-5
+            painter.fillRect(QRectF(rect.left()+5,y,max(1,rect.width()-10),2),QColor(palette['accent']));painter.restore()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:

@@ -85,7 +85,11 @@ def run_exchange_task(parent, title, operation):
     error, result = worker.error, worker.result
     worker.deleteLater()
     loop.deleteLater()
-    host.finish(t(title), str(error) if error else '', outcome='error' if error else 'success')
+    # The calling operation owns its result wording and error details. Remove
+    # only this progress item, so it cannot also emit a duplicate result notice.
+    host.task_active=False;host._cancel=host._action=None;host.finish_timer.stop()
+    if hasattr(host,'_caption_ui'):host.remove_task('legacy')
+    else:host.strip.hide();host._restore_notice()
     if error is not None:
         raise error
     return result

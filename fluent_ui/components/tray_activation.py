@@ -60,7 +60,7 @@ def execute_tray_action(window, action):
     """The single dispatcher every gesture goes through."""
     action = TrayAction.parse(action)
     if action is TrayAction.TOGGLE_MAIN:
-        window.toggle_window()
+        window.toggle_window(from_tray=True)
     elif action is TrayAction.SHOW_MAIN:
         window.show_main_panel()
     elif action is TrayAction.TOGGLE_QUICK:

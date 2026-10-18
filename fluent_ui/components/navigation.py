@@ -511,17 +511,27 @@ class ContentPane(QWidget):
         visual.theme.changed.connect(self.update)
         visual.theme.accent_changed.connect(self.update)
 
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        # Clip children as well as the pane paint, keeping the open top intact.
+        from PySide6.QtGui import QRegion
+        radius=getattr(self,'corner_radius',12);w=self.width();h=self.height()
+        path=QPainterPath();path.moveTo(0,0);path.lineTo(w,0);path.lineTo(w,h-radius)
+        path.quadTo(w,h,w-radius,h);path.lineTo(radius,h);path.quadTo(0,h,0,h-radius);path.closeSubpath()
+        self.setMask(QRegion(path.toFillPolygon().toPolygon()))
+
     def paintEvent(self, event):
         p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);c=visual.colors()
         r=QRectF(self.rect()).adjusted(.5,0,-.5,-.5)
+        radius=getattr(self,'corner_radius',12)
         path=QPainterPath();path.moveTo(r.left(),0);path.lineTo(r.right(),0)
-        path.lineTo(r.right(),r.bottom()-12);path.quadTo(r.right(),r.bottom(),r.right()-12,r.bottom())
-        path.lineTo(r.left()+12,r.bottom());path.quadTo(r.left(),r.bottom(),r.left(),r.bottom()-12);path.closeSubpath()
+        path.lineTo(r.right(),r.bottom()-radius);path.quadTo(r.right(),r.bottom(),r.right()-radius,r.bottom())
+        path.lineTo(r.left()+radius,r.bottom());path.quadTo(r.left(),r.bottom(),r.left(),r.bottom()-radius);path.closeSubpath()
         p.fillPath(path,QColor(c['surface']))
         # Top boundary is owned by the attached tabs, never doubled here.
-        path=QPainterPath();path.moveTo(r.left(),0);path.lineTo(r.left(),r.bottom()-12)
-        path.quadTo(r.left(),r.bottom(),r.left()+12,r.bottom());path.lineTo(r.right()-12,r.bottom())
-        path.quadTo(r.right(),r.bottom(),r.right(),r.bottom()-12);path.lineTo(r.right(),0)
+        path=QPainterPath();path.moveTo(r.left(),0);path.lineTo(r.left(),r.bottom()-radius)
+        path.quadTo(r.left(),r.bottom(),r.left()+radius,r.bottom());path.lineTo(r.right()-radius,r.bottom())
+        path.quadTo(r.right(),r.bottom(),r.right(),r.bottom()-radius);path.lineTo(r.right(),0)
         p.setPen(QPen(QColor(c['border_soft']),1));p.drawPath(path)
 
 
@@ -588,7 +598,7 @@ class TabStrip(QTabBar):
 
     def tabSizeHint(self, index):
         gap = visual.TAB_LOCATION_GAP if self.location_divider and index == 0 and self.count() > 1 else 0
-        return QSize(min(max(96, min(240, self.width()-48)), max(72, self.fontMetrics().horizontalAdvance(self.tabText(index))+36))+gap, 43)
+        return QSize(min(max(96, min(240, self.width()-48)), max(72, self.fontMetrics().horizontalAdvance(self.tabText(index))+36+(22 if not self.tabIcon(index).isNull() else 0)))+gap, 43)
 
     def content_tab_rect(self, index):
         rect = self.tabRect(index)
@@ -658,8 +668,16 @@ class TabStrip(QTabBar):
             font = self.font()
             font.setBold(active)
             painter.setFont(font)
-            painter.drawText(rect.adjusted(12, 10, -12, -1), Qt.AlignCenter,
-                             painter.fontMetrics().elidedText(self.tabText(i), Qt.ElideRight, max(0, rect.width()-24)))
+            icon=self.tabIcon(i);text_rect=rect.adjusted(12,10,-12,-1)
+            if not icon.isNull():
+                # Keep the icon and label as a centred group. A fixed icon cell
+                # must never be borrowed by the label's centring/elision.
+                label_width=min(max(0,text_rect.width()-24),painter.fontMetrics().horizontalAdvance(self.tabText(i)))
+                group_left=text_rect.center().x()-(label_width+24)//2
+                icon.paint(painter,int(group_left),int(text_rect.center().y())-9,18,18)
+                text_rect.setLeft(int(group_left)+24)
+                text_rect.setWidth(label_width)
+            painter.drawText(text_rect,Qt.AlignCenter,painter.fontMetrics().elidedText(self.tabText(i),Qt.ElideRight,max(0,text_rect.width())))
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(c['accent']))
         painter.drawRoundedRect(self._line_rect if not self._line_rect.isEmpty() else self._target_line(),1.5,1.5)

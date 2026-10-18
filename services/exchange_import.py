@@ -14,6 +14,7 @@ from typing import Any, Mapping, Optional, Callable
 from PIL import Image
 from io import BytesIO
 from services.exchange_icons import IMAGE_SUFFIXES, load_icons, is_valid_icon
+from services.resource_import import ImportSkipped
 
 
 class ExchangeImportError(RuntimeError):
@@ -246,6 +247,8 @@ class ExchangeImportService:
                         db.execute('UPDATE resources SET display_name=? WHERE id=?', (resource.display_name, resource_id))
                 if progress:
                     progress(i + 1, len(resources), resource.display_name)
+            except ImportSkipped:
+                continue
             except Exception as exc:
                 raise ExchangeImportError(f'导入中断；已保存 {imported}，已合并 {skipped}。{exc}') from exc
         return imported, skipped

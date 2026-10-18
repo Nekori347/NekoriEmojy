@@ -22,16 +22,27 @@ class StateToolTipManager(QObject):
 
     def update(self, content, title=None, current=None, total=None):
         if title is not None:
-            self.title_label.setText(title)
+            job=self.host.named_tasks.get('legacy') if hasattr(self.host,'_caption_ui') else None
+            if job:
+                self.host.upsert_task('legacy',title,current=job['current'],total=job['total'],
+                    content=job['content'],kind=job['kind'],cancel=job['cancel'])
+            else:self.title_label.setText(title)
         self.host.update_task(current, total, content)
 
     def finish(self, title=None, content=None, *, outcome='success'):
         self.host.finish(title or '', content or '', outcome=outcome)
 
     def fail(self, title, content=''):
-        self.finish(title, content, outcome='error')
+        from services.i18n import t
+        self.host.task_active=False
+        if hasattr(self.host,'_caption_ui'):self.host.remove_task('legacy')
+        self.host.notice(title,t('操作未完成，请查看详情后重试。'),error=True,details=content)
 
     def cancel(self):
+        if self.host.task_active:
+            from services.i18n import t
+            self.host.finish(t('操作已停止'),t('已完成的处理结果会保留。'),outcome='cancelled')
+            return
         self.host.task_active = False
         self.host.finish_timer.stop()
         self.host._restore_notice()

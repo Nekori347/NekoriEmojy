@@ -18,7 +18,7 @@ class SegmentOption(QAbstractButton):
     def minimumSizeHint(self):return self.sizeHint()
     def paintEvent(self,event):
         p=QPainter(self);c=visual.colors();p.setFont(self.font())
-        p.setPen(QColor(c['text'] if self.isChecked() else c['text_secondary']))
+        p.setPen(QColor('#30382d' if self.isChecked() else c['text_secondary']))
         p.drawText(self.rect(),Qt.AlignCenter,self.text())
         if self.hasFocus():
             p.setRenderHint(QPainter.Antialiasing);p.setBrush(Qt.NoBrush)
@@ -62,7 +62,7 @@ class ModeSegment(QWidget):
         p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);c=visual.colors()
         p.setPen(QPen(QColor(c['border_soft']),1));p.setBrush(QColor(c['surface_alt']))
         p.drawRoundedRect(QRectF(self.rect()).adjusted(.5,.5,-.5,-.5),self.height()/2,self.height()/2)
-        p.setBrush(QColor(c['surface']));p.setPen(Qt.NoPen)
+        p.setBrush(QColor('#eeeee8'));p.setPen(Qt.NoPen)
         p.drawRoundedRect(self._selection,self._selection.height()/2,self._selection.height()/2)
 
 
@@ -134,6 +134,35 @@ class DropDownButton(DropDownPushButton):
         self._elide()
 
 
+class FilterOption(QAbstractButton):
+    """The whole row toggles; a reserved rectangular marker is not a check glyph."""
+    def __init__(self,text,parent=None):
+        super().__init__(parent);self.setText(text);self.setFont(visual.font())
+        self.setCheckable(True);self.setCursor(Qt.PointingHandCursor);self.setFocusPolicy(Qt.TabFocus)
+        self.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed)
+    def sizeHint(self):return QSize(max(180,self.fontMetrics().horizontalAdvance(self.text())+44),32)
+    def hitButton(self,pos):return self.rect().contains(pos)
+    def enterEvent(self,event):super().enterEvent(event);self.update()
+    def leaveEvent(self,event):super().leaveEvent(event);self.update()
+    def paintEvent(self,event):
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);c=visual.colors()
+        if self.underMouse() or (self.hasFocus() and getattr(self,'_keyboard_focus',False)):
+            p.setPen(Qt.NoPen);p.setBrush(QColor(c['hover']))
+            p.drawRoundedRect(QRectF(self.rect()).adjusted(1,1,-1,-1),5,5)
+        p.setPen(QPen(QColor(c['border_soft']),.7) if not self.isChecked() else Qt.NoPen)
+        p.setBrush(QColor(c['accent'] if self.isChecked() else c['surface_alt']))
+        p.drawRoundedRect(QRectF(5,(self.height()-10)/2,10,10),2.5,2.5)
+        p.setFont(self.font());p.setPen(QColor(c['text']))
+        p.drawText(self.rect().adjusted(24,0,-8,0),Qt.AlignVCenter|Qt.AlignLeft,self.text())
+
+    def focusInEvent(self,event):
+        self._keyboard_focus=event.reason() in (Qt.TabFocusReason,Qt.BacktabFocusReason,Qt.ShortcutFocusReason)
+        super().focusInEvent(event);self.update()
+
+    def focusOutEvent(self,event):
+        self._keyboard_focus=False;super().focusOutEvent(event);self.update()
+
+
 class FilterCheckboxFlyout(QFrame):
     """A non-modal checkbox popup, anchored to its trigger, with no replay."""
     changed = Signal(str, bool)
@@ -155,7 +184,7 @@ class FilterCheckboxFlyout(QFrame):
         layout.setSpacing(6)
         self.checkboxes = {}
         for key, label in self.FIELDS:
-            checkbox = translated(CheckBox, label, self)
+            checkbox = translated(FilterOption, label, self)
             checkbox.toggled.connect(lambda checked, key=key: self.changed.emit(key, checked))
             layout.addWidget(checkbox)
             self.checkboxes[key] = checkbox

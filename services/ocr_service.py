@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import threading
 import time
+import uuid
 from PySide6.QtCore import QObject,Signal
 from services.ocr_component import OcrComponent,OcrProcess
 from services.ocr_data import OCR_VERSION,source_stamp
@@ -27,8 +28,13 @@ class OcrService(QObject):
         self._install_thread=None;self._install_busy=False;self._install_cancel=threading.Event()
         self.install_state='';self.install_error='';self.download=(0,0)
         self.summary=json.loads(storage.index.meta('ocr_task_summary','{}'))
-        if self.summary.get('state')=='running':
-            self.summary['state']='interrupted';self._save_summary()
+        self.jobs={job['id']:job for job in json.loads(storage.index.meta('ocr_task_jobs','[]'))}
+        if self.summary.get('id') and self.summary['id'] not in self.jobs:self.jobs[self.summary['id']]=self.summary
+        self._current_job=None;self._active_item=None
+        for job in self.jobs.values():
+            if job.get('state')=='running':job['state']='interrupted'
+        if self.summary.get('id'):self.summary=self.jobs[self.summary['id']]
+        self._save_summary()
         self.imported.connect(self._auto_enqueue)
         self._import_callback=self.imported.emit
         storage.import_listeners.append(self._import_callback)
@@ -45,30 +51,51 @@ class OcrService(QObject):
 
     def _save_summary(self):
         self.storage.index.set_meta('ocr_task_summary',json.dumps(self.summary,ensure_ascii=False))
+        # Keep active/interrupted work and a small recent history, not an unbounded task log.
+        jobs=list(self.jobs.values())
+        recent={j['id'] for j in jobs[-20:]}
+        self.storage.index.set_meta('ocr_task_jobs',json.dumps(
+            [j for j in jobs if j['state'] in {'running','interrupted','cancelled'} or j['id'] in recent],ensure_ascii=False))
 
     def _auto_enqueue(self,rid):
         if not self._closing and self.config.get('ocr_auto',False) and self.available:
             self.enqueue([rid],automatic=True)
 
-    def enqueue(self,resource_ids,*,force=False,overwrite=False,automatic=False):
+    def enqueue(self,resource_ids,*,force=False,overwrite=False,automatic=False,job_id=None,origin='manual'):
         if self._closing:return
         if not self.available:raise RuntimeError('请先安装 OCR 组件')
         with self._condition:
-            if not self.busy:
-                self.summary=dict(state='running',done=0,total=0,failed=0,skipped=0,error='')
+            job_id=job_id or uuid.uuid4().hex
+            job=self.jobs.get(job_id)
+            if job is None or job['state']!='running':
+                job=dict(id=job_id,origin='automatic' if automatic and origin=='manual' else origin,
+                         force=force,state='running',done=0,total=0,failed=0,skipped=0,error='',generation=(job or {}).get('generation',-1)+1)
+                self.jobs[job_id]=job
+            self.summary=job
             for rid in dict.fromkeys(resource_ids):
-                if rid in self._pending:continue
-                self._pending.add(rid)
-                self._queue.append((rid,force,overwrite,automatic,self._generation))
-                self.summary['total']=self.summary.get('total',0)+1
+                pair=(job_id,rid)
+                if pair in self._pending or pair==self._active_item:continue
+                self._pending.add(pair)
+                self._queue.append((rid,force,overwrite,automatic,job['generation'],job_id))
+                job['total']+=1
+            if not job['total']:job['state']='completed'
             self._save_summary()
             self._ensure_thread()
             self._condition.notify_all()
         self.changed.emit()
+        return job_id
 
-    def supplement(self,failed_only=False):
+    def supplement(self,failed_only=False,*,force=False,job_id=None):
         """Resolve the library on the worker, not thousands of stats on the GUI."""
-        self.enqueue(['__failed__' if failed_only else '__scan__'])
+        existing=next((job['id'] for job in self.jobs.values() if job.get('origin')=='library' and job['state']=='running'),None)
+        if existing:return existing
+        previous=self.jobs.get(job_id,{})
+        remaining=previous.get('resume_ids') if force and previous.get('state') in {'cancelled','interrupted'} else None
+        return self.enqueue(remaining if remaining is not None else ['__failed__' if failed_only else '__scan__'],
+                            force=force,origin='library',job_id=job_id)
+
+    @property
+    def library_busy(self):return any(j.get('origin')=='library' and j['state']=='running' for j in self.jobs.values())
 
     def _ensure_thread(self):
         if self._thread is None or not self._thread.is_alive():
@@ -80,30 +107,33 @@ class OcrService(QObject):
             with self._condition:
                 if not self._queue:
                     self._busy=False
-                    if self.summary.get('state')=='running':
-                        self.summary['state']='completed';self._save_summary();self.changed.emit()
+                    self._current_job=None;self._active_item=None
                     self._condition.wait(timeout=30)
                     if not self._queue:
                         self.process.close()
                         continue
                 if self._closing:break
-                rid,force,overwrite,automatic,generation=self._queue.popleft()
-                self._pending.discard(rid);self._busy=True
+                rid,force,overwrite,automatic,generation,job_id=self._queue.popleft()
+                self._pending.discard((job_id,rid));self._busy=True;self._current_job=job_id
+                self._active_item=(job_id,rid);job=self.jobs[job_id]
+            if generation!=job['generation']:continue
             if rid in {'__scan__','__failed__'}:
                 records=self.storage.index.resources()
                 ids=[r['id'] for r in records if rid!='__failed__' or self.storage.index._ocr_state(r)['status']=='failed']
                 with self._condition:
-                    if generation!=self._generation:continue
-                    self.summary['total']-=1
+                    if generation!=job['generation']:continue
+                    job['total']-=1
                     for key in ids:
-                        if key not in self._pending:
-                            self._pending.add(key);self._queue.append((key,False,False,False,generation))
-                            self.summary['total']+=1
+                        if (job_id,key) not in self._pending:
+                            self._pending.add((job_id,key));self._queue.append((key,force,False,False,generation,job_id))
+                            job['total']+=1
+                    if not job['total']:job['state']='completed'
+                    if self._active_item==(job_id,rid):self._active_item=None
                     self._save_summary()
                 self.changed.emit();continue
             outcome='skipped';error='';state=None;stamp=None
             try:
-                if generation!=self._generation:continue
+                if generation!=job['generation']:continue
                 if automatic and not self.config.get('ocr_auto',False):continue
                 record=self.storage.index.resource_by_id(rid)
                 if not record:continue
@@ -113,14 +143,16 @@ class OcrService(QObject):
                 if not force and state['status'] in {'ready','empty'} and state.get('source')==stamp and state.get('version')==OCR_VERSION:
                     continue
                 result=self.process.recognize(self.storage.index.absolute_path(record),stamp['thumbnail'])
-                if generation!=self._generation:continue
+                if generation!=job['generation']:
+                    self.process.close();continue
                 current=self.storage.index.resource_by_id(rid)
                 if not current or source_stamp(self.storage.index,current)!=stamp:continue
                 if self.storage.index.commit_ocr(rid,result,revision=state['revision'],source=stamp,
                                                version=OCR_VERSION,overwrite=overwrite):
                     outcome='done';self.text_changed.emit(rid)
             except Exception as exc:
-                if generation!=self._generation or self._closing:continue
+                if generation!=job['generation'] or self._closing:
+                    self.process.close();continue
                 outcome='failed';error=str(exc)
                 if state is not None:
                     self.storage.index.commit_ocr(rid,{},revision=state['revision'],source=stamp,
@@ -128,9 +160,11 @@ class OcrService(QObject):
                 self.process.close()
             finally:
                 with self._condition:
-                    if generation==self._generation:
-                        self.summary[outcome]=self.summary.get(outcome,0)+1
-                        if error:self.summary['error']=error
+                    if self._active_item==(job_id,rid):self._active_item=None
+                    if generation==job['generation']:
+                        job[outcome]=job.get(outcome,0)+1
+                        if error:job['error']=error
+                        if sum(job[k] for k in ('done','failed','skipped'))>=job['total']:job['state']='completed'
                         self._save_summary()
                 self.changed.emit()
         self.process.close()
@@ -139,14 +173,23 @@ class OcrService(QObject):
         self.storage.index.edit_ocr_text(rid,text)
         self.text_changed.emit(rid);self.changed.emit()
 
-    def cancel(self,state='cancelled'):
+    def cancel(self,state='cancelled',*,job_id=None):
         with self._condition:
-            was_busy=self.busy
-            self._generation+=1;self._queue.clear();self._pending.clear()
-            if was_busy:self.summary['state']=state
-            elif not self.summary:self.summary['state']='idle'
+            selected={job_id} if job_id else {key for key,j in self.jobs.items() if j['state']=='running'}
+            for key in selected:
+                if key in self.jobs:
+                    job=self.jobs[key]
+                    if job.get('force') and job.get('origin')=='library' and job['state']=='running':
+                        remaining=[row[0] for row in self._queue if row[-1]==key]
+                        if self._active_item and self._active_item[0]==key:remaining.insert(0,self._active_item[1])
+                        job['resume_ids']=list(dict.fromkeys(remaining))
+                    self.jobs[key]['generation']+=1;self.jobs[key]['state']=state
+            self._queue=deque(row for row in self._queue if row[-1] not in selected)
+            self._pending={pair for pair in self._pending if pair[0] not in selected}
             self._save_summary();self._condition.notify_all()
-        self.process.close();self.changed.emit()
+        if self._active_item and self._active_item[0] in selected and self._busy:
+            getattr(self.process,'interrupt',self.process.close)()
+        self.changed.emit()
 
     def install(self,source=None):
         if self.installing:return
@@ -173,6 +216,7 @@ class OcrService(QObject):
 
     def uninstall(self):
         self.cancel()
+        self.process.close()
         self.component.uninstall()
         self.config.set('ocr_auto',False)
         self.install_state='';self.changed.emit()

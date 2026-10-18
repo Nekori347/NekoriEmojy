@@ -9,10 +9,12 @@ from fluent_ui.icons import Icon
 class BrandLockup(QWidget):
     """One compact wordmark, with the small suffix tucked under its right edge."""
     def __init__(self,parent=None):
-        super().__init__(parent);self.setFixedSize(82,34)
+        super().__init__(parent);self.setFixedSize(74,34)
         from services.update_service import current_version
         self.version='v'+current_version();self.setToolTip('NekoriEmojy '+self.version)
         visual.theme.changed.connect(self.update)
+        from fluent_ui.components.update_center import update_center
+        update_center().changed.connect(self.update)
     def paintEvent(self,event):
         p=QPainter(self);p.setPen(QColor(visual.colors()['text']))
         font=visual.font('brand');font.setPixelSize(24);p.setFont(font)
@@ -20,19 +22,15 @@ class BrandLockup(QWidget):
         p.drawText(QRectF(0,0,width+1,25),Qt.AlignLeft|Qt.AlignVCenter,'Nekori')
         font.setPixelSize(12);p.setFont(font)
         p.drawText(QRectF(0,21,width,13),Qt.AlignRight|Qt.AlignVCenter,'Emojy')
-        font=visual.font('data_small');font.setPixelSize(8);p.setFont(font);p.setPen(QColor(visual.colors()['muted']))
+        from fluent_ui.components.update_center import update_center
+        font=visual.font('data_small');font.setPixelSize(8);p.setFont(font);p.setPen(QColor(visual.colors()['warning'] if update_center().release else visual.colors()['muted']))
         p.drawText(QRectF(0,24,max(1,width-26),10),Qt.AlignLeft|Qt.AlignVCenter,self.version)
 
 
 class ClipboardImportIcon(FluentIconBase):
     def path(self,theme=Theme.AUTO):return ''
     def render(self,p,r,theme=Theme.AUTO,**attrs):
-        r=QRectF(r);color=attrs.get('fill',visual.colors()['text'])
-        badge=QRectF(r.left()+r.width()*.46,r.top()+r.height()*.46,r.width()*.65,r.height()*.65)
-        p.save();clip=QPainterPath();clip.addRect(r.adjusted(-2,-2,2,2));cut=QPainterPath();cut.addRect(badge)
-        p.setClipPath(clip.subtracted(cut))
-        Icon.PASTE.render(p,r.adjusted(0,0,-r.width()*.2,-r.height()*.1),fill=color);p.restore()
-        Icon.DOWNLOAD.render(p,badge.adjusted(1,1,-1,-1),fill=color)
+        Icon.PASTE_ADD.render(p,QRectF(r),theme,**attrs)
 
 
 class ToolboxIcon(FluentIconBase):

@@ -21,6 +21,7 @@ class LibraryIndex:
         self._changes = itertools.count()
         self.search_revision = 0
         self._search_projections = {}
+        self._search_snapshot = None
         self.root = Path(root).expanduser().resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.path = self.root / "index.sqlite3"
@@ -79,14 +80,14 @@ class LibraryIndex:
             db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
 
     @contextmanager
-    def connect(self):
+    def connect(self, *, search=True):
         db = sqlite3.connect(self.path, timeout=30)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys=ON")
         try:
             with db:
                 yield db
-            if db.total_changes:
+            if search and db.total_changes:
                 self.search_revision = next(self._changes) + 1
         finally:
             db.close()
@@ -476,7 +477,7 @@ class LibraryIndex:
         return row[0] if row else default
 
     def set_meta(self, key, value):
-        with self.connect() as db:
+        with self.connect(search=False) as db:
             db.execute("INSERT INTO library_meta(key,value) VALUES (?,?) "
                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                        (str(key), str(value)))
@@ -490,13 +491,16 @@ class LibraryIndex:
 
     def search_texts(self):
         from services.search_text import search_projection
+        revision=self.search_revision
+        if self._search_snapshot is not None and self._search_snapshot[0]==revision:
+            return self._search_snapshot[1]
         with self.connect() as db:
             names = {}
             for resource_id, name in db.execute("SELECT c.resource_id,n.name FROM content c "
                     "JOIN nodes n ON c.parent_id=n.id WHERE c.resource_id IS NOT NULL AND n.id!=?", (ROOT,)):
                 names.setdefault(resource_id, []).append(name)
             result={}
-            for r in db.execute('SELECT * FROM resources'):
+            for r in db.execute('SELECT id,display_name,filename,tags,ocr_text FROM resources'):
                 raw=' '.join([r['display_name'],r['filename'],r['tags'],r['ocr_text'],*names.get(r['id'],[])])
                 cached=self._search_projections.get(r['id'])
                 if cached is None or cached[0]!=raw:
@@ -504,6 +508,7 @@ class LibraryIndex:
                     self._search_projections[r['id']]=cached
                 result[r['id']]=cached[1]
             for rid in self._search_projections.keys()-result.keys():self._search_projections.pop(rid,None)
+            if self.search_revision==revision:self._search_snapshot=(revision,result)
             return result
 
     @staticmethod

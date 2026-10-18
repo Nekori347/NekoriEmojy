@@ -131,24 +131,43 @@ class ClipboardService(QObject):
         return kind, payload
 
     def has_importable_data(self, supported_formats):
+        # QWindowsMimeData.hasImage() asks the external OLE provider to convert
+        # formats. Native advertisements avoid that work on window activation.
+        import sys
+        if sys.platform=='win32' and QGuiApplication.platformName()=='windows' and not self.clipboard.ownsClipboard():
+            import win32clipboard as native
+            key=(native.GetClipboardSequenceNumber(),tuple(supported_formats))
+            if getattr(self,'_availability_key',None)==key:return self._availability_value
+            images=(2,6,8,17)+tuple(native.RegisterClipboardFormat(name) for name in ('PNG','image/png','image/jpeg','GIF','JFIF'))
+            if any(native.IsClipboardFormatAvailable(fmt) for fmt in images):value=True
+            else:
+                advertised={'urls':native.IsClipboardFormatAvailable(15),
+                    'html':native.IsClipboardFormatAvailable(native.RegisterClipboardFormat('HTML Format')),
+                    'text':native.IsClipboardFormatAvailable(13) or native.IsClipboardFormatAvailable(1)}
+                value=self._has_importable_mime(supported_formats,advertised)
+            self._availability_key=key;self._availability_value=value
+            return value
+        return self._has_importable_mime(supported_formats)
+
+    def _has_importable_mime(self,supported_formats,advertised=None):
         # Availability is a cheap advertisement check. Retrieving imageData
         # here asks an external OLE provider to render its payload on every
         # clipboard notification, before the user has chosen to import it.
         mime=self.clipboard.mimeData()
         if mime is None:return False
-        if mime.hasImage():return True
-        if mime.hasUrls():
+        if advertised is None and mime.hasImage():return True
+        if (mime.hasUrls() if advertised is None else advertised['urls']):
             for url in mime.urls():
                 if url.isLocalFile():
                     path=url.toLocalFile()
                     if os.path.isdir(path) or (os.path.isfile(path) and path.lower().endswith(supported_formats)):return True
                 elif url.isValid() and url.scheme() in ('http','https') and url.host():return True
-        if mime.hasHtml():
+        if (mime.hasHtml() if advertised is None else advertised['html']):
             match=re.search(r'<img[^>]+src=["\']([^"\'>]+)["\']',mime.html(),re.IGNORECASE)
             if match:
                 url=QUrl(html.unescape(match.group(1)))
                 if url.isValid() and url.scheme() in ('http','https') and url.host():return True
-        if mime.hasText():
+        if (mime.hasText() if advertised is None else advertised['text']):
             text=mime.text().strip()
             url=QUrl(text)
             return bool(url.isValid() and url.scheme() in ('http','https') and url.host())

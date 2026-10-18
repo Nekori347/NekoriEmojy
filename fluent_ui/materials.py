@@ -35,7 +35,19 @@ def native_material(window, *, overlay=False):
     def attribute(name, value):
         data = ctypes.c_int(value)
         return dwm.DwmSetWindowAttribute(hwnd, name, ctypes.byref(data), ctypes.sizeof(data))
-    attribute(20, int(dark)); attribute(33, 2); attribute(3, 0)
+    attribute(20, int(dark)); attribute(3, 0)
+    # A full-client glass extension plus a Qt region leaves the native Acrylic
+    # surface rectangular outside Qt's rounded backing store. Let DWM own the
+    # entire outer contour on Windows 11, including its external shadow.
+    native_contour = sys.getwindowsversion().build >= 22000
+    if native_contour and not window.mask().isEmpty():window.clearMask()
+    attribute(33, 2 if native_contour else 1)
+    if native_contour:
+        class Margins(ctypes.Structure):
+            _fields_=[(name,ctypes.c_int) for name in ('left','right','top','bottom')]
+        margins=Margins(0,0,0,0)
+        dwm.DwmExtendFrameIntoClientArea(hwnd,ctypes.byref(margins))
+    window.setProperty('nativeContour', native_contour)
     attribute(38, 1)  # Remove the old Mica brush before desktop Acrylic.
     class Accent(ctypes.Structure):
         _fields_ = [('state', ctypes.c_int), ('flags', ctypes.c_int), ('color', wintypes.DWORD), ('animation', ctypes.c_int)]
@@ -70,15 +82,19 @@ def shell_fill(window):
 
 
 def sync_native_clip(window):
-    """One 14px contour clips both the native material and the Qt contents."""
-    if sys.platform != 'win32' or QApplication.platformName() in ('offscreen', 'minimal'): return
-    key=(int(window.winId()),window.width(),window.height(),window.devicePixelRatioF(),window.isMaximized())
+    """Qt owns the shape, so its backing store and native HWND agree."""
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QPainterPath,QRegion
+    key=(int(window.winId()),window.width(),window.height(),window.devicePixelRatioF(),window.isMaximized(),window.isFullScreen(),bool(window.property('nativeContour')))
     if getattr(window,'_native_clip_key',None)==key:return
-    user = ctypes.windll.user32; gdi = ctypes.windll.gdi32
-    user.SetWindowRgn.argtypes = [wintypes.HWND, wintypes.HRGN, wintypes.BOOL]
-    gdi.CreateRoundRectRgn.argtypes = [ctypes.c_int] * 6; gdi.CreateRoundRectRgn.restype = wintypes.HRGN
-    scale = window.devicePixelRatioF(); r = round(visual.WINDOW_RADIUS * 2 * scale)
-    if window.isMaximized(): r = 0
-    region = gdi.CreateRoundRectRgn(0, 0, round(window.width()*scale)+1, round(window.height()*scale)+1, r, r)
-    if not user.SetWindowRgn(wintypes.HWND(int(window.winId())), region, True):gdi.DeleteObject(region)
-    else:window._native_clip_key=key
+    if window.property('nativeContour') or window.isMaximized() or window.isFullScreen():window.clearMask()
+    else:
+        path=QPainterPath();path.addRoundedRect(QRectF(window.rect()),visual.WINDOW_RADIUS,visual.WINDOW_RADIUS)
+        window.setMask(QRegion(path.toFillPolygon().toPolygon()))
+    window._native_clip_key=key
+
+
+def shell_radius(window):
+    if window.isMaximized() or window.isFullScreen():return 0
+    # Match DWM's standard Windows 11 outer corner; Qt paints the border only.
+    return 8 if window.property('nativeContour') else visual.WINDOW_RADIUS

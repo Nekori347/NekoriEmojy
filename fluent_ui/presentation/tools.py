@@ -61,6 +61,10 @@ class ImportBench(QWidget):
             form.addWidget(view.batchPackageButton)
         else:
             self.field(form,view.readPathLabel,view.readPathEdit,view.selectReadDirButton)
+            view.selectReadDirButton.setText('');view.selectReadDirButton.setIcon(Icon.FOLDER)
+            view.selectReadDirButton.setFixedSize(32,34)
+            bind_text(view.selectReadDirButton,'选择数据目录','setToolTip')
+            bind_text(view.selectReadDirButton,'选择数据目录','setAccessibleName')
             self.field(form,view.userLabel,view.userComboBox,view.helpButton)
             self.field(form,view.emojiFolderLabel,view.emojiFolderComboBox)
             form.addWidget(view.scanButton)

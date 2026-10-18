@@ -3,9 +3,9 @@
 The painters own the full surface and centered icon/text composition, rather
 than layering a second skin over Fluent's default indicator paint.
 """
-from PySide6.QtCore import Qt, QRectF, QSize, Signal, QVariantAnimation
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import QAbstractButton, QLineEdit, QWidget, QHBoxLayout, QBoxLayout
+from PySide6.QtCore import Qt, QRectF, QSize, Signal, QVariantAnimation, QEvent, QTimer, QObject
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QCursor
+from PySide6.QtWidgets import QAbstractButton, QLineEdit, QWidget, QHBoxLayout, QBoxLayout, QApplication
 from qfluentwidgets import (PushButton as FluentButton, TransparentToolButton as FluentTool,
     DropDownPushButton as FluentDropDown, ComboBox as FluentCombo,
     SearchLineEdit as FluentSearch, LineEdit as FluentLineEdit, CheckBox as FluentCheck,
@@ -30,6 +30,23 @@ def draw_icon(icon, painter, rect, color):
         icon.paint(painter, rect.toRect())
 
 
+class _ButtonFocusInput(QObject):
+    """Track input origin without changing Qt focus or business selection."""
+    def __init__(self,app):
+        super().__init__(app);self.keyboard=False;app.installEventFilter(self)
+
+    def eventFilter(self,obj,event):
+        pointer=event.type()==QEvent.MouseButtonPress
+        navigation=(event.type()==QEvent.KeyPress and event.key() in
+                    (Qt.Key_Tab,Qt.Key_Backtab,Qt.Key_Left,Qt.Key_Right,Qt.Key_Up,Qt.Key_Down,Qt.Key_Space,Qt.Key_Return,Qt.Key_Enter))
+        if pointer or navigation:
+            self.keyboard=not pointer
+            focused=QApplication.focusWidget()
+            if isinstance(focused,ButtonPaint):
+                focused._focus_visible=self.keyboard;focused.update()
+        return False
+
+
 class ButtonPaint:
     ghost = False
     dropdown = False
@@ -39,12 +56,51 @@ class ButtonPaint:
         self.setFont(visual.font())
         self.setCursor(Qt.PointingHandCursor)
         self.setFocusPolicy(Qt.TabFocus)
+        app=QApplication.instance()
+        if not hasattr(app,'_button_focus_input'):app._button_focus_input=_ButtonFocusInput(app)
+        self._focus_input=app._button_focus_input;self._focus_visible=False
         self._hover = 0.0
         self._hover_animation = QVariantAnimation(self)
         self._hover_animation.setDuration(visual.MOTION.hover)
         self._hover_animation.valueChanged.connect(self._set_hover)
         visual.theme.changed.connect(self.update)
         visual.theme.accent_changed.connect(self.update)
+        self._hover_owner=self.window()
+        self._hover_owner.installEventFilter(self)
+
+    def showEvent(self,event):
+        owner=self.window()
+        if owner is not self._hover_owner:
+            self._hover_owner.removeEventFilter(self)
+            self._hover_owner=owner;owner.installEventFilter(self)
+        super().showEvent(event)
+
+    def eventFilter(self, obj, event):
+        if obj is self.window() and event.type() in (QEvent.WindowDeactivate, QEvent.WindowActivate):
+            self._settle_hover()
+            QTimer.singleShot(0, self._settle_hover)
+        return super().eventFilter(obj, event)
+
+    def focusInEvent(self,event):
+        if event.reason() in (Qt.TabFocusReason,Qt.BacktabFocusReason,Qt.ShortcutFocusReason):
+            self._focus_input.keyboard=True;self._focus_visible=True
+        elif event.reason() not in (Qt.ActiveWindowFocusReason,Qt.PopupFocusReason):self._focus_visible=False
+        super().focusInEvent(event);self.update()
+
+    def focusOutEvent(self,event):
+        super().focusOutEvent(event);self.update()
+
+    def keyboard_focus_visible(self):
+        return self.hasFocus() and self._focus_visible and self._focus_input.keyboard
+
+    def _settle_hover(self):
+        # An owned window can cover the trigger without delivering Leave.
+        hit = QApplication.widgetAt(QCursor.pos())
+        real_hover = self.isVisible() and self.window().isActiveWindow() and (hit is self or self.isAncestorOf(hit) if hit else False)
+        self._hover_animation.stop()
+        self._set_hover(1.0 if real_hover else 0.0)
+        if not real_hover:
+            self.setDown(False)
 
     def _set_hover(self, value):
         self._hover = value
@@ -101,11 +157,11 @@ class ButtonPaint:
             overlay.setAlphaF(.11 if self.isDown() else .06 * self._hover)
             p.setBrush(overlay)
             p.drawRoundedRect(r, visual.CONTROL_RADIUS, visual.CONTROL_RADIUS)
-        if self.hasFocus():
+        if self.keyboard_focus_visible():
             p.setPen(QPen(QColor(c['accent']), 1))
             p.setBrush(Qt.NoBrush)
             p.drawRoundedRect(r.adjusted(2, 2, -2, -2), visual.CONTROL_RADIUS-2, visual.CONTROL_RADIUS-2)
-        color = c['accent_text'] if primary and enabled else c['danger'] if self.property('role') == 'danger' else c['text']
+        color = c['accent_text'] if primary and enabled else c['danger'] if self.property('role') == 'danger' else c['warning'] if self.property('update_available') else c['text']
         p.setFont(self.font())
         text = self.text()
         icon = getattr(self, '_icon', None)
@@ -140,16 +196,25 @@ class PrimaryPushButton(PushButton):
 class MetaButton(PushButton):
     """C09: separated active contours, transparent single-outline disabled state."""
     def sizeHint(self):
-        return QSize(self.fontMetrics().horizontalAdvance(self.text())+94,44)
+        return QSize(self.fontMetrics().horizontalAdvance(self.text())+122,44)
+
+    def content_geometry(self):
+        inside=QRectF(self.rect()).adjusted(4.5,4.5,-4.5,-4.5)
+        cy=inside.center().y();lead=inside.left()+12
+        return (QRectF(lead,cy,42,0),QRectF(lead+54,inside.top(),max(1,inside.width()-108),inside.height()),
+                QRectF(inside.right()-34,cy-13,26,26))
 
     def paintEvent(self,event):
         p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);c=visual.colors()
-        r=QRectF(self.rect()).adjusted(.5,.5,-.5,-.5)
-        p.setPen(QPen(QColor(c['border'] if self.isEnabled() else c['border_soft']),1));p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(r,r.height()/2,r.height()/2)
-        if self.isEnabled():
-            p.setBrush(QColor('#ffffff'));p.setPen(Qt.NoPen)
-            inside=r.adjusted(4,4,-4,-4)
+        outer=QRectF(self.rect()).adjusted(.5,.5,-.5,-.5)
+        enabled=self.isEnabled();inside=outer.adjusted(4,4,-4,-4)
+        ink=('#61695e' if self.property('command')=='discard' else '#30382d') if enabled else c['muted']
+        if enabled:
+            edge=visual.accent() if self._hover or self.keyboard_focus_visible() else c['border']
+            p.setPen(QPen(QColor(edge),1));p.setBrush(Qt.NoBrush)
+            p.drawRoundedRect(outer,outer.height()/2,outer.height()/2)
+            fill='#dcddd6' if self.isDown() else '#eeeee8'
+            p.setBrush(QColor(fill));p.setPen(QPen(QColor('#b6b8b3'),1))
             p.drawRoundedRect(inside,inside.height()/2,inside.height()/2)
             from fluent_ui.components.softframe import _contours,paint_setting_surface
             # Use a clipped fragment of the same master on the symbol end.
@@ -158,19 +223,32 @@ class MetaButton(PushButton):
                 p.setClipPath(clip);p.setOpacity(.25)
                 p.drawPixmap(self.width()-135,-68,next(iter(_contours.values())))
                 p.restore()
-        ink='#222720' if self.isEnabled() else c['muted']
-        p.setFont(visual.font());p.setPen(QColor(ink))
-        p.drawText(r.adjusted(46,0,-34,0),Qt.AlignCenter,self.text())
-        p.setPen(QPen(QColor(c['border']),1));p.drawLine(15,self.height()//2,36,self.height()//2)
-        p.drawPoint(15,self.height()//2);p.drawPoint(36,self.height()//2)
-        ring=QRectF(self.width()-33,self.height()/2-11,22,22)
-        p.setPen(QPen(QColor(ink),1));p.setBrush(QColor(ink) if self.isEnabled() else Qt.NoBrush);p.drawEllipse(ring)
-        symbol='#ffffff' if self.isEnabled() else c['muted']
-        p.setPen(QPen(QColor(symbol),2.5,Qt.SolidLine,Qt.RoundCap));p.setBrush(Qt.NoBrush)
-        if self.property('command') in ('save','discard'):
-            Icon.ACCEPT.render(p,ring.adjusted(4,4,-4,-4),fill=symbol) if self.property('command')=='save' else Icon.CANCEL.render(p,ring.adjusted(4,4,-4,-4),fill=symbol)
         else:
-            for start in (10,100,190,280):p.drawArc(ring.adjusted(5,5,-5,-5),start*16,56*16)
+            p.setPen(QPen(QColor(c['border']),1));p.setBrush(Qt.NoBrush)
+            p.drawRoundedRect(outer,outer.height()/2,outer.height()/2)
+        p.setFont(visual.font());p.setPen(QColor(ink))
+        lead_rect,text_rect,ring=self.content_geometry();lead=lead_rect.left();cy=lead_rect.center().y()
+        p.drawText(text_rect,Qt.AlignCenter,self.text())
+        p.setOpacity(.35 if enabled else .25);p.setPen(QPen(QColor(ink),1));p.drawLine(int(lead),int(cy),int(lead+42),int(cy))
+        p.setPen(Qt.NoPen);p.setBrush(QColor(ink))
+        for x in (lead,lead+42):p.drawEllipse(QRectF(x-1.5,cy-1.5,3,3))
+        p.setOpacity(1)
+        command=self.property('command');signal=enabled and command=='save'
+        p.setPen(Qt.NoPen);p.setBrush(QColor(c['accent'] if signal else ink));p.setOpacity(1 if enabled else .45);p.drawEllipse(ring);p.setOpacity(1)
+        p.save();p.translate(ring.center());p.scale(ring.width()/32,ring.height()/32)
+        symbol=c['accent_text'] if signal else '#eeeee8' if enabled else c['window_base']
+        path=QPainterPath()
+        if command=='save':
+            path.moveTo(-10,-1);path.lineTo(-6,-4);path.lineTo(-2,1);path.lineTo(7,-9);path.lineTo(11,-6);path.lineTo(-2,9);path.closeSubpath()
+        elif command=='discard':
+            for angle in (45,-45):
+                from PySide6.QtGui import QTransform
+                bar=QPainterPath();bar.addRect(QRectF(-2,-10,4,20));path=path.united(QTransform().rotate(angle).map(bar))
+        else:
+            path.addEllipse(QRectF(-10,-10,20,20));hole=QPainterPath();hole.addEllipse(QRectF(-6,-6,12,12));path=path.subtracted(hole)
+            from PySide6.QtGui import QTransform
+            cut=QPainterPath();cut.addRect(QRectF(-2,-13,4,26));path=path.subtracted(QTransform().rotate(35).map(cut))
+        p.fillPath(path,QColor(symbol));p.restore()
 
 
 class TransparentToolButton(ButtonPaint, FluentTool):
@@ -208,6 +286,17 @@ class SplitPushButton(QWidget):
 
     def setText(self,text):
         self.button.setText(text)
+
+    def paintEvent(self,event):
+        if not self.property('attached'):return super().paintEvent(event)
+        c=visual.colors();p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
+        body_enabled=self.isEnabled() and self.button.isEnabled()
+        primary=self.property('role')=='primary' and body_enabled
+        p.setPen(QPen(QColor(c['border_soft']),1));p.setBrush(QColor(c['accent'] if primary else c['control']) if body_enabled else Qt.NoBrush)
+        p.drawRoundedRect(QRectF(self.rect()).adjusted(.5,.5,-.5,-.5),visual.CONTROL_RADIUS,visual.CONTROL_RADIUS)
+        if not self.dropButton.isHidden():
+            p.setPen(QPen(QColor(c['accent_text'] if primary else c['border_soft']),1))
+            x=self.dropButton.x();p.drawLine(x,7,x,self.height()-7)
 
     def text(self):
         return self.button.text()
@@ -271,7 +360,10 @@ class ComboBox(ButtonPaint, FluentCombo):
 
     def _createComboMenu(self):
         from fluent_ui.components.safe_round_menu import SafeRoundMenu
-        return SafeRoundMenu(parent=self)
+        menu=SafeRoundMenu(parent=self)
+        if self.property('popup_left_aligned'):
+            menu.exec=lambda *args,**kwargs: menu.popup_at(self)
+        return menu
 
     def sizeHint(self):
         width = max([self.fontMetrics().horizontalAdvance(item.text) for item in getattr(self, 'items', [])] + [40])
@@ -333,11 +425,12 @@ class SwitchButton(QAbstractButton):
         p.drawRoundedRect(QRectF(.5,.5,103,33),16.5,16.5)
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(c['surface']))
+        p.setBrush(QColor('#eeeee8'))
         p.drawRoundedRect(QRectF(3+49*(1-self._position),3,49,28),14,14)
         from services.i18n import t
         p.setFont(visual.font())
         for label,x,selected in ((t('开'),3,self.isChecked()),(t('关'),52,not self.isChecked())):
-            p.setPen(QColor(c['text'] if selected else c['muted']))
+            p.setPen(QColor('#30382d' if selected else c['muted']))
             p.drawText(QRectF(x,0,49,34),Qt.AlignCenter,label)
         if self.hasFocus():
             p.setPen(QPen(QColor(c['accent']), 1))

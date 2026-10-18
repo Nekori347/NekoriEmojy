@@ -89,11 +89,14 @@ def test_root_header_and_owner_feedback_layout(surface):
     g.feedback_host.toast('Copied')
     for i in range(5):g.feedback_host.toast(str(i))
     settle(s.app)
-    assert len(g.feedback_host.toasts) == 3
-    assert g.scroll_area.viewport().rect().contains(g.feedback_host.toast_layer.geometry())
+    assert not g.feedback_host.toasts
+    assert sum(j['title']=='Copied' for j in g.feedback_host.named_tasks.values())==1
+    assert g.feedback_host._caption_ui.overlay is not None
+    assert g.feedback_host.toast_layer.isHidden()
     g.feedback_host.set_overlays_suppressed(True)
     assert not g.feedback_host.toast_layer.isVisible()
     g.feedback_host.set_overlays_suppressed(False)
+    for key in list(g.feedback_host.named_tasks):g.feedback_host.remove_task(key)
     g.feedback_host.task('Import', total=None)
     assert g.feedback_host.progress.maximum() == 0
     assert not g.feedback_host.action_button.isVisible()
@@ -102,7 +105,7 @@ def test_root_header_and_owner_feedback_layout(surface):
     g.feedback_host.finish('Partial', 'One failed', outcome='partial')
     assert g.feedback_host.strip.isVisible() and not g.feedback_host.task_active
     g.feedback_host.finish('Failed', 'Read denied', outcome='error')
-    assert g.feedback_host.notices[-1][2]
+    assert g.feedback_host.named_tasks['legacy']['state']=='error'
     g.feedback_host.dismiss()
 
 

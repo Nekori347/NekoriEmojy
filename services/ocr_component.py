@@ -34,6 +34,15 @@ class OcrComponent:
     def __init__(self,app_dir):
         self.base=Path(app_dir)/'components'
         self.root=self.base/'ocr'
+        self._sizes=None
+
+    def sizes(self):
+        """Read release metadata; measure an existing installation once, off the UI thread."""
+        if self._sizes is None:
+            release=self.release()
+            installed=sum(p.stat().st_size for p in self.root.rglob('*') if p.is_file()) if self.root.is_dir() else 0
+            self._sizes=dict(download=release.get('size',0),installed=installed or release.get('installed_size',0))
+        return self._sizes
 
     @staticmethod
     def verify(root,full=False):
@@ -109,12 +118,14 @@ class OcrComponent:
             if cancel.is_set():raise InterruptedError()
             # Installer is entered only after the old worker has been stopped.
             if self.root.exists():shutil.rmtree(self.root)
+            self._sizes=None
             stage.replace(self.root)
             progress('installed',1,1)
         finally:
             shutil.rmtree(work,ignore_errors=True)
 
     def uninstall(self):
+        self._sizes=None
         if self.root.exists():shutil.rmtree(self.root)
 
 
@@ -168,3 +179,8 @@ class OcrProcess:
                 for stream in (process.stdin,process.stdout):
                     if stream:stream.close()
             if self.log:self.log.close();self.log=None
+
+    def interrupt(self):
+        """Terminate the current inference without waiting on the GUI thread."""
+        process=self.process
+        if process and process.poll() is None:process.terminate()

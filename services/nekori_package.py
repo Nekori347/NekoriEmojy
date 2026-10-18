@@ -183,8 +183,14 @@ class NekoriPackageService:
         for entry in resources:
             source = staging / entry["package_path"]
             if source.is_file():
-                saved, duplicate = self.storage.save_file(str(source),
-                    library_added_seq=entry.get('library_added_seq') if full_restore else None)
+                from services.resource_import import ImportSkipped
+                try:
+                    saved, duplicate = self.storage.save_file(str(source),
+                        library_added_seq=entry.get('library_added_seq') if full_restore else None)
+                except ImportSkipped:
+                    if progress:progress(step+1,total,entry.get('display_name',''))
+                    step+=1
+                    continue
                 if saved:
                     record = self.index.resource(saved)
                     resource_map[entry["id"]] = record["id"]

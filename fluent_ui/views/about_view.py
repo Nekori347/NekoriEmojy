@@ -1,73 +1,70 @@
-"""Nekori identity and concise upstream acknowledgements on shared surfaces."""
-from PySide6.QtCore import Qt,Signal,QUrl
+"""One compact information block embedded in Settings, with shared link routing."""
+from html import escape
+from PySide6.QtCore import QUrl,Qt,QSize
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QWidget,QLabel,QVBoxLayout,QHBoxLayout,QScrollArea,QApplication
+from PySide6.QtWidgets import QWidget,QLabel,QVBoxLayout,QHBoxLayout,QGridLayout
 from fluent_ui import visual
 from fluent_ui.icons import Icon
-from fluent_ui.presentation.surfaces import Surface,RuleHeading
-from fluent_ui.components.controls import PushButton,TransparentToolButton
-from fluent_ui.components.softframe import DisclosureButton
-from services.update_service import current_version
+from fluent_ui.components.controls import TransparentToolButton
+from fluent_ui.components.softframe import paint_setting_surface
 from services.i18n import t,bind_text,i18n_engine
 
+AUTHOR_LINKS=(('GitHub',Icon.GITHUB,'https://github.com/Nekori347'),
+              ('X',Icon.BRAND_X,'https://x.com/Nekori_Net'),
+              ('哔哩哔哩',Icon.BILIBILI,'https://space.bilibili.com/17409970'))
+SOURCES=(('SuzuEmojy · IxinorTyan','https://github.com/IxinorTyan/SuzuEmojy'),
+         ('Nekori Softframe','https://github.com/Nekori347/Nekori-Softframe'),
+         ('QQFavoriteExtract · VanillaNahida','https://github.com/VanillaNahida/QQFavoriteExtract'))
 
-class AboutInterface(QWidget):
-    back_requested=Signal()
-    AUTHOR_URL='https://github.com/Nekori347'
+
+class AboutInformation(QWidget):
     def __init__(self,parent=None):
-        super().__init__(parent);self.setObjectName('AboutInterface')
-        root=QVBoxLayout(self);root.setContentsMargins(4,2,4,4);root.setSpacing(12)
-        head=QHBoxLayout();self.btnBack=TransparentToolButton(Icon.LEFT_ARROW,self)
-        bind_text(self.btnBack,'返回设置','setToolTip');self.btnBack.clicked.connect(self.back_requested)
-        head.addWidget(self.btnBack);self.titleLabel=QLabel(self);bind_text(self.titleLabel,'关于软件')
-        self.titleLabel.setProperty('role','title');head.addWidget(self.titleLabel);head.addStretch();root.addLayout(head)
-        self.sheet=Surface('base',self,radius=14);root.addWidget(self.sheet,1)
-        sheet=QVBoxLayout(self.sheet);sheet.setContentsMargins(24,24,24,20);sheet.setSpacing(24)
-        brand=QHBoxLayout();logo=QLabel(self.sheet)
-        # The window supplies the actual Nekori icon, including user overrides.
-        logo.setPixmap(self.window().windowIcon().pixmap(64,64));brand.addWidget(logo)
-        names=QVBoxLayout();name=QLabel('NekoriEmojy',self.sheet);name.setFont(visual.font('page_title'));name.setProperty('role','title')
-        names.addWidget(name);self.summary=QLabel(self.sheet);bind_text(self.summary,'本地表情管理')
-        self.summary.setProperty('role','hint');names.addWidget(self.summary);brand.addLayout(names,1)
-        self.version=QLabel('v'+current_version(),self.sheet);self.version.setProperty('role','data');brand.addWidget(self.version)
-        sheet.addLayout(brand)
-        self.scroll=QScrollArea(self.sheet);self.scroll.setWidgetResizable(True);self.scroll.setFrameShape(QScrollArea.NoFrame)
-        self.scroll.setStyleSheet('QScrollArea {border:none;background:transparent;}')
-        body=QWidget();self.scroll.setWidget(body);body.setAutoFillBackground(False)
-        self.scroll.viewport().setAutoFillBackground(False)
-        content=QVBoxLayout(body);content.setContentsMargins(0,0,0,0);content.setSpacing(18);content.setAlignment(Qt.AlignTop)
-        self._entry(content,'Nekori347','NekoriEmojy · Softframe',self.AUTHOR_URL)
-        details=Surface('raised',body,radius=12);info=QVBoxLayout(details);info.setContentsMargins(20,16,20,16);info.setSpacing(12)
-        for text in ('分类、标签与搜索','快速面板与表情发送','QQ / Telegram 导入工具'):
-            label=QLabel(details);bind_text(label,text);info.addWidget(label)
-        content.addWidget(details)
-        title=RuleHeading('',body);bind_text(title.label,'来源与致谢');content.addWidget(title)
-        self._entry(content,'SuzuEmojy · IxinorTyan','兼容来源与原始代码致谢','https://github.com/IxinorTyan/SuzuEmojy')
-        self._entry(content,'Nekori Softframe','界面设计规范','https://github.com/Nekori347/Nekori-Softframe')
-        self._entry(content,'QQFavoriteExtract · VanillaNahida','QQ 表情提取参考','https://github.com/VanillaNahida/QQFavoriteExtract')
-        resources=QLabel('Sarasa UI SC  /  Rajdhani  /  JetBrains Mono\nTabler Icons  ·  PySide6',body)
-        resources.setFont(visual.font('data'));resources.setProperty('role','data');content.addWidget(resources)
-        license=QLabel('GPL-3.0  ·  '+t('表情版权归各自作者所有'),body);license.setWordWrap(True)
-        license.setProperty('role','hint');content.addWidget(license);sheet.addWidget(self.scroll,1)
-        footer=QHBoxLayout();footer.addStretch()
-        self.btnReleases=PushButton(Icon.CLOUD_DOWNLOAD,t('检查更新'),self.sheet)
-        self.btnReleases.clicked.connect(self._open_updates);footer.addWidget(self.btnReleases);sheet.addLayout(footer)
-        visual.apply_typography(self);i18n_engine.language_changed.connect(self.update_texts)
-        visual.theme.changed.connect(self.refresh_theme);self.refresh_theme()
+        super().__init__(parent);self.external_buttons={}
+        root=QVBoxLayout(self);root.setContentsMargins(18,16,18,16);root.setSpacing(14)
+        header=QHBoxLayout();header.setSpacing(10)
+        logo=QLabel(self);logo.setPixmap(self.window().windowIcon().pixmap(48,48));header.addWidget(logo)
+        names=QVBoxLayout();names.setSpacing(1)
+        name=QLabel('NekoriEmojy',self);name.setFont(visual.font('section_title'));names.addWidget(name)
+        summary=QLabel(self);bind_text(summary,'本地表情管理');summary.setFont(visual.font('secondary'));names.addWidget(summary)
+        header.addLayout(names,1)
+        author=QVBoxLayout();author.setSpacing(1);title=QLabel(self);bind_text(title,'作者');title.setFont(visual.font('secondary'));author.addWidget(title)
+        author.addWidget(QLabel('Nekori_Net',self))
+        social=QHBoxLayout();social.setSpacing(8)
+        for label,icon,url in AUTHOR_LINKS:
+            button=TransparentToolButton(icon,self);button.setFixedSize(28,28);button.setIconSize(QSize(18,18))
+            button.setAccessibleName(label);button.setToolTip(label+' · '+url)
+            button.setFocusPolicy(Qt.StrongFocus);button.clicked.connect(lambda checked=False,u=url:self.open_link(u))
+            self.external_buttons[label]=button;social.addWidget(button)
+        social.addStretch();author.addLayout(social);header.addLayout(author);root.addLayout(header)
+        self.links=[]
+        for heading,entries in (
+            ('项目参考与相关工具',SOURCES),
+            ('字体、图标与界面资源',tuple((name,None) for name in ('Sarasa UI SC','Rajdhani','JetBrains Mono','Tabler Icons'))),
+            ('框架与许可证',(('PySide6',None),('GPL-3.0','https://github.com/Nekori347/NekoriEmojy/blob/main/LICENSE')))):
+            group=QVBoxLayout();group.setSpacing(6)
+            title=QLabel(self);bind_text(title,heading);title.setFont(visual.font('section_title'));group.addWidget(title)
+            grid=QGridLayout();grid.setHorizontalSpacing(20);grid.setVerticalSpacing(6)
+            for index,(name,url) in enumerate(entries):
+                label=QLabel(self);label.setFont(visual.font('secondary'))
+                label.setTextInteractionFlags(Qt.LinksAccessibleByMouse|Qt.LinksAccessibleByKeyboard)
+                label.linkActivated.connect(self.open_link);label.setToolTip(url or name)
+                self.links.append((label,name,url));grid.addWidget(label,index//2,index%2)
+            grid.setColumnStretch(0,1);grid.setColumnStretch(1,1);group.addLayout(grid);root.addLayout(group)
+        self.license=QLabel(self);self.license.setFont(visual.font('secondary'));self.license.setWordWrap(True)
+        self.license.linkActivated.connect(self.open_link);root.addWidget(self.license)
+        i18n_engine.language_changed.connect(self.refresh_texts);visual.theme.changed.connect(self.refresh_texts);self.refresh_texts()
 
-    def refresh_theme(self):
-        c=visual.colors()
-        self.setStyleSheet(f'QLabel {{color:{c["text"]};background:transparent;}} QLabel[role="hint"],QLabel[role="data"] {{color:{c["text_secondary"]};}}')
-    def _entry(self,layout,title,description,url):
-        row=Surface('raised',self,radius=12,edge=False);box=QHBoxLayout(row);box.setContentsMargins(18,16,14,16)
-        text=QVBoxLayout();name=QLabel(title,row);name.setFont(visual.font('section_title'));text.addWidget(name)
-        note=QLabel(row);bind_text(note,description);note.setProperty('role','hint');text.addWidget(note);box.addLayout(text,1)
-        button=TransparentToolButton(Icon.LINK,row);button.setFixedSize(32,32);button.setToolTip(url)
-        button.clicked.connect(lambda:QDesktopServices.openUrl(QUrl(url)));box.addWidget(button);layout.addWidget(row)
-    def _open_updates(self):
-        from fluent_ui.components.update_center import update_center
-        update_center().open(self.window())
-    def update_texts(self,*_):
-        self.btnReleases.setText(t('检查更新'));visual.apply_typography(self)
-    def shutdown(self):
-        if hasattr(self,'update_dialog'):self.update_dialog.shutdown()
+    def open_link(self,url):return QDesktopServices.openUrl(QUrl(url))
+
+    def refresh_texts(self,*_):
+        color=visual.colors()['text_secondary']
+        for label,name,url in self.links:
+            label.setText(f'<a href="{escape(url)}" style="color:{color};text-decoration:none;white-space:nowrap">{escape(name)}</a>' if url else name)
+            label.setStyleSheet(f'color:{color};background:transparent;')
+        self.license.setText(t('表情版权归各自作者所有'))
+        self.update()
+
+    def paintEvent(self,event):
+        from PySide6.QtGui import QPainter
+        from PySide6.QtCore import QRectF
+        painter=QPainter(self);paint_setting_surface(painter,QRectF(self.rect()))

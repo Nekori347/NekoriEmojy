@@ -2,7 +2,7 @@ from services.i18n import t, bind_text
 import os
 import ctypes
 
-from PySide6.QtCore import Qt, QObject, Signal, QEvent, QTimer
+from PySide6.QtCore import Qt, QObject, Signal, QEvent, QTimer, QRect
 from PySide6.QtGui import QIcon, QShortcut, QKeySequence
 from PySide6.QtWidgets import QApplication
 
@@ -95,6 +95,7 @@ class MainWindow(NekoriWindow):
         self.apply_window_flags()
         QApplication.instance().aboutToQuit.connect(self._save_window_state)
         QApplication.instance().aboutToQuit.connect(self._save_session_state)
+        QApplication.instance().installEventFilter(self)
 
     def _init_window(self):
         self.setWindowTitle("NekoriEmojy")
@@ -122,9 +123,8 @@ class MainWindow(NekoriWindow):
     def _usable_geometry(value, minimum):
         """Whether a saved geometry describes a real window.
 
-        A degenerate rectangle (a zero or minimum-clamped size) is what a
-        headless run leaves behind; restoring it puts the window in a corner
-        instead of where the user left it, so it is treated as "nothing saved".
+        Reject invalid/below-minimum records. A valid narrow size can be the
+        user's choice and must not be replaced with the product default.
         """
         if not isinstance(value, list) or len(value) != 4:
             return False
@@ -153,6 +153,7 @@ class MainWindow(NekoriWindow):
         from services.dev_placement import move_to_dev_screen
         if move_to_dev_screen(self):
             self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self._normal_window_geometry=QRect(self.geometry())
 
     def ensure_window_visible(self):
         """
@@ -185,7 +186,8 @@ class MainWindow(NekoriWindow):
             # the window somewhere that is not the user's choice; none of them
             # may become the position the user gets back on a normal launch.
             return
-        geometry = self.normalGeometry() if self.isMaximized() or self.isMinimized() else self.geometry()
+        geometry = getattr(self,'_normal_window_geometry',self.normalGeometry()) if self.isMaximized() or self.isMinimized() else self.geometry()
+        if not self._usable_geometry(list(geometry.getRect()),self.minimumSize()):return
         from PySide6.QtGui import QGuiApplication
         screen = QGuiApplication.screenAt(geometry.center()) or self.screen()
         values = {'window_geometry': list(geometry.getRect())}
@@ -233,6 +235,8 @@ class MainWindow(NekoriWindow):
             self._dev_placement_done = True
             from services.dev_placement import move_to_dev_screen
             move_to_dev_screen(self)
+            if not self.isMaximized() and not self.isMinimized():
+                self._normal_window_geometry=QRect(self.geometry())
         # FramelessWindow 已在初始化时启用系统动画，显示/还原时不要重写窗口样式。
         self.apply_rounded_corners()
         # qframelesswindow/Windows 可能在显示阶段重新调整 Z 序，
@@ -241,7 +245,13 @@ class MainWindow(NekoriWindow):
 
     def changeEvent(self, event):
         # Caption-button cleanup on losing activation lives in NekoriWindow.
+        restoring=(event.type()==QEvent.WindowStateChange and event.oldState() & (Qt.WindowMinimized|Qt.WindowMaximized)
+                   and not self.isMinimized() and not self.isMaximized())
+        if restoring:self._geometry_transition=True
         super().changeEvent(event)
+        if event.type()==QEvent.WindowStateChange and event.oldState() & (Qt.WindowMinimized|Qt.WindowMaximized):
+            if not self.isMinimized() and not self.isMaximized():
+                QTimer.singleShot(0,self._apply_normal_geometry)
         if event.type() == QEvent.ActivationChange and self.isActiveWindow():
             # Regaining focus may need the topmost band reasserted.
             self.apply_window_flags()
@@ -254,8 +264,6 @@ class MainWindow(NekoriWindow):
                 return
         self._save_session_state()
         self._save_window_state()
-        if hasattr(self, 'about_interface'):
-            self.about_interface.shutdown()
         if hasattr(self, 'qq_scan_interface') and hasattr(self.qq_scan_interface, 'shutdown'):
             self.qq_scan_interface.shutdown()
         if hasattr(self, 'tg_sticker_interface') and hasattr(self.tg_sticker_interface, 'shutdown'):
@@ -299,7 +307,6 @@ class MainWindow(NekoriWindow):
         from fluent_ui.window_shell import SettingsWindow
         self.settings_window = SettingsWindow(self.config, self.storage, self)
         self.setting_interface = self.settings_window.center
-        self.about_interface = self.settings_window.about
         self.setting_interface.settings_changed.connect(self.on_settings_changed)
         self.destroyed.connect(self.settings_window.deleteLater)
 
@@ -342,7 +349,7 @@ class MainWindow(NekoriWindow):
         from fluent_ui.components.quick_panel import QuickPanel
         self.quick_panel = QuickPanel(self.storage, self.clipboard, self.config,
                                      send_target_service=self.send_target_service)
-        self.quick_panel.resources_imported.connect(self.refresh_library)
+        # The shared desktop import queue refreshes the affected gallery entries.
         
     def refresh_library(self):
         """An owner-local import updates the shared library and existing views."""
@@ -366,13 +373,14 @@ class MainWindow(NekoriWindow):
             self.gallery_interface.on_images_changed()
             
         self.stacked_widget.setCurrentWidget(self.gallery_interface)
-        self.showNormal()
+        self._restore_main_visibility()
         self.activateWindow()
         self.raise_()
         self._reapply_window_flags_after_show()
 
     def show_about(self):
-        self.settings_window.show_page(self.about_interface)
+        self.setting_interface._select_page(4)
+        self.settings_window.show_page(self.setting_interface)
 
     def show_exchange(self):
         self.setting_interface._select_page(3)
@@ -523,16 +531,70 @@ class MainWindow(NekoriWindow):
         self.clear_transient_button_states()
         self.gallery_interface.save_scroll_position()
         self.gallery_interface.preview_controller.cancel()
+        self.hide_window_group()
+
+    def showMinimized(self):
+        if not self.config.get('show_taskbar_icon', True):
+            self.hide_window_group()
+            return
+        self._main_restore_state = self.windowState() & ~Qt.WindowMinimized
+        self._remember_normal_geometry()
+        self._geometry_transition=True
+        try:super().showMinimized()
+        finally:self._geometry_transition=False
+
+    def _remember_normal_geometry(self):
+        if self.isVisible() and not self.isMaximized() and not self.isMinimized() and not getattr(self,'_geometry_transition',False):
+            self._normal_window_geometry=QRect(self.geometry())
+
+    def showMaximized(self):
+        self._remember_normal_geometry()
+        self._geometry_transition=True
+        try:super().showMaximized()
+        finally:self._geometry_transition=False
+
+    def showNormal(self):
+        self._geometry_transition=True
+        try:
+            super().showNormal()
+            self._apply_normal_geometry()
+        finally:self._geometry_transition=False
+
+    def _apply_normal_geometry(self):
+        rect=getattr(self,'_normal_window_geometry',None)
+        if rect is not None and not self.isMaximized() and not self.isMinimized():
+            self._geometry_transition=True
+            try:self.setGeometry(rect)
+            finally:self._geometry_transition=False
+        self._geometry_transition=False
+
+    def hide_window_group(self):
+        if not self.isVisible():
+            return
+        self._main_restore_state = self.windowState() & ~Qt.WindowMinimized
+        self.clear_transient_button_states()
+        self.gallery_interface.save_scroll_position()
+        self._hide_owned_for_tray()
         self.hide()
 
-    def toggle_window(self):
+    def _restore_main_visibility(self):
+        state = (getattr(self, '_main_restore_state', self.windowState() & ~Qt.WindowMinimized)
+                 if not self.isVisible() or self.isMinimized() else self.windowState())
+        self._geometry_transition=True
+        try:
+            self.setWindowState(state)
+            self.show()
+            self._apply_normal_geometry()
+        finally:self._geometry_transition=False
+
+    def toggle_window(self, *, from_tray=False):
         """Show the main panel when hidden, hide it when it is up.
 
         Visibility alone decides: a visible but unfocused window is still "up",
         and requiring activation made a second tray click re-show it instead of
         hiding it.
         """
-        if self.isVisible():
+        if self.isVisible() and not self.isMinimized():
             # 隐藏前清除标题栏按钮的悬停绘制状态
             self.clear_transient_button_states()
 
@@ -540,14 +602,14 @@ class MainWindow(NekoriWindow):
             if hasattr(self, 'gallery_interface'):
                 self.gallery_interface.save_scroll_position()
 
-            self.hide()
+            self.hide_window_group()
         else:
             self.show_gallery(refresh=False)
             
-            self.showNormal()
             self.activateWindow()
             self.raise_()
             user32.SetForegroundWindow(ctypes.c_void_p(int(self.winId())))
+            self._restore_owned_from_tray()
             
             # 在下一帧恢复滚动位置
             if hasattr(self, 'gallery_interface'):
@@ -556,31 +618,57 @@ class MainWindow(NekoriWindow):
                 QTimer.singleShot(100, self.gallery_interface, self.gallery_interface.restore_scroll_position)
                 QTimer.singleShot(300, self.gallery_interface, self.gallery_interface.restore_scroll_position)
 
+    def _owned_window_depth(self, window):
+        current=window;seen=set();depth=0
+        while current is not None and id(current) not in seen:
+            if current is self:return depth
+            seen.add(id(current));depth+=1
+            current=getattr(current,'owner',None) or current.parentWidget()
+        return 0
+
+    def _hide_owned_for_tray(self):
+        from PySide6.QtWidgets import QApplication
+        records=[]
+        for window in QApplication.topLevelWidgets():
+            if window in (self,self.quick_panel) or not window.isVisible():continue
+            if window.windowType() in (Qt.Popup,Qt.ToolTip):continue
+            depth=self._owned_window_depth(window)
+            if depth:
+                native_modal=window.isModal() and QApplication.platformName()=='windows'
+                records.append((depth,window,window.geometry(),window.windowState(),native_modal))
+        self._tray_hidden_windows=sorted(records,key=lambda item:item[0])
+        for _,window,_,_,native_modal in reversed(self._tray_hidden_windows):
+            if native_modal:
+                # QDialog.hide() exits an active exec() loop as Rejected.
+                # Hide the HWND only, leaving the pending modal action alive.
+                import win32gui,win32con
+                win32gui.ShowWindow(int(window.winId()),win32con.SW_HIDE)
+            else:window.hide()
+
+    def _restore_owned_from_tray(self):
+        from shiboken6 import isValid
+        from PySide6.QtWidgets import QApplication
+        records=getattr(self,'_tray_hidden_windows',[]);self._tray_hidden_windows=[]
+        for _,window,geometry,state,native_modal in records:
+            if not isValid(window):continue
+            if window.geometry()!=geometry:window.setGeometry(geometry)
+            window.setWindowState(state)
+            if native_modal:
+                import win32gui,win32con
+                win32gui.ShowWindow(int(window.winId()),win32con.SW_SHOWNOACTIVATE)
+            else:window.show()
+        modal=QApplication.activeModalWidget()
+        if modal is not None and self._owned_window_depth(modal):
+            modal.raise_();modal.activateWindow()
+        elif records:
+            window=records[-1][1]
+            if isValid(window):window.raise_();window.activateWindow()
+
     def apply_rounded_corners(self):
-        """
-        强制指定 Windows 11 DWM 窗口圆角。
-        避免 qframelesswindow 动态添加 WS_THICKFRAME/WS_CAPTION 等原生样式时，
-        Windows 11 将无边框窗口回退为直角矩形。
-        """
-        try:
-            hwnd = int(self.winId())
-            if not hwnd or not user32.IsWindow(hwnd):
-                return False
-
-            preference = wintypes.DWORD(DWMWCP_ROUND)
-            hr = dwmapi.DwmSetWindowAttribute(
-                hwnd,
-                DWMWA_WINDOW_CORNER_PREFERENCE,
-                ctypes.byref(preference),
-                ctypes.sizeof(preference),
-            )
-            if hr != 0:
-                return False
-
-            # DWM 会直接应用圆角偏好；FRAMECHANGED 会额外触发非客户区重算和重绘。
-            return True
-        except (AttributeError, TypeError, ValueError, OSError):
-            return False
+        # All owned windows use the same native material and Qt/native shape.
+        from fluent_ui.materials import native_material,sync_native_clip
+        native_material(self);sync_native_clip(self)
+        return True
 
     def apply_window_flags(self):
         """
@@ -679,13 +767,36 @@ class MainWindow(NekoriWindow):
                 return
             if not self.config.get('esc_hide_main', False):
                 return super().keyPressEvent(event)
-            self.hide()
+            self.hide_window_group()
             event.accept()
             return
         super().keyPressEvent(event)
 
+    def eventFilter(self, obj, event):
+        if (event.type() == QEvent.KeyPress and event.key() == Qt.Key_Escape
+                and self.config.get('esc_hide_main', False)):
+            app = QApplication.instance()
+            window = obj.window() if hasattr(obj, 'window') else None
+            if (window is not None and window is not getattr(self, 'quick_panel', None)
+                    and window.windowType() not in (Qt.Popup,Qt.ToolTip) and not window.isModal()
+                    and (window is self or self._owned_window_depth(window))
+                    and not app.activePopupWidget() and not app.activeModalWidget()):
+                # Shortcut capture and in-place editors receive Esc first.
+                from fluent_ui.components.setting_rows import HotkeyEditor
+                if isinstance(obj, HotkeyEditor) or isinstance(app.focusWidget(), HotkeyEditor):
+                    return False
+                if window is self and self.gallery_interface.consume_escape():
+                    return True
+                self.hide_window_group()
+                event.accept()
+                return True
+        return super().eventFilter(obj, event)
+
     def on_settings_changed(self, changed_key=""):
         """当设置界面修改了配置时被调用，按需局部刷新"""
+        if changed_key == 'recent_limit':
+            self.storage.recent_changed.emit()
+            return
         if changed_key == 'tag_panel_placement':
             self.gallery_interface.tag_panel_host.set_placement(self.config.get(changed_key, 'bottom'))
             return
@@ -714,18 +825,20 @@ class MainWindow(NekoriWindow):
             self._sync_theme_button()
 
         elif changed_key in ["appearance_mode", "light_theme_key", "dark_theme_key"]:
+            from fluent_ui import visual
             from qfluentwidgets import setTheme, Theme
             appearance_mode = self.config.get("appearance_mode",
                                               self.config.get("theme_mode", "system"))
-            if appearance_mode == "dark":
-                setTheme(Theme.DARK,lazy=True)
-            elif appearance_mode == "light":
-                setTheme(Theme.LIGHT,lazy=True)
-            else:
-                setTheme(Theme.AUTO,lazy=True)
+            with visual.theme.transition():
+                if appearance_mode == "dark":
+                    setTheme(Theme.DARK,lazy=True)
+                elif appearance_mode == "light":
+                    setTheme(Theme.LIGHT,lazy=True)
+                else:
+                    setTheme(Theme.AUTO,lazy=True)
 
-            self._update_background()
-            self.quick_panel.update_theme()
+                self._update_background()
+                self.quick_panel.update_theme()
 
         elif changed_key == "app_icon":
             self.reload_application_icon()
@@ -755,13 +868,31 @@ class MainWindow(NekoriWindow):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._remember_normal_geometry()
         if hasattr(self, "accent_line"):
             self.accent_line.reposition()
+
+    def moveEvent(self,event):
+        super().moveEvent(event)
+        self._remember_normal_geometry()
 
     def nativeEvent(self, eventType, message):
         """监听 Windows 底层消息，处理睡眠唤醒后快捷键失效的问题，以及系统主题切换"""
         try:
             msg = wintypes.MSG.from_address(int(message))
+            if msg.message == 0x0112:  # WM_SYSCOMMAND (Qt 6.8+ caption route)
+                command=int(msg.wParam)&0xfff0
+                changing=(command==0xf020 and not self.isMinimized() or command==0xf030 and not self.isMaximized()
+                          or command==0xf120 and (self.isMinimized() or self.isMaximized()))
+                if changing:
+                    if command==0xf020 and not self.config.get('show_taskbar_icon',True):
+                        self.hide_window_group();return True,0
+                    self._remember_normal_geometry()
+                    if command==0xf020:self._main_restore_state=self.windowState() & ~Qt.WindowMinimized
+                    # Native sizing messages can arrive before Qt changes its
+                    # WindowState. Never mistake those rectangles for a user
+                    # resize. Restore completes through changeEvent below.
+                    self._geometry_transition=True
             # WM_POWERBROADCAST = 0x0218
             if msg.message == 0x0218:
                 # PBT_APMRESUMEAUTOMATIC = 0x0012 (系统自动唤醒)

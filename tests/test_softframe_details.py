@@ -28,7 +28,7 @@ def test_empty_and_unsupported_clipboard_return_without_import(surface,monkeypat
     monkeypatch.setattr(surface.clipboard,'get_data_from_clipboard',lambda:('file',[str(text)]))
     g.handle_global_paste();settle(surface.app)
     assert not calls
-    assert g.feedback_host.toasts
+    assert g.feedback_host.named_tasks
 
 
 def test_view_tools_cycle_sort_and_snap_size(surface):

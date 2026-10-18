@@ -55,6 +55,7 @@ def active_tasks():
 
 class UpdateDialog(dialogs.NekoriDialog):
     release_changed=Signal(object)
+    check_state_changed=Signal(str)
     def __init__(self, parent=None, service=None):
         super().__init__(parent,t('软件更新'))
         self.service = service or UpdateService()
@@ -62,17 +63,21 @@ class UpdateDialog(dialogs.NekoriDialog):
         self.release = None
         self.prepared = None
         self.installing = False
+        self._checking = False
         self.setWindowTitle(t("软件更新"))
         self.setObjectName("updateDialog")
         self.setStyleSheet("QDialog#updateDialog { background: " + colors()['window_base'] + "; }")
-        self.resize(700, 470)
+        self.resize(500, 240)
         layout = self.body
         from PySide6.QtWidgets import QLabel
-        self.status = QLabel(t("当前版本") + "：v" + current_version(self.service.root))
+        self.current_label=QLabel(t('当前版本')+'：v'+current_version(self.service.root));layout.addWidget(self.current_label)
+        self.latest_label=QLabel();layout.addWidget(self.latest_label);self.latest_label.hide()
+        self.status = QLabel(t('正在检查更新…'))
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         self.notes = TextEdit()
         self.notes.setReadOnly(True)
+        self.notes.setFixedHeight(160);self.notes.hide()
         layout.addWidget(self.notes)
         self.progress = ProgressBar()
         self.progress.setRange(0, 100)
@@ -87,8 +92,9 @@ class UpdateDialog(dialogs.NekoriDialog):
         self.cancel_button.hide()
         self.page_button = PushButton(t("打开发布页"))
         self.later_button = PushButton(t("稍后"))
-        for button in (self.check_button, self.action_button, self.cancel_button, self.page_button, self.later_button):
-            row.addWidget(button)
+        row.addWidget(self.check_button);row.addStretch()
+        for button in (self.page_button,self.cancel_button,self.later_button,self.action_button):row.addWidget(button)
+        self.page_button.hide()
         self.check_button.clicked.connect(self.check)
         self.action_button.clicked.connect(self.action)
         self.cancel_button.clicked.connect(self.service.cancel.set)
@@ -142,11 +148,14 @@ class UpdateDialog(dialogs.NekoriDialog):
         self.worker.start()
 
     def _error(self, error):
+        if self._checking:
+            self._checking=False;self.release=None;self.check_state_changed.emit('error')
         self.installing = False
         self.later_button.setEnabled(True)
         self.setWindowModality(Qt.NonModal)
         self.status.setText(t("更新失败，请重试或打开发布页"))
         self.notes.setPlainText(error)
+        self.notes.show();self.page_button.show();self._fit_content()
         self.action_button.setEnabled(self.release is not None or self.prepared is not None)
 
     def check(self):
@@ -157,24 +166,36 @@ class UpdateDialog(dialogs.NekoriDialog):
             self.release_changed.emit(None)
             return
         self.release = None
+        self._checking=True;self.check_state_changed.emit('checking')
         self.status.setText(t("正在检查更新…"))
         self._run(lambda progress: self.service.check(), self._checked)
 
     def _checked(self, release):
+        self._checking=False
+        self.release=release
         self.release_changed.emit(release)
         if not release:
             self.status.setText(t('暂未发现可用更新'))
             self.notes.clear()
+            self.notes.hide();self.latest_label.hide();self.action_button.setEnabled(False)
+            self.check_button.show();self.page_button.hide();self._fit_content()
             return
         self.release = release
         self.prepared = None
-        self.status.setText(t("当前版本") + "：v" + current_version(self.service.root) + " → v" + release["version"] + " · " + release["date"][:10] + " · %.1f MB" % (release["size"] / 1024 ** 2))
-        self.notes.setPlainText(release["notes"])
-        self.action_button.setText(t("下载更新"))
+        self.latest_label.setText(t('最新可用版本')+'：v'+release['version']);self.latest_label.show()
+        self.status.setText(t('有可用更新') if release.get('notes') else t('有可用更新，暂未获取更新说明。'))
+        self.notes.setPlainText(release.get('notes',''));self.notes.setVisible(bool(release.get('notes')))
+        self.notes.document().setTextWidth(470)
+        self.notes.setFixedHeight(max(60,min(200,round(self.notes.document().size().height())+16)))
+        self.action_button.setText(t("立即更新"))
         self.action_button.setEnabled(True)
-        if not (self.service.root / MANIFEST).is_file():
-            self.action_button.setText(t('前往更新'))
-            self.status.setText(self.status.text() + "\n" + t("源码运行仅支持检查，请使用正式发布包进行更新"))
+        if release.get('manual_only') or not (self.service.root / MANIFEST).is_file():
+            self.action_button.setText(t('获取更新'))
+        self.check_button.hide();self.page_button.hide();self._fit_content()
+
+    def _fit_content(self):
+        self.layout().activate();self.resize(520,self.layout().sizeHint().height())
+        if self.parentWidget():dialogs.center_on_owner(self,self.parentWidget())
 
     def _prepared(self, item):
         self.prepared = item

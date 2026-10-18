@@ -39,6 +39,8 @@ def build(runtime,output):
         for p in sorted(stage.rglob('*')):
             if p.is_file():archive.write(p,p.relative_to(stage).as_posix())
     output.with_suffix('.zip.sha256').write_text(sha256(output)+'  '+output.name+'\n',encoding='ascii')
+    atomic_json(output.with_suffix('.metadata.json'),dict(version=OCR_VERSION,filename=output.name,
+        size=output.stat().st_size,installed_size=sum(p.stat().st_size for p in stage.rglob('*') if p.is_file()),sha256=sha256(output)))
     print(json.dumps(dict(archive=str(output),sha256=sha256(output),compressed_bytes=output.stat().st_size,
         deployed_bytes=sum(p.stat().st_size for p in stage.rglob('*') if p.is_file())),indent=2))
 

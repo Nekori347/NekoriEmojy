@@ -169,6 +169,17 @@ class NekoriDialog(OwnerCenteredDialog):
 
     def refresh_theme(self):
         self.setStyleSheet(dialog_style() + _button_style())
+        if hasattr(self,'semantic_icon'):self.set_semantic(self._semantic)
+
+    def set_semantic(self,kind):
+        from fluent_ui.icons import Icon
+        self._semantic=kind
+        if not hasattr(self,'semantic_icon'):
+            self.semantic_icon=QLabel(self.header);self.semantic_icon.setFixedSize(22,22)
+            self.header_layout.insertWidget(0,self.semantic_icon)
+        icon={'info':Icon.INFO,'warning':Icon.WARNING,'danger':Icon.WARNING,'error':Icon.ERROR,'success':Icon.SUCCESS}[kind]
+        color=colors()['danger'] if kind in {'danger','error'} else colors()['warning'] if kind=='warning' else colors()['success'] if kind=='success' else colors()['text_secondary']
+        self.semantic_icon.setPixmap(icon.icon(color=color).pixmap(20,20))
 
     def add_button(self, text, role="", on_click=None, enabled=True):
         button = translated(QPushButton, text, self)
@@ -236,14 +247,15 @@ def prompt_text(parent, title, label, initial="", hint="", ok_text="确定", cod
 
 def confirm(parent, title, message, ok_text="确定", danger=False, hint="", code=""):
     dialog = NekoriDialog(parent, title, code=code)
+    if danger:dialog.set_semantic('danger')
     label = translated(QLabel, message, dialog)
     label.setWordWrap(True)
     dialog.add_widget(label)
     if hint:
         dialog.add_hint(hint)
-    dialog.add_button(t("取消"), on_click=dialog.reject)
+    cancel=dialog.add_button(t("取消"), on_click=dialog.reject)
     dialog.add_button(ok_text, role="danger" if danger else "primary", on_click=dialog.accept)
-    dialog.setMinimumWidth(380)
+    cancel.setDefault(True);cancel.setFocus();dialog.setMinimumWidth(380)
     return dialog.exec() == QDialog.Accepted
 
 

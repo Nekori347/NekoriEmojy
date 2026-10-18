@@ -77,6 +77,9 @@ class QuickPanel(QWidget):
         self._ocr_search_timer.setSingleShot(True);self._ocr_search_timer.setInterval(600)
         self._ocr_search_timer.timeout.connect(lambda:self._perform_search(force=True))
         ocr_service(self.storage).text_changed.connect(self._ocr_text_changed)
+        from fluent_ui.components.import_queue import import_queue
+        self.imports=import_queue(self.storage)
+        self.imports.files_finished.connect(self._queued_import_finished)
         
         # 悬停预览组件
         self.preview_popup = HoverPreviewPopup(self)
@@ -102,6 +105,11 @@ class QuickPanel(QWidget):
         
         self.update_theme()
         self.storage.availability.changed.connect(self._availability_changed)
+        self.storage.recent_changed.connect(self._recent_changed)
+
+    def _recent_changed(self):
+        self._cached_query = None
+        if self.isVisible() and not self.search_box.text().strip():self._perform_search(force=True)
 
     def _init_ui(self):
         from fluent_ui.presentation.quick import build_quick
@@ -166,15 +174,17 @@ class QuickPanel(QWidget):
         from PySide6.QtCore import QRectF
         from fluent_ui import visual
         c=visual.colors();p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
-        from fluent_ui.materials import shell_color
+        from fluent_ui.materials import shell_color,shell_radius
+        p.setCompositionMode(QPainter.CompositionMode_Source);p.fillRect(self.rect(),Qt.transparent);p.setCompositionMode(QPainter.CompositionMode_SourceOver)
         p.setBrush(shell_color(self));p.setPen(QPen(QColor(c['border']),1))
-        p.drawRoundedRect(QRectF(self.rect()).adjusted(.5,.5,-.5,-.5),visual.WINDOW_RADIUS,visual.WINDOW_RADIUS)
+        radius=shell_radius(self)
+        p.drawRoundedRect(QRectF(self.rect()).adjusted(.5,.5,-.5,-.5),radius,radius)
         p.setPen(Qt.NoPen);p.setBrush(QColor(c['accent']))
         p.drawRoundedRect(QRectF(10,3,max(0,self.width()-20),3),1.5,1.5)
 
     def update_theme(self):
-        from fluent_ui.materials import native_material
-        native_material(self)
+        from fluent_ui import visual
+        visual.theme.material(self)
         from fluent_ui import visual
         c=visual.colors()
         visual.apply_typography(self)
@@ -201,7 +211,7 @@ class QuickPanel(QWidget):
             self.search_box.setPlaceholderText(t('搜索名称、标签或关键词…'))
         keyword = self.search_box.text().strip() if hasattr(self, 'search_box') else ""
         if hasattr(self, 'empty_label'):
-            self.empty_label.setText(t("没有找到匹配的表情") if keyword else t("暂无最近使用记录"))
+            self.empty_label.setText(t("没有找到匹配的表情") if keyword else t("暂无最近使用的表情"))
 
     def _perform_search(self, force=False):
         from services.i18n import t
@@ -237,7 +247,7 @@ class QuickPanel(QWidget):
         self._all_card_widgets.clear()
                 
         if not results:
-            self.empty_label.setText(t("没有找到匹配的表情") if keyword else t("暂无最近使用记录"))
+            self.empty_label.setText(t("没有找到匹配的表情") if keyword else t("暂无最近使用的表情"))
             self.empty_label.show()
             self.grid_layout.addWidget(self.empty_label, 0, 0)
             return
@@ -337,7 +347,7 @@ class QuickPanel(QWidget):
         from fluent_ui.components.drop_contract import INTO, RESOURCE_MIME, TAG_MIME, NODE_MIME
         mime = event.mimeData()
         self._drop_payload = (None, None) if any(mime.hasFormat(k) for k in (RESOURCE_MIME, TAG_MIME, NODE_MIME)) else ClipboardService.importable_payload(mime, self.storage.SUPPORTED_FORMATS)
-        if self._drop_payload[0] and not self.feedback_host.task_active:
+        if self._drop_payload[0]:
             self._activation_guard = True
             self._activation_guard_timer.stop()
             self.preview_controller.cancel()
@@ -345,7 +355,7 @@ class QuickPanel(QWidget):
             event.acceptProposedAction()
         else:
             self.drop_feedback.clear()
-            self.feedback_host.hint(t('当前有导入任务正在进行，请稍候') if self.feedback_host.task_active else t('无法导入此内容'), event.position().toPoint() + self.mapToGlobal(QPoint()))
+            self.feedback_host.hint(t('无法导入此内容'), event.position().toPoint() + self.mapToGlobal(QPoint()))
             event.ignore()
 
     def _start_external_import(self, paths, *, temporary=False):
@@ -374,23 +384,22 @@ class QuickPanel(QWidget):
 
     def _import_external_payload(self, payload):
         kind, data = payload
-        self.feedback_host.task(t('正在导入'))
+        from services.resource_import import ImportTarget
         try:
             if kind == 'file':
-                self._start_external_import(data)
+                self.imports.submit(data,ImportTarget(),self)
             elif kind == 'image':
-                from services.resource_import import ImportTarget
-                from services.library_index import ROOT
-                path, duplicate = self.storage.save_image(data, ImportTarget(ROOT))
-                self._external_import_finished(int(bool(path) and not duplicate), int(duplicate), int(not path))
+                self.imports.submit([data.copy()],ImportTarget(),self)
             else:
-                from fluent_ui.views.gallery_view import DownloadThread
-                self.download_thread = DownloadThread(data, self)
-                self.download_thread.finished.connect(self._external_download_finished)
-                self.download_thread.start()
+                self.imports.submit([data],ImportTarget(),self)
         except Exception as error:
             self.feedback_host.finish(t('导入失败'), str(error), outcome='error')
             self._activation_guard_timer.start(180)
+
+    def _queued_import_finished(self,request):
+        self._cached_query=self._cached_results=None
+        if request.owner is self:
+            self._perform_search(force=True);self._activation_guard_timer.start(180)
 
     def shutdown(self):
         for worker in (self.import_thread, self.download_thread):
@@ -448,7 +457,7 @@ class QuickPanel(QWidget):
         else:
             self._activation_guard_timer.start(180)
             if result == SendResult.COPIED_ONLY:
-                local.notice(t('已复制，但未找到可发送窗口'))
+                local.notice(t('表情已复制'),t('未找到可发送的聊天窗口，可手动粘贴。'))
             else:
                 local.notice(t('复制失败'), t('无法将表情写入剪贴板'), error=True)
 
@@ -531,6 +540,8 @@ class QuickPanel(QWidget):
         
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        from fluent_ui.materials import sync_native_clip
+        sync_native_clip(self)
         # 窗口大小改变时，重新计算列数并重排
         if self.isVisible():
             self._trigger_responsive_layout()

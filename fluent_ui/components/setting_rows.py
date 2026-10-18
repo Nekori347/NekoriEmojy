@@ -142,7 +142,7 @@ class ChoiceRow(SettingRow):
         self.combo = _ignore_wheel(ComboBox(self))
         self.combo.setMinimumWidth(150)
         self.combo.setMaximumWidth(320)
-        self.combo.addItems([t(label) for _, label in self.options])
+        self.combo.addItems([label if key=='language' else t(label) for _, label in self.options])
         self.combo.setMinimumWidth(min(320,self.combo.sizeHint().width()))
         i18n_engine.language_changed.connect(self.refresh_texts)
         self.combo.currentIndexChanged.connect(lambda _: self.changed.emit())
@@ -163,7 +163,7 @@ class ChoiceRow(SettingRow):
 
     def refresh_texts(self, *_):
         for index, (_, label) in enumerate(self.options):
-            self.combo.setItemText(index, t(label))
+            self.combo.setItemText(index, label if self.key=='language' else t(label))
         self.combo.setMinimumWidth(min(320,self.combo.sizeHint().width()))
 
 
@@ -317,14 +317,19 @@ class SpatialRow(SettingRow):
         self.changed.emit()
 
 
+class HotkeyEditor(QLineEdit):
+    """Native text field; capture and validation remain in HotkeyRow."""
+    pass
+
+
 class HotkeyRow(SettingRow):
     def __init__(self, title, hint, key, value, parent=None):
         super().__init__(title, hint, parent)
         self.key = key
-        self.editor = _ignore_wheel(QLineEdit(value or "", self))
+        self.editor = _ignore_wheel(HotkeyEditor(value or "", self))
         bind_text(self.editor, t("点击此处并按下快捷键"), 'setPlaceholderText')
         self.editor.setReadOnly(True)
-        self.editor.setFixedWidth(180)
+        self.editor.setFixedSize(200,36)
         self.editor.setFont(visual.font('data'))
         self.editor.setProperty('typography', 'data')
         self.editor.installEventFilter(self)
@@ -347,6 +352,9 @@ class HotkeyRow(SettingRow):
         from PySide6.QtGui import QKeySequence
         if obj is self.editor and event.type() == event.Type.KeyPress:
             key = event.key()
+            if key == Qt.Key_Escape:
+                event.accept()
+                return True
             if key in (Qt.Key_Control, Qt.Key_Shift, Qt.Key_Alt, Qt.Key_Meta,
                        Qt.Key_Super_L, Qt.Key_Super_R):
                 return True

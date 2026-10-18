@@ -51,8 +51,7 @@ def apply_shell_theme(window):
     if not getattr(window,'owner',None):
         QApplication.instance().setPalette(palette)
     window.setPalette(palette)
-    from fluent_ui.materials import native_material
-    native_material(window)
+    visual.theme.material(window)
     sheet=visual.window_style(background='transparent')
     if window.styleSheet()!=sheet:window.setStyleSheet(sheet)
     window.setAutoFillBackground(False)
@@ -202,6 +201,7 @@ class NekoriWindow(FramelessWindow):
         self._reveal.setEasingCurve(visual.MOTION.easing)
 
     def showEvent(self, event):
+        self.clear_transient_button_states()
         super().showEvent(event)
         from fluent_ui.materials import native_material
         native_material(self)
@@ -214,13 +214,13 @@ class NekoriWindow(FramelessWindow):
             self._reveal.stop();self._reveal.setStartValue(.94);self._reveal.setEndValue(1.0);self._reveal.start()
 
     def paintEvent(self,event):
-        from fluent_ui.materials import shell_color
+        from fluent_ui.materials import shell_color,shell_radius
         p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
         p.setCompositionMode(QPainter.CompositionMode_Source)
         p.fillRect(self.rect(),Qt.transparent)
         p.setCompositionMode(QPainter.CompositionMode_SourceOver)
         p.setBrush(shell_color(self));p.setPen(QPen(QColor(visual.colors()['border']),1))
-        radius=0 if self.isMaximized() else visual.WINDOW_RADIUS
+        radius=shell_radius(self)
         p.drawRoundedRect(QRectF(self.rect()).adjusted(.5,.5,-.5,-.5),radius,radius)
 
     def resizeEvent(self,event):
@@ -286,6 +286,24 @@ class NekoriWindow(FramelessWindow):
         if msg.message == win32con.WM_SETCURSOR and (msg.lParam & 0xffff) == win32con.HTCLIENT:
             win32gui.SetCursor(win32gui.LoadCursor(0, win32con.IDC_ARROW))
         event_code, hwnd = msg.message, msg.hWnd
+        if (event_code == win32con.WM_NCHITTEST and self._isResizeEnabled
+                and not self.isMaximized() and not self.isFullScreen()):
+            # The 5px backend edge falls inside the rounded-away corner.
+            # Give diagonal resize its own reachable square, in native pixels;
+            # straight edges keep the backend's existing narrow hit band.
+            frame = win32gui.GetWindowRect(hwnd)
+            x = ctypes.c_short(msg.lParam & 0xffff).value - frame[0]
+            y = ctypes.c_short((msg.lParam >> 16) & 0xffff).value - frame[1]
+            corner = round(visual.WINDOW_RADIUS * self.devicePixelRatioF())
+            width, height = frame[2]-frame[0], frame[3]-frame[1]
+            left, right = 0 <= x < corner, width-corner <= x < width
+            top, bottom = 0 <= y < corner, height-corner <= y < height
+            hit = (win32con.HTTOPLEFT if left and top else
+                   win32con.HTTOPRIGHT if right and top else
+                   win32con.HTBOTTOMLEFT if left and bottom else
+                   win32con.HTBOTTOMRIGHT if right and bottom else None)
+            if hit is not None:
+                return True, hit
         result = super().nativeEvent(event_type, message)
         if (event_code == win32con.WM_NCCALCSIZE and msg.wParam
                 and not self.isMaximized() and not self.isFullScreen()
@@ -374,25 +392,20 @@ class NekoriOwnedWindow(NekoriWindow):
 class SettingsWindow(NekoriOwnedWindow):
     """Independent, non-modal, single-instance Settings window."""
 
-    window_title = 'NEKORI / 设置'
+    window_title = 'NekoriEmojy · 设置'
 
     def __init__(self, config, storage, owner):
         self.config = config
         self.storage = storage
         super().__init__(owner)
         bind_text(self, t('NekoriEmojy · 设置'), 'setWindowTitle')
-        from fluent_ui.views.setting_view import SettingInterface, AboutInterface
+        from fluent_ui.views.setting_view import SettingInterface
         center = SettingInterface(config, self, storage=storage)
-        about = AboutInterface(self)
         self.center = center
-        self.about = about
         self.pages = QStackedWidget(self)
         self.pages.addWidget(center)
-        self.pages.addWidget(about)
         self.pages.currentChanged.connect(lambda _: self.update())
         center.back_requested.connect(self.close)
-        center.about_requested.connect(lambda: self.pages.setCurrentWidget(about))
-        about.back_requested.connect(lambda: self.pages.setCurrentWidget(center))
         self.body_layout.addWidget(self.pages)
         self.refresh_theme()
 
