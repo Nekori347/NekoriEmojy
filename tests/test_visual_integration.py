@@ -15,7 +15,8 @@ def test_meta_footer_centres_and_geometry_does_not_change_with_state(settings):
     from PySide6.QtCore import QPoint
     centres=[b.mapTo(c,QPoint(0,b.height()//2)).y() for b in buttons]
     preview=c.preview_switch.mapTo(c,QPoint(0,c.preview_switch.height()//2)).y()
-    assert max(centres)-min(centres)<=1 and abs(preview-centres[0])<=1
+    assert max(centres)-min(centres)<=1
+    assert c.preview_switch.mapTo(c,QPoint()).x()<c.nav.mapTo(c,QPoint(c.nav.width(),0)).x()
 
 
 # OCR attached actions, state changes and confirmation are checked in test_ui_tail.

@@ -80,10 +80,9 @@ def test_expanded_details_precede_action_and_close_stays_last(surface):
     for key in ('run','wait','stopped'):
         row,icon,label,bar,count,button,info,close=h._named_widgets[key]
         assert button.isVisible()
-        trailing=close if not close.isHidden() else button
-        edges.append(trailing.mapTo(u.window,QPoint(trailing.width(),0)).x())
+        edges.append(button.mapTo(u.window,QPoint(button.width(),0)).x())
         if key=='run':
-            assert info.isHidden() and row.operations.width()==button.width()
+            assert info.isHidden() and row.operations.width()==button.width()+6+close.width()
         else:
             assert info.isVisible() and info.mapTo(row,QPoint(info.width(),0)).x()<button.mapTo(row,QPoint()).x()
         if not close.isHidden():
@@ -92,7 +91,7 @@ def test_expanded_details_precede_action_and_close_stays_last(surface):
     row,icon,label,bar,count,button,info,close=h._named_widgets['done']
     # Ordinary completion without a resume callback ends at Close.
     h.upsert_task('done','识别完成',state='success');settle(surface.app)
-    assert button.isHidden() and close.isVisible() and row.operations.width()==close.width()
+    assert button.isHidden() and close.isVisible() and row.operations.width()==button.width()+6+close.width()
     QTest.mouseClick(close,Qt.LeftButton);assert 'done' not in h.named_tasks and not calls
     QTest.mouseClick(h._named_widgets['run'][5],Qt.LeftButton);assert calls==['cancel']
     QTest.mouseClick(h._named_widgets['stopped'][5],Qt.LeftButton);assert calls==['cancel','resume']

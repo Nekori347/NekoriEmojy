@@ -1,5 +1,5 @@
 """Settings composition built around a glass navigation and one parameter sheet."""
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt,QSize
 from PySide6.QtWidgets import QWidget,QHBoxLayout,QVBoxLayout,QLabel,QListWidget,QScrollArea,QFrame,QStackedWidget
 from fluent_ui import visual
 from fluent_ui.icons import Icon
@@ -11,19 +11,30 @@ from .surfaces import Surface,RuleHeading
 
 
 class DecisionBar(QWidget):
+    def minimumSizeHint(self):
+        if not hasattr(self,'actions'):return QSize(0,64)
+        buttons=[self.actions.layout().itemAt(i).widget() for i in range(3)]
+        return QSize(sum(button.fontMetrics().horizontalAdvance(button.text())+94 for button in buttons)+28,64)
+
     def resizeEvent(self,event):
         super().resizeEvent(event)
         if not hasattr(self,'actions'):return
-        margin=10;width=max(1,self.width()-2*margin)
-        natural=sum(self.actions.layout().itemAt(i).sizeHint().width() for i in range(self.actions.layout().count()))+16
-        preview=self.preview.sizeHint().width()
-        stacked=width<natural+preview+16
-        action_width=width if stacked else natural
-        action_height=self.actions.layout().heightForWidth(action_width)
-        y=48 if stacked else 10
-        self.preview.setGeometry(margin,10 if stacked else y+(action_height-34)//2,preview,34)
-        self.actions.setGeometry(margin if stacked else self.width()-margin-action_width,y,action_width,action_height)
-        self.setFixedHeight(y+action_height+10)
+        buttons=[self.actions.layout().itemAt(i).widget() for i in range(3)]
+        available=max(1,self.width()-20)
+        natural=sum(button.fontMetrics().horizontalAdvance(button.text())+122 for button in buttons)
+        gap=max(4,min(8,(available-natural)//2))
+        deficit=max(0,natural+2*gap-available)
+        line=42-min(24,(deficit+2)//3)
+        deficit=max(0,deficit-3*(42-line))
+        padding=12-min(4,(deficit+2)//3)
+        for button in buttons:
+            button._decision_line=line;button._decision_padding=padding
+            button.setFixedSize(button.sizeHint());button.update()
+        self.actions.layout().setSpacing(gap)
+        width=sum(button.width() for button in buttons)+2*gap
+        self.actions.setGeometry(self.width()-10-width,10,width,44)
+        self.actions.layout().activate()
+        self.setFixedHeight(64)
 
 
 def build_settings(c):
@@ -59,7 +70,8 @@ def build_settings(c):
     c.scroll.setWidget(c.body_widget)
     c.page_stack=QStackedWidget(c.content_pane);c.page_stack.addWidget(c.scroll);pane.addWidget(c.page_stack,1)
     c.sticky=QLabel('',c.scroll.viewport());c.sticky.setObjectName('SettingsSectionTitle');c.sticky.hide()
-    pane.addWidget(c._build_footer())
+    footer=c._build_footer();pane.addWidget(footer)
+    navigation.addWidget(footer.preview,0,Qt.AlignLeft)
     root.addWidget(foundation,1)
     c.feedback_host=FeedbackHost(c.content_pane,pane,before=c.page_stack)
     c._apply_style();c._set_dirty(False)

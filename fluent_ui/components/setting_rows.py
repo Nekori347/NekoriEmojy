@@ -388,6 +388,24 @@ class ActionRow(SettingRow):
             self.add_control(button)
 
 
+class SuzuExportRow(ActionRow):
+    """Keep both export actions together, below the copy only when needed."""
+    def resizeEvent(self,event):
+        QWidget.resizeEvent(self,event)
+        layout=self.layout()
+        text_width=max(self.title_label.fontMetrics().horizontalAdvance(self.title_label.text()),
+                       *(self.hint_label.fontMetrics().horizontalAdvance(line) for line in self.hint_label.text().splitlines()))
+        margins=layout.contentsMargins()
+        threshold=text_width+self.controls.minimumSize().width()+layout.spacing()+margins.left()+margins.right()
+        direction=QBoxLayout.TopToBottom if self.width()<threshold else QBoxLayout.LeftToRight
+        self.controls.setAlignment(Qt.AlignRight|Qt.AlignVCenter)
+        if layout.direction()!=direction:
+            layout.setDirection(direction);layout.invalidate()
+        height=layout.heightForWidth(self.width())
+        self.setMinimumHeight(max(86,height))
+        self.updateGeometry()
+
+
 class FullPathRow(SettingRow):
     """Full-width selectable directory below its title, without elision."""
     def __init__(self,title,hint,value,parent=None):

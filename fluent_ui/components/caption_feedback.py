@@ -290,7 +290,7 @@ class CaptionFeedback(QObject):
         box.members=(info,primary,close);box.order=()
         for widget in box.members:
             widget.setParent(box)
-            policy=widget.sizePolicy();policy.setRetainSizeWhenHidden(False);widget.setSizePolicy(policy)
+            policy=widget.sizePolicy();policy.setRetainSizeWhenHidden(widget is not info);widget.setSizePolicy(policy)
         return box
 
     @staticmethod

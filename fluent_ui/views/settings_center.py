@@ -22,7 +22,7 @@ from fluent_ui import visual
 from fluent_ui.components.navigation import NavigationItem, TabStrip, ContentPane
 from fluent_ui.components import dialogs
 from fluent_ui.components.setting_rows import (
-    SettingRow, ActionRow, AccentRow, ChoiceRow, InfoRow, HotkeyRow, RangeRow, SettingSection, SwitchRow,
+    SettingRow, ActionRow, SuzuExportRow, AccentRow, ChoiceRow, InfoRow, HotkeyRow, RangeRow, SettingSection, SwitchRow,
     apply_row_theme, ModeRow, SpatialRow, FullPathRow,
 )
 from fluent_ui.theme import THEMES
@@ -71,7 +71,6 @@ class SettingsCenter(QWidget):
 
     def _build_footer(self):
         from fluent_ui.presentation.settings import DecisionBar
-        from fluent_ui.presentation.tools import WrapCommands
         footer=DecisionBar(self);footer.setObjectName('SettingsFooter')
         preview=QWidget(footer);preview_layout=QHBoxLayout(preview);preview_layout.setContentsMargins(0,0,0,0);preview_layout.setSpacing(6)
         self.preview_switch=translated(PushButton,'实时预览',preview);self.preview_switch.setCheckable(True);self.preview_switch.setChecked(self.preview_enabled)
@@ -80,7 +79,7 @@ class SettingsCenter(QWidget):
         self.preview_switch.toggled.connect(self._on_preview_toggled)
         self.preview_switch.toggled.connect(lambda checked:self.preview_switch.setIcon(Icon.EYE if checked else Icon.EYE_OFF))
         preview_layout.addWidget(self.preview_switch)
-        actions=QWidget(footer);action_layout=WrapCommands(actions);action_layout.setContentsMargins(0,0,0,0);action_layout.setSpacing(8)
+        actions=QWidget(footer);action_layout=QHBoxLayout(actions);action_layout.setContentsMargins(0,0,0,0);action_layout.setSpacing(8)
         self.btn_defaults=translated(MetaButton,'本页默认',actions);self.btn_defaults.clicked.connect(self._restore_page_defaults)
         self.btn_discard=translated(MetaButton,'放弃修改',actions);self.btn_discard.setProperty('command','discard');self.btn_discard.clicked.connect(self.discard)
         self.btn_save=translated(MetaButton,'保存',actions);self.btn_save.setProperty('command','save');self.btn_save.clicked.connect(self.save)
@@ -520,7 +519,7 @@ class SettingsCenter(QWidget):
             "导入 Suzu 分享的表情与标签。\nSuzu 格式不包含完整分类与排列顺序。",
             [("导入…", self.import_suzu_share, False)], self))
 
-        section.add_row(ActionRow('导出 Suzu 兼容表情合集', '导出为兼容 Suzu 的分享格式，不包含完整 NekoriEmojy 分类和排序信息。',
+        section.add_row(SuzuExportRow('导出 Suzu 兼容表情合集', '将表情导出为 Suzu 兼容的分享格式。\n不包含 Nekori 的完整分类和排序信息。',
             [('导出全部…', lambda: self._legacy_share('all')), ('选择分类…', lambda: self._legacy_share('categories'))], self))
         section.add_row(ActionRow('拆分表情合集', '将表情 ZIP 拆分为不超过 100MB 的分享包。',
             [('拆分…', lambda: self._legacy_share('split'))], self))

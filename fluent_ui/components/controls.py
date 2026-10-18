@@ -201,12 +201,14 @@ class PrimaryPushButton(PushButton):
 class MetaButton(PushButton):
     """C09: separated active contours, transparent single-outline disabled state."""
     def sizeHint(self):
-        return QSize(self.fontMetrics().horizontalAdvance(self.text())+122,44)
+        return QSize(self.fontMetrics().horizontalAdvance(self.text())+68+getattr(self,'_decision_line',42)+getattr(self,'_decision_padding',12),44)
 
     def content_geometry(self):
         inside=QRectF(self.rect()).adjusted(4.5,4.5,-4.5,-4.5)
-        cy=inside.center().y();lead=inside.left()+12
-        return (QRectF(lead,cy,42,0),QRectF(lead+54,inside.top(),max(1,inside.width()-108),inside.height()),
+        cy=inside.center().y();padding=getattr(self,'_decision_padding',12)
+        line=getattr(self,'_decision_line',42);lead=inside.left()+padding
+        text_left=lead+line+12
+        return (QRectF(lead,cy,line,0),QRectF(text_left,inside.top(),max(1,inside.right()-42-text_left),inside.height()),
                 QRectF(inside.right()-34,cy-13,26,26))
 
     def paintEvent(self,event):
@@ -234,9 +236,9 @@ class MetaButton(PushButton):
         p.setFont(visual.font());p.setPen(QColor(ink))
         lead_rect,text_rect,ring=self.content_geometry();lead=lead_rect.left();cy=lead_rect.center().y()
         p.drawText(text_rect,Qt.AlignCenter,self.text())
-        p.setOpacity(.35 if enabled else .25);p.setPen(QPen(QColor(ink),1));p.drawLine(int(lead),int(cy),int(lead+42),int(cy))
+        p.setOpacity(.35 if enabled else .25);p.setPen(QPen(QColor(ink),1));p.drawLine(int(lead),int(cy),int(lead_rect.right()),int(cy))
         p.setPen(Qt.NoPen);p.setBrush(QColor(ink))
-        for x in (lead,lead+42):p.drawEllipse(QRectF(x-1.5,cy-1.5,3,3))
+        for x in (lead,lead_rect.right()):p.drawEllipse(QRectF(x-1.5,cy-1.5,3,3))
         p.setOpacity(1)
         command=self.property('command');signal=enabled and command=='save'
         p.setPen(Qt.NoPen);p.setBrush(QColor(c['accent'] if signal else ink));p.setOpacity(1 if enabled else .45);p.drawEllipse(ring);p.setOpacity(1)
