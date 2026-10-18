@@ -87,7 +87,8 @@ def main():
         "--file-description=NekoriEmojy",
         "--file-version="+json.loads(Path("version.json").read_text("utf-8"))["version"]+".0",
         "--product-version="+json.loads(Path("version.json").read_text("utf-8"))["version"],
-        "--windows-disable-console",
+        "--windows-console-mode=disable",
+        "--msvc=latest",
         "--enable-plugin=pyside6",
         "--windows-icon-from-ico=ico.ico",
         "--include-data-file=ico.ico=ico.ico",
@@ -153,11 +154,11 @@ def main():
         if key in env:
             del env[key]
             
-    # Force x86_64_v3 architecture to enable AVX2 but avoid AVX-512 instructions
-    # x86_64_v3 includes AVX, AVX2, BMI1, BMI2, F16C, FMA, LZCNT, MOVBE, XSAVE
-    # Note: Zig compiler requires underscores (x86_64_v3) instead of hyphens
-    env["CFLAGS"] = "-march=x86_64_v3"
-    env["CCFLAGS"] = "-march=x86_64_v3"
+    # This Windows build uses MSVC, whose architecture option is /arch.
+    # GNU -march produces localized diagnostics that clcache cannot decode on
+    # this system. Keep the existing AVX2 ceiling using MSVC's own option.
+    env["CCFLAGS"] = "/arch:AVX2"
+    env["VSLANG"] = "1033"
 
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
     
