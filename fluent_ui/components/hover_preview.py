@@ -1,12 +1,14 @@
 import os
-from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QApplication, QHBoxLayout
+from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QApplication, QHBoxLayout, QFrame, QSizePolicy
 from PySide6.QtCore import Qt, QSize, QByteArray, QBuffer, QRect, QRectF
-from PySide6.QtGui import QPixmap, QMovie, QImageReader, QPainter, QPainterPath, QColor
+from PySide6.QtGui import QPixmap, QMovie, QImageReader, QPainter, QPainterPath, QColor, QTextLayout, QTextOption, QPalette, QFont
 from fluent_ui.icons import Icon
 from qfluentwidgets import BodyLabel, CaptionLabel
 import darkdetect
 from services.i18n import t, i18n_engine
 from fluent_ui import visual
+from fluent_ui.components.tag_panel import TagFlow
+from fluent_ui.components.tag_model import TagItem
 
 class IconCaption(QLabel):
     def __init__(self,icon,text):
@@ -14,6 +16,64 @@ class IconCaption(QLabel):
     def paintEvent(self,event):
         super().paintEvent(event)
         p=QPainter(self);self.icon.render(p,QRect(0,(self.height()-13)//2,13,13),fill=visual.colors()['text_secondary'])
+
+
+class PreviewTags(TagFlow):
+    """The real tag-panel chip painter, bounded to two rows for a preview."""
+    def _chip_width(self, item):
+        return min(super()._chip_width(item),max(1,self.width()-8))
+
+    def _relayout(self):
+        super()._relayout()
+        self.setFixedHeight(min(self._content_height,2*self.CHIP_HEIGHT+self.CHIP_GAP+2*self.PAD))
+
+    def heightForWidth(self, width):
+        return min(self._content_height,2*self.CHIP_HEIGHT+self.CHIP_GAP+2*self.PAD)
+
+
+class PreviewText(QLabel):
+    """Readable OCR text with a three-line limit, and the full text as tooltip."""
+    def __init__(self,parent=None):
+        super().__init__(parent); self.setWordWrap(True)
+        self.setMinimumWidth(0); self.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred)
+
+    def _lines(self,width):
+        layout=QTextLayout(self.text().replace('\n','\u2028'),self.font())
+        option=QTextOption();option.setWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere);layout.setTextOption(option)
+        layout.beginLayout();lines=[]
+        for _ in range(3):
+            line=layout.createLine()
+            if not line.isValid():break
+            line.setLineWidth(max(1,width));lines.append(line)
+        layout.endLayout();return layout,lines
+
+    def heightForWidth(self,width):
+        return max(1,len(self._lines(width)[1]))*self.fontMetrics().lineSpacing()
+
+    def sizeHint(self):return QSize(0,self.heightForWidth(self.width()))
+    def minimumSizeHint(self):return QSize(0,self.fontMetrics().lineSpacing())
+
+    def paintEvent(self,event):
+        painter=QPainter(self);painter.setFont(self.font());painter.setPen(self.palette().color(QPalette.WindowText))
+        layout,lines=self._lines(self.width());text=self.text().replace('\n','\u2028');height=self.fontMetrics().lineSpacing()
+        for index,line in enumerate(lines):
+            value=text[line.textStart():line.textStart()+line.textLength()]
+            if index==2 and line.textStart()+line.textLength()<len(text):
+                value=self.fontMetrics().elidedText(text[line.textStart():].replace('\u2028',' '),Qt.ElideRight,self.width())
+            painter.drawText(QRect(0,index*height,self.width(),height),Qt.AlignLeft|Qt.AlignVCenter,value)
+
+
+class IdentityCaption(QLabel):
+    def __init__(self,parent=None):
+        super().__init__(parent);self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred);self.setProperty('role','data')
+
+    def sizeHint(self):return QSize(0,self.fontMetrics().height())
+    def minimumSizeHint(self):return self.sizeHint()
+
+    def paintEvent(self,event):
+        painter=QPainter(self);painter.setFont(self.font());painter.setPen(self.palette().color(QPalette.WindowText))
+        painter.drawText(self.rect(),Qt.AlignLeft|Qt.AlignVCenter,self.fontMetrics().elidedText(self.text(),Qt.ElideMiddle,self.width()))
 
 
 class PreviewImage(QLabel):
@@ -107,27 +167,21 @@ class HoverPreviewPopup(QWidget):
         self.meta_layout.setContentsMargins(10,8,10,8)
         self.meta_layout.setSpacing(2)
         
-        # The image stays the first information; the file identity lives here as
-        # low-weight text instead of a separate path tooltip on the card.
-        self.name_label = CaptionLabel("")
-        self.name_label.setWordWrap(True)
-        self.name_label.setProperty("role", "section")
-        self.path_label = CaptionLabel("")
-        self.path_label.setWordWrap(True)
-        self.path_label.setProperty("role", "data")
+        self.ocr_heading=QWidget(self.metadata_footer)
+        heading_layout=QHBoxLayout(self.ocr_heading);heading_layout.setContentsMargins(0,2,0,5);heading_layout.setSpacing(7)
+        self.ocr_marker=QFrame(self.ocr_heading);self.ocr_marker.setFixedSize(2,16)
+        self.ocr_label=PreviewText(self.ocr_heading)
+        heading_layout.addWidget(self.ocr_marker,0,Qt.AlignTop);heading_layout.addWidget(self.ocr_label,1)
+        self.category_label=IconCaption(Icon.FOLDER,'')
+        self.category_label.setWordWrap(True)
+        self.tags=PreviewTags(self.metadata_footer);self.tags.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.identity_rule=QFrame(self.metadata_footer);self.identity_rule.setFixedHeight(1)
+        self.name_label=IdentityCaption(self.metadata_footer)
+        self.path_label=IdentityCaption(self.metadata_footer)
+        for widget in (self.ocr_heading,self.category_label,self.tags,self.identity_rule,self.name_label,self.path_label):
+            self.meta_layout.addWidget(widget)
+        self.ocr_heading.hide();self.tags.hide()
 
-        self.category_label = IconCaption(Icon.FOLDER,f"{t('无分类')}")
-
-        self.keyword_label = IconCaption(Icon.TAG,f"{t('无标签')}")
-        self.ocr_label = IconCaption(Icon.SEARCH,'')
-
-        self.meta_layout.addWidget(self.name_label)
-        self.meta_layout.addWidget(self.path_label)
-        self.meta_layout.addWidget(self.category_label)
-        self.meta_layout.addWidget(self.keyword_label)
-        self.meta_layout.addWidget(self.ocr_label)
-        self.ocr_label.hide()
-        
         self.layout.addWidget(self.metadata_footer)
         
         self.current_movie = None
@@ -137,15 +191,8 @@ class HoverPreviewPopup(QWidget):
         i18n_engine.language_changed.connect(self.update_texts)
 
     def update_texts(self, lang):
-        """动态刷新界面文本"""
-        # 只有在没有实际数据时才刷新默认文本
-        if not hasattr(self, 'current_category_str') or not self.current_category_str:
-            self.category_label.setText(f"{t('无分类')}")
-            self.keyword_label.setText(f"{t('无标签')}")
-        else:
-            # 如果有数据，重新翻译并显示
-            self.category_label.setText(f"{t('分类')}: {self.current_category_str}")
-            self.keyword_label.setText(f"{t('标签')}: {self.current_keyword_str}")
+        category=getattr(self,'current_category_str','')
+        self.category_label.setText(t('分类')+': '+category if category else t('无分类'))
 
     def update_identity(self, info):
         """File identity as low-weight text under the image."""
@@ -153,6 +200,9 @@ class HoverPreviewPopup(QWidget):
         self.current_path_str = str(info.get('path') or '')
         self.name_label.setText(self.current_name_str)
         self.path_label.setText(self.current_path_str)
+        self.name_label.setToolTip(self.current_name_str);self.path_label.setToolTip(self.current_path_str)
+        self.name_label.setVisible(bool(self.current_name_str));self.path_label.setVisible(bool(self.current_path_str))
+        self.identity_rule.setVisible(bool(self.current_name_str or self.current_path_str))
 
     def update_theme(self):
         """The preview uses the same semantic surface in either presentation."""
@@ -163,14 +213,19 @@ class HoverPreviewPopup(QWidget):
         self.path_label.setStyleSheet(data_style)
         text_style = f"color: {palette['text_primary']};"
         self.category_label.setStyleSheet(text_style)
-        self.keyword_label.setStyleSheet(text_style)
+        self.tags.refresh_theme()
+        font=visual.font('body');font.setPixelSize(14);font.setWeight(QFont.Medium);self.ocr_label.setFont(font)
+        self.ocr_label.setMaximumHeight(self.ocr_label.fontMetrics().lineSpacing()*3)
         self.ocr_label.setStyleSheet(text_style)
+        self.ocr_marker.setStyleSheet('background:'+palette['accent']+';')
+        self.identity_rule.setStyleSheet('background:'+palette['border_soft']+';')
+        for label in (self.name_label,self.path_label):label.setFont(visual.font('secondary'))
         self.setStyleSheet(f"QWidget#PreviewPopup {{ {visual.surface_style('popover')} "
                            f"border: 1px solid {palette['border']}; "
                            f"border-radius: {visual.PANEL_RADIUS}px; }}")
 
-    def show_preview(self, image_path, global_pos, size_config=320, category_str="无",
-                     keyword_str="无", info=None, anchor_rect=None, container_rect=None):
+    def show_preview(self, image_path, global_pos, size_config=320, category_str="",
+                     keyword_str="", info=None, anchor_rect=None, container_rect=None):
         """
         显示预览窗口，并更新元数据
 
@@ -188,13 +243,15 @@ class HoverPreviewPopup(QWidget):
         self.current_category_str = category_str
         self.current_keyword_str = keyword_str
 
-        self.category_label.setText(f"{t('分类')}: {category_str}")
-        self.keyword_label.setText(f"{t('标签')}: {keyword_str}")
+        self.update_texts(i18n_engine.current_lang)
+        self.category_label.setToolTip(category_str)
+        self.category_label.setMaximumHeight(self.category_label.fontMetrics().lineSpacing()*2)
+        from services.storage import StorageService
+        tags=StorageService.parse_tags(keyword_str) if keyword_str else []
+        self.tags.set_items([TagItem(name) for name in tags]);self.tags.setVisible(bool(tags));self.tags.setToolTip(keyword_str)
         ocr=str(info.get('ocr_text') or '').strip()
-        self.ocr_label.setText(t('表情文字')+': '+ocr)
-        self.ocr_label.setVisible(bool(ocr))
-        for label in (self.category_label,self.keyword_label,self.ocr_label):
-            label.setWordWrap(True)
+        self.ocr_label.setText(ocr);self.ocr_label.setToolTip(ocr);self.ocr_heading.setVisible(bool(ocr))
+        self.path_label.setToolTip(os.path.abspath(image_path))
 
         # 1. 停止清理上一次的动图
         if self.current_movie:

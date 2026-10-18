@@ -473,8 +473,8 @@ class QuickPanel(QWidget):
 
     def get_preview_metadata(self, path):
         cats = self.storage.get_categories_by_image(path)
-        cat_str = ", ".join(cats) if cats else "无"
-        kw_str = self.storage.get_image_keywords(path) or "无"
+        cat_str = ", ".join(cats)
+        kw_str = self.storage.get_image_keywords(path) or ""
         return cat_str, kw_str
 
     def _end_activation_guard(self):

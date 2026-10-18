@@ -604,8 +604,7 @@ class SettingsCenter(QWidget):
         try:
             preview = run_exchange_task(self.window(), t('迁移预览'), lambda progress: service.preview_package(path, progress))
             if not dialogs.confirm(self.window(), t('迁移预览'),
-                t('表情 {value_0} 项，分类 {value_1} 个').format(value_0=preview['resources'], value_1=preview['nodes'])
-                + '\n' + '、'.join(preview['categories']), ok_text=t('开始迁移')):
+                t('表情 {value_0} 项，分类 {value_1} 个\n{categories}').format(value_0=preview['resources'],value_1=preview['nodes'],categories='、'.join(preview['categories'])), ok_text=t('开始迁移')):
                 return
             self._queue_import(path,lambda progress:service.migrate_from_package(path,progress),kind='migration')
         except Exception as exc:

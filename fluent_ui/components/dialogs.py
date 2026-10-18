@@ -261,7 +261,7 @@ def confirm(parent, title, message, ok_text="确定", danger=False, hint="", cod
 
 def message(parent, title, text, code=""):
     dialog = NekoriDialog(parent, title, code=code)
-    label = translated(QLabel, text, dialog)
+    label = QLabel(text, dialog)  # Body may be an exception or a user path, not a translation key.
     label.setWordWrap(True)
     dialog.add_widget(label)
     dialog.add_button(t("关闭"), role="primary", on_click=dialog.accept)
@@ -511,6 +511,19 @@ class FramePickerDialog(NekoriDialog):
         self.add_button(t("使用此帧"), role="primary", on_click=self._apply)
         self.setMinimumWidth(300)
         self._render(self.slider.value())
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.layout().activate()
+        self.adjustSize()
+        if self.parentWidget():
+            center_on_owner(self, self.parentWidget())
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, self._center_after_layout)
+
+    def _center_after_layout(self):
+        if self.isVisible() and self.parentWidget():
+            center_on_owner(self, self.parentWidget())
 
     def _count_frames(self):
         from services.image_frames import frame_count

@@ -468,9 +468,7 @@ class SimilarityDialog(QDialog):
     def delete_selected(self):
         if not self.selected or self.worker or self.deleting:
             return
-        answer = (QMessageBox.Yes if dialogs.confirm(self, t('确认删除'), t('将把所选表情移入 Windows 回收站，并移除索引及分类关系。')
-            + f'\n{t("已选择")} {len(self.selected)} {t("张表情")}\n'
-            + t('疑似相似不代表内容相同，请确认已逐张比较。')) else QMessageBox.No)
+        answer = (QMessageBox.Yes if dialogs.confirm(self, t('确认删除'), t('将把所选表情移入 Windows 回收站，并移除索引及分类关系。\n已选择 {count} 张表情。\n疑似相似不代表内容相同，请确认已逐张比较。').format(count=len(self.selected))) else QMessageBox.No)
         if answer != QMessageBox.Yes:
             return
         paths = sorted(self.selected)

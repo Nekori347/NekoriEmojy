@@ -41,7 +41,7 @@ from services.tg_downloader import (
     DEF_TOKEN,
     TG_DIRECT_API
 )
-from services.i18n import t, i18n_engine
+from services.i18n import t, i18n_engine, bind_text, translated
 from fluent_ui.views.setting_view import disable_wheel_scroll_adjustment
 from fluent_ui.components.rotating_chevron_button import RotatingChevronButton
 from fluent_ui.components.state_tool_tip_manager import StateToolTipManager
@@ -164,7 +164,7 @@ class TGHelpDialog(dialogs.OwnerCenteredDialog):
         self.codeEdit.setMaximumHeight(140)
         tab2_layout.addWidget(self.codeEdit)
 
-        btn_copy_code = PushButton(t("📋 复制上方 Worker 部署代码"))
+        btn_copy_code = translated(PushButton, t('📋 复制上方 Worker 部署代码'))
         btn_copy_code.clicked.connect(self._copyWorkerCode)
         tab2_layout.addWidget(btn_copy_code)
 
@@ -181,58 +181,23 @@ class TGHelpDialog(dialogs.OwnerCenteredDialog):
 
         layout.addWidget(tabs)
 
-        btn_close = PrimaryPushButton(t("关闭"))
+        btn_close = translated(PrimaryPushButton, t('关闭'))
         btn_close.setFixedWidth(100)
         btn_close.clicked.connect(self.accept)
         layout.addWidget(btn_close, alignment=Qt.AlignCenter)
 
+        self._help_tabs = tabs
         self._help_browsers = (tb1, tb2, tb3)
-        self._i18n_widgets = []
-        self._register_i18n_widgets()
         i18n_engine.language_changed.connect(self.update_texts)
         self.update_texts()
 
-    def _register_i18n_widgets(self):
-        for widget in self.findChildren(QWidget):
-            if hasattr(widget, "text") and hasattr(widget, "setText"):
-                source = widget.text()
-                if source and any("\u4e00" <= char <= "\u9fff" for char in source):
-                    widget.setProperty("_tg_i18n_source", source)
-                    self._i18n_widgets.append(widget)
-            if hasattr(widget, "placeholderText") and hasattr(widget, "setPlaceholderText"):
-                source = widget.placeholderText()
-                if source and any("\u4e00" <= char <= "\u9fff" for char in source):
-                    widget.setProperty("_tg_i18n_placeholder_source", source)
-                    self._i18n_widgets.append(widget)
-
-        self._combo_i18n_sources = {}
-        for combo in self.findChildren(ComboBox):
-            sources = {}
-            for index in range(combo.count()):
-                source = combo.itemText(index)
-                if source and any("\u4e00" <= char <= "\u9fff" for char in source):
-                    sources[index] = source
-            if sources:
-                self._combo_i18n_sources[combo] = sources
 
     def update_texts(self, _lang=None):
-        if hasattr(self, "_window_title_source"):
-            self.setWindowTitle(t(self._window_title_source))
-
-        for browser, section in zip(getattr(self, "_help_browsers", ()), ("links", "proxy", "token")):
+        self.setWindowTitle(t(self._window_title_source))
+        for browser, section in zip(self._help_browsers, ('links','proxy','token')):
             browser.setHtml(self._get_help_html(section))
-
-        for widget in getattr(self, "_i18n_widgets", []):
-            source = widget.property("_tg_i18n_source")
-            if source is not None:
-                widget.setText(t(source))
-            placeholder = widget.property("_tg_i18n_placeholder_source")
-            if placeholder is not None:
-                widget.setPlaceholderText(t(placeholder))
-
-        for combo, sources in getattr(self, "_combo_i18n_sources", {}).items():
-            for index, source in sources.items():
-                combo.setItemText(index, t(source))
+        for index, key in enumerate(('📘 表情链接获取','☁️ Cloudflare 代理教程','🤖 Bot Token 说明')):
+            self._help_tabs.setTabText(index,t(key))
 
 
     def _copyWorkerCode(self):
@@ -263,8 +228,8 @@ class TGLogDialog(dialogs.NekoriDialog):
         self.logTextEdit.moveCursor(QTextCursor.End)
 
         button_layout = QHBoxLayout()
-        self.clearButton = PushButton(t("清空日志"), self)
-        self.copyButton = PushButton(t("复制日志"), self)
+        self.clearButton = translated(PushButton, t('清空日志'), self)
+        self.copyButton = translated(PushButton, t('复制日志'), self)
         button_layout.addWidget(self.clearButton)
         button_layout.addWidget(self.copyButton)
         button_layout.addStretch()
@@ -723,7 +688,7 @@ class TGStickerInterface(QWidget):
         self.btnBack = TransparentToolButton(FIF.LEFT_ARROW, self.topBar)
         self.btnBack.setToolTip(t("返回主面板"))
         self.btnBack.clicked.connect(self._on_back_clicked)
-        self.titleLabel = TitleLabel(t("下载TG表情"), self.topBar)
+        self.titleLabel = translated(TitleLabel, t('下载TG表情'), self.topBar)
         self.btnLog = TransparentToolButton(FIF.DOCUMENT, self.topBar)
         self.btnLog.setFixedSize(32, 32)
         self.btnLog.setToolTip(t("操作日志"))
@@ -741,7 +706,7 @@ class TGStickerInterface(QWidget):
         summary_layout.setSpacing(8)
         self.summaryLabel = BodyLabel("", self.summaryRow)
         self.summaryLabel.setStyleSheet("font-size: 13px; font-weight: bold;")
-        self.expandConfigButton = PushButton(t("展开配置"), self.summaryRow)
+        self.expandConfigButton = translated(PushButton, t('展开配置'), self.summaryRow)
         self.expandConfigButton.setIcon(FIF.CHEVRON_DOWN_MED)
         self.expandConfigButton.clicked.connect(self.expand_config)
         summary_layout.addWidget(self.summaryLabel)
@@ -757,7 +722,7 @@ class TGStickerInterface(QWidget):
         self.configCardLayout.setSpacing(10)
 
         config_header = QHBoxLayout()
-        self.configTitle = StrongBodyLabel(t("Telegram 表情配置"), self.configCard)
+        self.configTitle = translated(StrongBodyLabel, t('Telegram 表情配置'), self.configCard)
         self.collapseConfigButton = RotatingChevronButton(self.configCard)
         self.collapseConfigButton.set_direction(180, animated=False)
         self.collapseConfigButton.setToolTip(t("收起配置面板"))
@@ -784,7 +749,7 @@ class TGStickerInterface(QWidget):
         def add_form_row(label_text, control, trailing=None):
             row = QHBoxLayout()
             row.setSpacing(8)
-            label = BodyLabel(t(label_text), self.configFormWidget)
+            label = translated(BodyLabel, t(label_text), self.configFormWidget)
             label.setFixedWidth(76)
             row.addWidget(label)
             row.addWidget(control, 1)
@@ -794,9 +759,7 @@ class TGStickerInterface(QWidget):
             return label
 
         self.urlInputEdit = LineEdit(self.configFormWidget)
-        self.urlInputEdit.setPlaceholderText(
-            t("表情链接或包名，如: animals 或 https://t.me/addstickers/xxx")
-        )
+        bind_text(self.urlInputEdit, t('表情链接或包名，如: animals 或 https://t.me/addstickers/xxx'), 'setPlaceholderText')
         self.urlInputEdit.returnPressed.connect(self.startParsePack)
         self.helpButton = TransparentToolButton(FIF.HELP, self.configFormWidget)
         self.helpButton.setFixedSize(32, 32)
@@ -806,15 +769,15 @@ class TGStickerInterface(QWidget):
 
         self.savePathEdit = LineEdit(self.configFormWidget)
         self.savePathEdit.setText(self.save_path)
-        self.savePathEdit.setPlaceholderText(t("请选择表情保存路径..."))
-        self.selectDirButton = PushButton(t("浏览..."), self.configFormWidget)
+        bind_text(self.savePathEdit, t('请选择表情保存路径...'), 'setPlaceholderText')
+        self.selectDirButton = translated(PushButton, t('浏览...'), self.configFormWidget)
         self.selectDirButton.setFixedWidth(90)
         self.selectDirButton.clicked.connect(self.selectSavePath)
         self.savePathLabel = add_form_row("保存路径:", self.savePathEdit, self.selectDirButton)
 
         format_row = QHBoxLayout()
         format_row.setSpacing(8)
-        self.formatLabel = BodyLabel(t("导出格式:"), self.configFormWidget)
+        self.formatLabel = translated(BodyLabel, t('导出格式:'), self.configFormWidget)
         self.formatLabel.setFixedWidth(76)
         self.formatComboBox = ComboBox(self.configFormWidget)
         self.formatComboBox.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -822,7 +785,7 @@ class TGStickerInterface(QWidget):
         self.formatComboBox.addItem(t("GIF (动图 / 视频表情)"), userData="gif")
         self.formatComboBox.addItem(t("原始格式 (WebP / TGS / WebM)"), userData="original")
         self.formatComboBox.addItem(t("智能适配 (自动匹配最佳格式)"), userData="auto")
-        self.zipCheckBox = CheckBox(t("导出完成后打包为 ZIP 压缩文件"), self.configFormWidget)
+        self.zipCheckBox = translated(CheckBox, t('导出完成后打包为 ZIP 压缩文件'), self.configFormWidget)
         self.zipCheckBox.setChecked(True)
         format_row.addWidget(self.formatLabel)
         format_row.addWidget(self.formatComboBox, 1)
@@ -831,7 +794,7 @@ class TGStickerInterface(QWidget):
 
         # 高级设置独立折叠
         advanced_header = QHBoxLayout()
-        self.advancedTitle = BodyLabel(t("高级设置 (Token / 网络代理)"), self.configFormWidget)
+        self.advancedTitle = translated(BodyLabel, t('高级设置 (Token / 网络代理)'), self.configFormWidget)
         self.toggleAdvBtn = RotatingChevronButton(self.configFormWidget)
         self.toggleAdvBtn.set_direction(0, animated=False)
         self.toggleAdvBtn.setToolTip(t("展开高级设置"))
@@ -849,7 +812,7 @@ class TGStickerInterface(QWidget):
         def add_advanced_row(label_text, control, trailing=None):
             row = QHBoxLayout()
             row.setSpacing(8)
-            label = BodyLabel(t(label_text), self.advWidget)
+            label = translated(BodyLabel, t(label_text), self.advWidget)
             label.setFixedWidth(76)
             row.addWidget(label)
             row.addWidget(control, 1)
@@ -860,26 +823,24 @@ class TGStickerInterface(QWidget):
 
         self.tokenEdit = LineEdit(self.advWidget)
         self.tokenEdit.setEchoMode(LineEdit.Password)
-        self.tokenEdit.setPlaceholderText(t("内置默认 Token，可填自定义 Token"))
+        bind_text(self.tokenEdit, t('内置默认 Token，可填自定义 Token'), 'setPlaceholderText')
         self.toggleTokenBtn = PushButton(FIF.EYE, t("👁️ 显示").replace("👁️ ",""), self.advWidget)
         self.toggleTokenBtn.setFixedWidth(76)
         self.toggleTokenBtn.clicked.connect(self.toggleTokenVisibility)
         self.tokenLabel = add_advanced_row("Bot Token:", self.tokenEdit, self.toggleTokenBtn)
 
         self.cfProxyEdit = LineEdit(self.advWidget)
-        self.cfProxyEdit.setPlaceholderText(t("如: {proxy}").format(proxy=DEF_CF_PROXY))
+        bind_text(self.cfProxyEdit, t('如: {proxy}').format(proxy=DEF_CF_PROXY), 'setPlaceholderText')
         self.cfProxyLabel = add_advanced_row("CF 代理 URL:", self.cfProxyEdit)
 
         self.proxyEdit = LineEdit(self.advWidget)
-        self.proxyEdit.setPlaceholderText(
-            t("如 http://127.0.0.1:7890 (留空为官方直连/CF路由)")
-        )
+        bind_text(self.proxyEdit, t('如 http://127.0.0.1:7890 (留空为官方直连/CF路由)'), 'setPlaceholderText')
         self.proxyLabel = add_advanced_row("本地代理:", self.proxyEdit)
 
         advanced_buttons = QHBoxLayout()
         advanced_buttons.addStretch()
-        self.testNetButton = PushButton(FIF.IOT, t("测试连通性"), self.advWidget)
-        self.resetCfgButton = PushButton(FIF.SYNC, t("恢复默认"), self.advWidget)
+        self.testNetButton = translated(PushButton, FIF.IOT, t('测试连通性'), self.advWidget)
+        self.resetCfgButton = translated(PushButton, FIF.SYNC, t('恢复默认'), self.advWidget)
         self.testNetButton.clicked.connect(self.testNetworkConnection)
         self.resetCfgButton.clicked.connect(self.resetConfig)
         advanced_buttons.addWidget(self.testNetButton)
@@ -888,12 +849,10 @@ class TGStickerInterface(QWidget):
         self.advWidget.hide()
         config_layout.addWidget(self.advWidget)
 
-        self.parseButton = PrimaryPushButton(
-            FIF.SEARCH, t("解析表情合集预览"), self.configFormWidget
-        )
+        self.parseButton = translated(PrimaryPushButton, FIF.SEARCH, t('解析表情合集预览'), self.configFormWidget)
         self.parseButton.setFixedHeight(36)
         self.parseButton.clicked.connect(self.startParsePack)
-        self.batchPackageButton = PushButton(FIF.FOLDER, t("批量打包"), self.configFormWidget)
+        self.batchPackageButton = translated(PushButton, FIF.FOLDER, t('批量打包'), self.configFormWidget)
         self.batchPackageButton.setFixedHeight(36)
         self.batchPackageButton.clicked.connect(self.exportBatchPackages)
         parse_row = QHBoxLayout()
@@ -903,12 +862,8 @@ class TGStickerInterface(QWidget):
 
         export_row = QHBoxLayout()
         export_row.setSpacing(8)
-        self.exportSelectedButton = PushButton(
-            FIF.DOWNLOAD, t("导出选中"), self.configFormWidget
-        )
-        self.exportAllButton = PushButton(
-            FIF.FOLDER, t("导出全部"), self.configFormWidget
-        )
+        self.exportSelectedButton = translated(PushButton, FIF.DOWNLOAD, t('导出选中'), self.configFormWidget)
+        self.exportAllButton = translated(PushButton, FIF.FOLDER, t('导出全部'), self.configFormWidget)
         self.exportSelectedButton.setFixedHeight(34)
         self.exportAllButton.setFixedHeight(34)
         export_row.addWidget(self.exportSelectedButton, 1)
@@ -925,15 +880,13 @@ class TGStickerInterface(QWidget):
         action_layout.setContentsMargins(4, 2, 4, 2)
         action_layout.setSpacing(8)
 
-        self.importSelectedButton = PrimaryPushButton(
-            FIF.SAVE, t("入库选中"), self.actionBar
-        )
-        self.importAllButton = PushButton(FIF.APPLICATION, t("入库全部"), self.actionBar)
-        self.exportPackageButton = PushButton(FIF.SAVE, t("导出为表情合集"), self.actionBar)
+        self.importSelectedButton = translated(PrimaryPushButton, FIF.SAVE, t('入库选中'), self.actionBar)
+        self.importAllButton = translated(PushButton, FIF.APPLICATION, t('入库全部'), self.actionBar)
+        self.exportPackageButton = translated(PushButton, FIF.SAVE, t('导出为表情合集'), self.actionBar)
         self.exportPackageButton.setToolTip(t("将当前表情合集全部清洗入库到 ID 同名收藏夹，并导出为 ID.zip"))
-        self.selectAllButton = PushButton(t("全选已加载"), self.actionBar)
-        self.clearSelectionButton = PushButton(t("清空选择"), self.actionBar)
-        self.invertSelectionButton = PushButton(t("反选"), self.actionBar)
+        self.selectAllButton = translated(PushButton, t('全选已加载'), self.actionBar)
+        self.clearSelectionButton = translated(PushButton, t('清空选择'), self.actionBar)
+        self.invertSelectionButton = translated(PushButton, t('反选'), self.actionBar)
 
         for button in (
             self.importSelectedButton, self.importAllButton,
@@ -962,7 +915,7 @@ class TGStickerInterface(QWidget):
         action_layout.addWidget(self.invertSelectionButton)
 
         # 5. 贴纸包轻量标题
-        self.previewTitleLabel = SubtitleLabel(t("表情预览区 (未加载)"), self)
+        self.previewTitleLabel = translated(SubtitleLabel, t('表情预览区 (未加载)'), self)
 
         # 6. 主内容区：预览网格 + 详情卡
         self.contentLayout = QHBoxLayout()
@@ -1018,7 +971,7 @@ class TGStickerInterface(QWidget):
         self.detailLayout.setSpacing(10)
 
         self.detailWidget.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
-        self.detailTitle = SubtitleLabel(t("表情详细预览"), self.detailWidget)
+        self.detailTitle = translated(SubtitleLabel, t('表情详细预览'), self.detailWidget)
         self.detailPreviewLabel = QLabel(self.detailWidget)
         self.detailPreviewLabel.setAlignment(Qt.AlignCenter)
         self.detailPreviewLabel.setFrameStyle(QFrame.StyledPanel | QFrame.Sunken)
@@ -1029,16 +982,12 @@ class TGStickerInterface(QWidget):
             "background-color: rgba(0, 0, 0, 5); "
             "border: 1px solid rgba(0, 0, 0, 15); border-radius: 8px;"
         )
-        self.detailInfoLabel = BodyLabel(t("未选中表情"), self.detailWidget)
+        self.detailInfoLabel = BodyLabel(t('未选中表情'), self.detailWidget)
         self.detailInfoLabel.setWordWrap(True)
         self.detailInfoLabel.setFixedWidth(250)
         self.detailInfoLabel.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.thanksLabel = BodyLabel(self.detailWidget)
-        self.thanksLabel.setText(
-            t('致谢：基于 <a href="https://github.com/Kiowx" '
-              'style="color: #0078d4; text-decoration: underline;">Kiowx</a> '
-              '的项目二次开发')
-        )
+        bind_text(self.thanksLabel, t('致谢：基于 <a href="https://github.com/Kiowx" style="color: #0078d4; text-decoration: underline;">Kiowx</a> 的项目二次开发'))
         self.thanksLabel.setOpenExternalLinks(True)
         self.thanksLabel.setStyleSheet(f"color: {colors()['text_muted']}; font-size: 11px;")
 
@@ -1060,8 +1009,6 @@ class TGStickerInterface(QWidget):
         self.log(t("💬 Telegram 表情合集批量下载工具已就绪"))
         self.log(t("💡 支持官方直连与智能路由回退，在上方输入表情合集链接即可开始解析。"))
 
-        self._i18n_widgets = []
-        self._register_i18n_widgets()
         i18n_engine.language_changed.connect(self.update_texts)
         self.update_texts()
         disable_wheel_scroll_adjustment(self)
@@ -1200,11 +1147,7 @@ class TGStickerInterface(QWidget):
         link = self.urlInputEdit.text().strip()
         link_text = link if link else t("未填写表情链接")
         format_text = self.formatComboBox.currentText()
-        self.summaryLabel.setText(
-            t("📌 当前配置：{link}  /  {format}").format(
-                link=link_text, format=format_text
-            )
-        )
+        bind_text(self.summaryLabel, t('📌 当前配置：{link}  /  {format}').format(link=link_text, format=format_text))
 
     def toggle_config(self):
         if self.configCard.isVisible():
@@ -1279,41 +1222,11 @@ class TGStickerInterface(QWidget):
         self._config_anim.finished.connect(_finish)
         self._config_anim.start()
 
-    def _register_i18n_widgets(self):
-        for widget in self.findChildren(QWidget):
-            if hasattr(widget, "text") and hasattr(widget, "setText"):
-                source = widget.text()
-                if source and any("\u4e00" <= char <= "\u9fff" for char in source):
-                    widget.setProperty("_tg_i18n_source", source)
-                    self._i18n_widgets.append(widget)
-            if hasattr(widget, "placeholderText") and hasattr(widget, "setPlaceholderText"):
-                source = widget.placeholderText()
-                if source and any("\u4e00" <= char <= "\u9fff" for char in source):
-                    widget.setProperty("_tg_i18n_placeholder_source", source)
-                    self._i18n_widgets.append(widget)
-
-        self._combo_i18n_sources = {}
-        for combo in self.findChildren(ComboBox):
-            sources = {}
-            for index in range(combo.count()):
-                source = combo.itemText(index)
-                if source and any("\u4e00" <= char <= "\u9fff" for char in source):
-                    sources[index] = source
-            if sources:
-                self._combo_i18n_sources[combo] = sources
 
     def update_texts(self, _lang=None):
-        for widget in getattr(self, "_i18n_widgets", []):
-            source = widget.property("_tg_i18n_source")
-            if source is not None:
-                widget.setText(t(source))
-            placeholder = widget.property("_tg_i18n_placeholder_source")
-            if placeholder is not None:
-                widget.setPlaceholderText(t(placeholder))
-
-        for combo, sources in getattr(self, "_combo_i18n_sources", {}).items():
-            for index, source in sources.items():
-                combo.setItemText(index, t(source))
+        for index, key in enumerate(('PNG (静态表情 / 动图首帧)','GIF (动图 / 视频表情)','原始格式 (WebP / TGS / WebM)','智能适配 (自动匹配最佳格式)')):
+            self.formatComboBox.setItemText(index,t(key))
+        self._update_summary_label()
 
     def log(self, message: str):
         """将日志保存在内存中，通过顶栏日志按钮按需查看。"""
@@ -1433,7 +1346,7 @@ class TGStickerInterface(QWidget):
         self.is_batch_loading = False
 
         self.detailPreviewLabel.clear()
-        self.detailInfoLabel.setText(t("未选中表情"))
+        self.detailInfoLabel.setText(t('未选中表情'))
 
         parse_message = t("正在解析表情合集 [{link}] ...").format(link=link)
         self.log(t("💬 {message}").format(message=parse_message))
@@ -1481,11 +1394,7 @@ class TGStickerInterface(QWidget):
         self._set_busy(False)
         self.all_stickers = pack.stickers
 
-        self.previewTitleLabel.setText(
-            t("表情预览区 ({title} - 共 {total} 张)").format(
-                title=pack.title, total=pack.total_count
-            )
-        )
+        bind_text(self.previewTitleLabel, t('表情预览区 ({title} - 共 {total} 张)').format(title=pack.title, total=pack.total_count))
         self.log(
             t("✅ 成功解析表情合集: 《{title}》({name})，共 {total} 张表情。").format(
                 title=pack.title, name=pack.name, total=pack.total_count
@@ -1510,7 +1419,7 @@ class TGStickerInterface(QWidget):
     def _onParseFailed(self, error_msg: str):
         self.current_pack = None
         self._set_busy(False)
-        self.previewTitleLabel.setText(t("表情预览区 (解析失败)"))
+        bind_text(self.previewTitleLabel, t('表情预览区 (解析失败)'))
         self.log(t("❌ 解析表情合集失败: {error}").format(error=error_msg))
         self.tooltip.fail(t("解析失败"), str(error_msg))
 
@@ -1670,7 +1579,7 @@ class TGStickerInterface(QWidget):
 
         if not current_item or not current_item.isSelected() or not self.current_pack:
             self.detailPreviewLabel.clear()
-            self.detailInfoLabel.setText(t("未选中表情"))
+            self.detailInfoLabel.setText(t('未选中表情'))
             return
 
         sticker_idx = current_item.data(Qt.UserRole)
@@ -1719,7 +1628,7 @@ class TGStickerInterface(QWidget):
             scaled = thumb.scaled(self.detailPreviewLabel.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.detailPreviewLabel.setPixmap(scaled)
         else:
-            self.detailPreviewLabel.setText(t("正在加载预览..."))
+            self.detailPreviewLabel.setText(t('正在加载预览...'))
 
         self._detail_thread = DetailPreviewThread(self.downloader, sticker, self)
         self._detail_thread.preview_ready.connect(self._onDetailPreviewReady)
@@ -1735,9 +1644,7 @@ class TGStickerInterface(QWidget):
     def _onDetailPreviewFailed(self, sticker_index: int, error_msg: str):
         current_item = self.previewListWidget.currentItem()
         if current_item and current_item.data(Qt.UserRole) == sticker_index:
-            self.detailPreviewLabel.setText(
-                t("预览加载失败:\n{error}").format(error=error_msg)
-            )
+            self.detailPreviewLabel.setText(t('预览加载失败:\n{error}').format(error=error_msg))
 
     def _displayDetailPreview(self, file_path: str, is_gif: bool):
         try:
@@ -1758,9 +1665,9 @@ class TGStickerInterface(QWidget):
                     scaled = pixmap.scaled(self.detailPreviewLabel.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
                     self.detailPreviewLabel.setPixmap(scaled)
                 else:
-                    self.detailPreviewLabel.setText(t("表情解析失败"))
+                    self.detailPreviewLabel.setText(t('表情解析失败'))
         except Exception as e:
-            self.detailPreviewLabel.setText(t("展示失败: {error}").format(error=e))
+            self.detailPreviewLabel.setText(t('展示失败: {error}').format(error=e))
 
     # ==========================================
     # 导出到文件夹逻辑
@@ -1943,7 +1850,7 @@ class TGStickerInterface(QWidget):
         if not directory:
             return
         export_path = os.path.join(directory, package_id + ".zip")
-        if os.path.exists(export_path) and (QMessageBox.Yes if dialogs.confirm(self, t("覆盖表情合集"), t("文件已存在，是否覆盖？") + "\n" + export_path) else QMessageBox.No) != QMessageBox.Yes:
+        if os.path.exists(export_path) and (QMessageBox.Yes if dialogs.confirm(self, t("覆盖表情合集"), t("文件已存在，是否覆盖？\n{path}").format(path=export_path)) else QMessageBox.No) != QMessageBox.Yes:
             return
         self._set_busy(True)
         self.tooltip.show(t("正在导出表情合集"), t("正在下载并清洗表情..."))

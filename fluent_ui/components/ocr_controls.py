@@ -87,6 +87,8 @@ class OcrSettings(QObject):
         self.install_button.clicked.connect(self.install);self.component.add_control(self.install_button)
         self.remove_button=translated(PushButton,'卸载',self.component)
         self.remove_button.clicked.connect(self.uninstall);self.component.add_control(self.remove_button)
+        for button in (self.install_button,self.remove_button):button.setFixedHeight(32)
+        self.component.controls.setAlignment(Qt.AlignRight|Qt.AlignVCenter)
         section.add_row(self.component)
         self.auto=SwitchRow('自动识别新表情','新表情导入完成后，自动在后台识别文字。\n不会自动识别表情库中的已有表情。',
             'ocr_auto',center.pending.get('ocr_auto',center.config.get('ocr_auto',False)))

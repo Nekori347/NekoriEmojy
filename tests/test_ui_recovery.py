@@ -103,7 +103,7 @@ def test_preview_uses_tags_and_separate_saved_image_text(surface):
     cat,tags=s.g.get_preview_metadata(p)
     popup=s.g.preview_popup
     popup.show_preview(p,s.g.mapToGlobal(QPoint(200,100)),220,cat,tags,info=s.g.get_preview_info(p))
-    assert 'KnownTag' in popup.keyword_label.text() and popup.keyword_label.text().startswith('标签:')
+    assert 'KnownTag' in [item.name for item in popup.tags._items]
     assert popup.ocr_label.isVisible() and 'Saved words' in popup.ocr_label.text()
     popup.hide_preview()
 

@@ -1,6 +1,6 @@
 """HSV editor: local drawing is immediate; the owner throttles theme preview."""
-from PySide6.QtCore import Qt, Signal, QPointF
-from PySide6.QtGui import QColor, QPainter, QLinearGradient, QPen
+from PySide6.QtCore import Qt, Signal, QPointF, QRectF
+from PySide6.QtGui import QColor, QPainter, QLinearGradient, QPen, QPainterPath
 from PySide6.QtWidgets import QWidget, QHBoxLayout, QLabel, QLineEdit, QGridLayout, QVBoxLayout
 from fluent_ui.components.softframe import SoftframeSlider as Slider
 from fluent_ui.components.dialogs import NekoriDialog
@@ -61,22 +61,26 @@ class HSSpectrum(QWidget):
             self._pick(event.position())
 
 
-class ColorSwatch(QWidget):
-    """A centered color surface with its entire border inside stable bounds."""
+class ColorComparison(QWidget):
+    """One split preview, with a single continuous outer edge."""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.color = QColor()
-        self.setFixedSize(72,36)
+        self.previous = QColor(); self.current = QColor()
+        self.setMinimumWidth(144); self.setFixedHeight(36)
 
-    def set_color(self, color):
-        self.color = QColor(color)
-        self.update()
+    def set_colors(self, previous, current):
+        self.previous = QColor(previous); self.current = QColor(current); self.update()
 
     def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setPen(QPen(QColor(visual.colors()['border']),1))
-        painter.setBrush(self.color)
-        painter.drawRect(self.rect().adjusted(4,4,-5,-5))
+        painter = QPainter(self); painter.setRenderHint(QPainter.Antialiasing)
+        rect = QRectF(self.rect()).adjusted(.5,.5,-.5,-.5)
+        path = QPainterPath(); path.addRoundedRect(rect,6,6)
+        painter.setClipPath(path)
+        painter.fillRect(rect,self.current)
+        painter.fillRect(QRectF(rect.left(),rect.top(),rect.width()/2,rect.height()),self.previous)
+        painter.setClipping(False); painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(QColor(visual.colors()['border']),1)); painter.drawPath(path)
+        painter.drawLine(rect.center().x(),rect.top()+1,rect.center().x(),rect.bottom()-1)
 
 
 class AccentColorPicker(NekoriDialog):
@@ -113,22 +117,19 @@ class AccentColorPicker(NekoriDialog):
             slider.valueChanged.connect(lambda value, i=index: self._hsv_changed(i, value))
             number.valueChanged.connect(lambda value, i=index: self._hsv_changed(i, value))
         grid.setColumnStretch(1, 1)
-        self.body.addLayout(grid)
-        hex_row = QHBoxLayout()
-        hex_row.addWidget(QLabel('HEX',self))
-        hex_row.addWidget(self.hex_editor,1)
-        self.body.addLayout(hex_row)
-        comparison = QHBoxLayout()
-        self.previous_swatch = ColorSwatch(self)
-        self.current_swatch = ColorSwatch(self)
-        for label, swatch in (('原颜色',self.previous_swatch),('当前颜色',self.current_swatch)):
-            group = QVBoxLayout()
-            title = translated(QLabel,label,self)
-            title.setAlignment(Qt.AlignCenter)
-            group.addWidget(title,0,Qt.AlignHCenter)
-            group.addWidget(swatch,0,Qt.AlignHCenter)
-            comparison.addLayout(group,1)
+        comparison = QHBoxLayout(); comparison.setSpacing(20)
+        preview_group = QVBoxLayout(); preview_group.setSpacing(4)
+        captions = QHBoxLayout()
+        captions.addWidget(translated(QLabel,'使用前',self)); captions.addStretch()
+        captions.addWidget(translated(QLabel,'使用中',self))
+        preview_group.addLayout(captions)
+        self.comparison = ColorComparison(self); preview_group.addWidget(self.comparison)
+        comparison.addLayout(preview_group,1)
+        hex_group = QVBoxLayout(); hex_group.setSpacing(4)
+        hex_group.addWidget(translated(QLabel,'HEX 颜色代码',self))
+        hex_group.addWidget(self.hex_editor); comparison.addLayout(hex_group,1)
         self.body.addLayout(comparison)
+        self.body.addLayout(grid)
         self.setMinimumWidth(420)
         self.resize(520,500)
 
@@ -154,8 +155,7 @@ class AccentColorPicker(NekoriDialog):
         self.spectrum.hue, self.spectrum.saturation, self.spectrum.value = values[0], values[1]/100, values[2]/100
         self.spectrum.update()
         self.hex_editor.setText(color.name().upper())
-        self.previous_swatch.set_color(self.previous)
-        self.current_swatch.set_color(color)
+        self.comparison.set_colors(self.previous,color)
         if emit:
             self.colorChanged.emit(self.color)
 

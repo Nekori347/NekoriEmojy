@@ -71,7 +71,7 @@ def build_settings(c):
     c.page_stack=QStackedWidget(c.content_pane);c.page_stack.addWidget(c.scroll);pane.addWidget(c.page_stack,1)
     c.sticky=QLabel('',c.scroll.viewport());c.sticky.setObjectName('SettingsSectionTitle');c.sticky.hide()
     footer=c._build_footer();pane.addWidget(footer)
-    navigation.addWidget(footer.preview,0,Qt.AlignLeft)
+    navigation.addWidget(footer.preview,0,Qt.AlignHCenter)
     root.addWidget(foundation,1)
     c.feedback_host=FeedbackHost(c.content_pane,pane,before=c.page_stack)
     c._apply_style();c._set_dirty(False)

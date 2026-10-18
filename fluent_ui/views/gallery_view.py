@@ -2962,7 +2962,7 @@ class GalleryInterface(QWidget):
     def get_preview_metadata(self, image_path):
         categories = self.storage.get_categories_by_image(image_path)
         keywords = self.storage.get_image_keywords(image_path)
-        return ", ".join(categories) if categories else "无", keywords or "无"
+        return ", ".join(categories), keywords or ""
 
     def get_preview_info(self, image_path):
         """File identity for the preview, shown there instead of as a tooltip."""

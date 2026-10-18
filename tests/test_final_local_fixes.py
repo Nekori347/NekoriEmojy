@@ -122,14 +122,12 @@ def test_hs_palette_direct_cross_hue_hsv_hex_and_value_render(surface):
     assert abs(selected.x()-(rect.left()+120/359*(rect.width()-1)))<1
     assert abs(selected.y()-(rect.top()+.25*(rect.height()-1)))<1
     picker.hex_editor.selectAll();QTest.keyClicks(picker.hex_editor,'#336699')
-    assert picker.color.name()=='#336699' and picker.current_swatch.color.name()=='#336699'
-    assert picker.previous_swatch.color.name()=='#ff0000'
+    assert picker.color.name()=='#336699' and picker.comparison.current.name()=='#336699'
+    assert picker.comparison.previous.name()=='#ff0000'
     picker.grab().save(str(OUT/'picker.png'))
-    for swatch in (picker.previous_swatch,picker.current_swatch):
-        assert picker.rect().contains(swatch.geometry())
-        image=swatch.grab().toImage()
-        assert image.pixelColor(swatch.rect().center()).name()==swatch.color.name()
-        assert swatch.size().width()==72 and swatch.size().height()==36
+    comparison=picker.comparison;image=comparison.grab().toImage()
+    assert image.pixelColor(comparison.width()//4,comparison.height()//2).name()==comparison.previous.name()
+    assert image.pixelColor(comparison.width()*3//4,comparison.height()//2).name()==comparison.current.name()
     picker.reject();picker.deleteLater()
 
 
