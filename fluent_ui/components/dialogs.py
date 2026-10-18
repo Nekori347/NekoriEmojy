@@ -494,6 +494,7 @@ class FramePickerDialog(NekoriDialog):
         self.preview.setAlignment(Qt.AlignCenter)
         self.preview.setStyleSheet(f"border: 1px solid {colors()['border']};")
         self.add_widget(self.preview)
+        self.body.setAlignment(self.preview, Qt.AlignHCenter)
 
         self.frame_count = self._count_frames()
         self.slider = QSlider(Qt.Horizontal, self)

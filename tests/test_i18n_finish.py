@@ -90,6 +90,9 @@ def test_frame_picker_center_and_frame_actions(case):
   area=d.screen().availableGeometry();center=owner.frameGeometry().center()
   expected=QPoint(max(area.left(),min(center.x()-d.width()//2,area.right()-d.width()+1)),max(area.top(),min(center.y()-d.height()//2,area.bottom()-d.height()+1)))
   assert (d.pos()-expected).manhattanLength()<=2
+  assert abs(d.preview.geometry().center().x()-d.body.contentsRect().center().x())<=1, (lang,d.width(),d.preview.geometry(),d.body.contentsRect())
+  d.resize(d.width()+100,d.height());case.app.processEvents()
+  assert abs(d.preview.geometry().center().x()-d.body.contentsRect().center().x())<=1
   assert not [text for text in texts(d) if '[MISSING:' in text]
   d.slider.setValue(1);d._apply();assert storage.resource_metadata(path).get('thumb_frame')==1
   reset=FramePickerDialog(owner,storage,path);reset._reset();assert not storage.resource_metadata(path).get('thumb_frame')
