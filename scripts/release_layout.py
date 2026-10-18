@@ -7,6 +7,7 @@ ROOT=Path(__file__).resolve().parents[1]
 FILES=('main.py','requirements.txt','ocr-component.json','ico.ico','README.md','LICENSE','THIRD_PARTY_NOTICES.md')
 PACKAGES=('fluent_ui/','services/')
 LANGUAGES=tuple('translations/'+lang+'.json' for lang in ('zh','en','ja','zh_TW'))
+SOURCE_OVERRIDES={'README.md':'docs/PACKAGE_README.md'}
 GENERATED=('SuzuEmojy.exe','SuzuEmojyUpdater.exe','version.json','BUILD_INFO.json')
 
 def source_files():
@@ -17,7 +18,7 @@ def source_files():
         if name.startswith(PACKAGES) and (name.endswith('.py') or name.startswith('fluent_ui/assets/')):
             result.add(name)
     for name in result:
-        if not (ROOT/name).is_file():raise FileNotFoundError(name)
+        if not (ROOT/SOURCE_OVERRIDES.get(name,name)).is_file():raise FileNotFoundError(name)
     return result
 
 def allowed_files(flavor,compiler_files=None):

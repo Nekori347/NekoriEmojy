@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
-from scripts.release_layout import source_files
+from scripts.release_layout import source_files,SOURCE_OVERRIDES
 from scripts.package_release import package_release
 
 def build(output=None,archive=False):
@@ -12,7 +12,7 @@ def build(output=None,archive=False):
     if out.exists():raise FileExistsError('Build output must be new: '+str(out))
     release=out/'application';release.mkdir(parents=True)
     for name in source_files():
-        target=release/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(ROOT/name,target)
+        target=release/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(ROOT/SOURCE_OVERRIDES.get(name,name),target)
     subprocess.run([sys.executable,'-m','PyInstaller','--noconfirm','--clean','--onefile','--noconsole',
         '--name','SuzuEmojy','--icon',str(ROOT/'ico.ico'),'--add-data',str(ROOT/'ico.ico')+';.',
         '--distpath',str(release),'--workpath',str(out/'compiler'),'--specpath',str(out),str(ROOT/'launcher.py')],cwd=ROOT,check=True)

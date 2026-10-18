@@ -187,7 +187,7 @@ def main():
         files_to_copy = ["README.md", "ico.ico", "LICENSE", "THIRD_PARTY_NOTICES.md"]
         for f in files_to_copy:
             if os.path.exists(f):
-                shutil.copy2(f, release_dir)
+                shutil.copy2("docs/PACKAGE_README.md" if f=="README.md" else f, os.path.join(release_dir,f))
 
         # 创建干净的数据目录结构，不打包本地用户数据（数据库、表情图片、缓存、个人配置等）
         data_dir = os.path.join(bin_dir, "data")

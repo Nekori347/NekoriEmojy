@@ -22,6 +22,7 @@ The root assets/ directory contains historical documentation/demo media and is
 not needed by the current UI; it is not a release input. Personal config,
 indexes, images, OCR runtimes, tests, .git, assistant files, archives, logs,
 screenshots, downloads and developer environments are absent from the inventory.
+The shipped README is docs/PACKAGE_README.md, not the developer README.
 Unknown files cause packaging to fail; exclusion keywords are not the boundary.
 
 ## Commands
