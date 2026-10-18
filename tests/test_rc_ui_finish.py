@@ -21,7 +21,8 @@ def test_expanded_tasks_share_columns_with_balanced_edge_padding(surface):
         assert label.mapTo(u.window,QPoint()).x()==h.title_label.mapTo(u.window,QPoint()).x()
         assert button.mapTo(u.window,QPoint()).x()==h.action_button.mapTo(u.window,QPoint()).x()
         assert info.width()==close.width()==20
-        assert 0<=u.material.geometry().right()-close.mapTo(u.window,QPoint(close.width()-1,0)).x()<=8
+        trailing=button if not button.isHidden() else close
+        assert 0<=u.material.geometry().right()-trailing.mapTo(u.window,QPoint(trailing.width()-1,0)).x()<=8
     assert u.panel.width()<=h.strip.width()+14
 
 

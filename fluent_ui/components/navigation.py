@@ -167,8 +167,9 @@ class HierarchyLocationHeader(QWidget):
         gap = visual.COMPACT_CONTROLS.spacing*2
         count_font = visual.font('data');count_font.setPixelSize(11)
         count_font.setWeight(QFont.Medium)
-        self.count_label.setFont(count_font)
-        self.count_label.setStyleSheet(f"color: {visual.colors()['text_secondary']};")
+        if self.count_label.font()!=count_font:self.count_label.setFont(count_font)
+        style=f"color: {visual.colors()['text_secondary']};"
+        if self.count_label.styleSheet()!=style:self.count_label.setStyleSheet(style)
         size = self.count_label.sizeHint()
         fits = title_width + gap + size.width() <= r.width()
         self.count_label.setVisible(fits and bool(self.count_label.text()) and self._progress == 1.0 and self._preview is None)
@@ -470,10 +471,20 @@ class NavigationItem(QStyledItemDelegate):
         painter.setRenderHint(QPainter.Antialiasing)
         rect = QRectF(option.rect).adjusted(4, 3, -4, -3)
         painter.setPen(Qt.NoPen)
-        fill=QColor(c['selected'] if selected else c['hover'])
-        fill.setAlpha(180 if selected else 255 if option.state & QStyle.State_MouseOver else 0)
-        painter.setBrush(fill)
-        painter.drawRoundedRect(rect, 4, 4)
+        if option.state & QStyle.State_MouseOver and not selected:
+            painter.setBrush(QColor(c['hover']))
+            painter.drawRoundedRect(rect, 4, 4)
+        # Background and stripe follow the same animation rectangle. Drawing
+        # only the new selection's background made it jump ahead of the stripe.
+        moving=self._selection_motion.state()==QVariantAnimation.Running or self._selection_timer.isActive()
+        indicator=self._indicator if moving else self._indicator_target()
+        if not indicator.isEmpty():
+            fill=QColor(c['selected']);fill.setAlpha(180)
+            painter.save();painter.setClipRect(rect)
+            painter.setBrush(fill)
+            highlight=QRectF(rect);highlight.moveCenter(QPointF(rect.center().x(),indicator.center().y()))
+            painter.drawRoundedRect(highlight,4,4)
+            painter.restore()
         self._paint_indicator(painter,rect,selected)
         if option.state & QStyle.State_HasFocus:
             painter.setPen(QPen(QColor(c['border']), 1, Qt.DotLine))

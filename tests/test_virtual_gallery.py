@@ -103,7 +103,7 @@ def test_real_mutation_paths_preserve_view_and_recycled_identity(tmp_path, monke
         incoming=tmp_path/'new.png'; image.fill(QColor(240,30,90)); image.save(str(incoming))
         g.import_paths_to([str(incoming)],node)
         until=time.monotonic()+10
-        while (g.import_thread.isRunning() or len(g._entries)!=160) and time.monotonic()<until:
+        while ((g.import_thread is not None and g.import_thread.isRunning()) or len(g._entries)!=160) and time.monotonic()<until:
             QTest.qWait(20)
         assert len(g._entries)==160 and g._entries[0]['name'].startswith('new')
         assert anchor_offset(anchor)==anchor[1]

@@ -58,6 +58,9 @@ class UpdateDialog(dialogs.NekoriDialog):
     check_state_changed=Signal(str)
     def __init__(self, parent=None, service=None):
         super().__init__(parent,t('软件更新'))
+        # Status/download work is non-modal from the FIRST show. Changing a
+        # visible modal dialog's property leaves Qt's modal stack registered.
+        self.setWindowModality(Qt.NonModal)
         self.service = service or UpdateService()
         self.worker = None
         self.release = None
@@ -152,7 +155,7 @@ class UpdateDialog(dialogs.NekoriDialog):
             self._checking=False;self.release=None;self.check_state_changed.emit('error')
         self.installing = False
         self.later_button.setEnabled(True)
-        self.setWindowModality(Qt.NonModal)
+        self._set_modality(Qt.NonModal)
         self.status.setText(t("更新失败，请重试或打开发布页"))
         self.notes.setPlainText(error)
         self.notes.show();self.page_button.show();self._fit_content()
@@ -175,7 +178,9 @@ class UpdateDialog(dialogs.NekoriDialog):
         self.release=release
         self.release_changed.emit(release)
         if not release:
-            self.status.setText(t('暂未发现可用更新'))
+            unpublished=getattr(self.service,'last_check_status','')=='unpublished'
+            self.status.setText(t('目前没有可用的发布版本。') if unpublished else t('暂未发现可用更新'))
+            if unpublished:self.check_state_changed.emit('unpublished')
             self.notes.clear()
             self.notes.hide();self.latest_label.hide();self.action_button.setEnabled(False)
             self.check_button.show();self.page_button.hide();self._fit_content()
@@ -197,6 +202,13 @@ class UpdateDialog(dialogs.NekoriDialog):
         self.layout().activate();self.resize(520,self.layout().sizeHint().height())
         if self.parentWidget():dialogs.center_on_owner(self,self.parentWidget())
 
+    def _set_modality(self, modality):
+        if self.windowModality()==modality:return
+        visible=self.isVisible()
+        if visible:self.hide()
+        self.setWindowModality(modality)
+        if visible:self.show()
+
     def _prepared(self, item):
         self.prepared = item
         self.status.setText("v" + item["version"] + " · " + t("更新已准备好，点击重启后安装"))
@@ -214,7 +226,7 @@ class UpdateDialog(dialogs.NekoriDialog):
                 return
             self.installing = True
             self.later_button.setEnabled(False)
-            self.setWindowModality(Qt.ApplicationModal)
+            self._set_modality(Qt.ApplicationModal)
             self.status.setText(t("正在准备重启更新…"))
             self._run(lambda progress: self.service.launch_installer(), self._quit)
         elif self.release and (self.release.get('manual_only') or not (self.service.root / MANIFEST).is_file()):

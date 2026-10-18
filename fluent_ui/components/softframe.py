@@ -108,10 +108,11 @@ class SectionHeading(QWidget):
 
 
 class SoftframeSlider(QSlider):
-    """Native slider input/hit testing, fine track and short capsule drawing."""
+    """Style-based handle input, fine track and short capsule drawing."""
     def __init__(self, orientation=Qt.Horizontal, parent=None):
         super().__init__(orientation,parent)
         self._handle_hover=False
+        self._handle_drag=False
         self.setAttribute(Qt.WA_Hover)
         self.setFocusPolicy(Qt.TabFocus)
         self.setMinimumSize(60,28)
@@ -150,6 +151,39 @@ class SoftframeSlider(QSlider):
             hovered=event.type()!=QEvent.HoverLeave and handle.contains(event.position().toPoint())
             if hovered!=self._handle_hover:self._handle_hover=hovered;self.update()
         return super().event(event)
+
+    def mousePressEvent(self,event):
+        option=QStyleOptionSlider();self.initStyleOption(option)
+        handle=self.style().subControlRect(QStyle.CC_Slider,option,QStyle.SC_SliderHandle,self)
+        if event.button()==Qt.LeftButton and handle.contains(event.position().toPoint()):
+            horizontal=self.orientation()==Qt.Horizontal
+            self._drag_offset=(event.position().x()-handle.left() if horizontal else event.position().y()-handle.top())
+            self._handle_drag=True;self.setFocus(Qt.MouseFocusReason);self.setSliderDown(True)
+            event.accept();return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self,event):
+        if not self._handle_drag:return super().mouseMoveEvent(event)
+        option=QStyleOptionSlider();self.initStyleOption(option)
+        horizontal=self.orientation()==Qt.Horizontal
+        # QSS groove margins are not included consistently in its reported
+        # rectangle. Use the handle's actual two endpoint positions instead.
+        option.sliderPosition=self.minimum()
+        low=self.style().subControlRect(QStyle.CC_Slider,option,QStyle.SC_SliderHandle,self)
+        option.sliderPosition=self.maximum()
+        high=self.style().subControlRect(QStyle.CC_Slider,option,QStyle.SC_SliderHandle,self)
+        ends=(low.left(),high.left()) if horizontal else (low.top(),high.top())
+        start=min(ends);span=abs(ends[1]-ends[0])
+        position=(event.position().x() if horizontal else event.position().y())-self._drag_offset-start
+        self.setSliderPosition(QStyle.sliderValueFromPosition(self.minimum(),self.maximum(),round(position),max(1,span),option.upsideDown))
+        event.accept()
+
+    def mouseReleaseEvent(self,event):
+        if self._handle_drag and event.button()==Qt.LeftButton:
+            self._handle_drag=False;self.setSliderDown(False)
+            if not self.hasTracking():self.setValue(self.sliderPosition())
+            event.accept();return
+        super().mouseReleaseEvent(event)
 
     def wheelEvent(self,event):
         event.ignore()

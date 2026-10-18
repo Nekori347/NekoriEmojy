@@ -163,6 +163,7 @@ class CaptionFeedback(QObject):
         host.strip.layout().setEnabled(False)
         self.detail=TransparentToolButton(Icon.INFO,host.strip);self.detail.setFixedSize(20,20)
         bind_text(self.detail,'查看详情','setToolTip');self.detail.clicked.connect(self.show_current_details)
+        self.actions=self._action_box(host.strip,self.detail,host.action_button,host.close_button)
         window.installEventFilter(self)
         i18n_engine.language_changed.connect(self.refresh)
         self.refresh_theme()
@@ -275,15 +276,36 @@ class CaptionFeedback(QObject):
             h.title_label.setGeometry(x,0,name,24);x+=name+gap
             h.progress.setGeometry(x,7,bar,10);x+=bar+gap
             h.count_label.setGeometry(x,0,count,24);x+=count+gap
-            h.action_button.setGeometry(x,1,action,22);x+=action+gap
-            self.detail.setGeometry(x,2,detail,20)
         else:
             reserve=detail+(action+gap if h.action_button.isVisible() else 0)
             h.title_label.setGeometry(x,0,max(1,h.strip.width()-x-reserve-gap),24)
-            h.action_button.setGeometry(h.strip.width()-detail-gap-action,1,action,22)
-            self.detail.setGeometry(h.strip.width()-detail,2,detail,20)
-            h.close_button.setGeometry(h.strip.width()-detail,2,detail,20)
+        h.action_button.setFixedWidth(action)
+        self._place_actions(self.actions,h.strip.width(),12)
         self.columns=(icon+gap,name,bar,count,action,detail,gap)
+
+    @staticmethod
+    def _action_box(parent,info,primary,close):
+        box=QWidget(parent);layout=QHBoxLayout(box)
+        layout.setContentsMargins(0,0,0,0);layout.setSpacing(6)
+        box.members=(info,primary,close);box.order=()
+        for widget in box.members:
+            widget.setParent(box)
+            policy=widget.sizePolicy();policy.setRetainSizeWhenHidden(False);widget.setSizePolicy(policy)
+        return box
+
+    @staticmethod
+    def _place_actions(box,right,center):
+        info,primary,close=box.members
+        # Retain dismissal of stopped/resumable tasks as a secondary action;
+        # the task's main action remains last. Ordinary notices end in Close.
+        order=(close,info,primary) if not primary.isHidden() else (info,primary,close)
+        layout=box.layout()
+        if order!=box.order:
+            for widget in box.members:layout.removeWidget(widget)
+            for widget in order:layout.addWidget(widget)
+            box.order=order
+        size=layout.sizeHint();box.setGeometry(right-size.width(),center-size.height()//2,size.width(),size.height())
+        layout.activate()
 
     def layout_rows(self):
         if not hasattr(self,'columns'):return
@@ -301,8 +323,9 @@ class CaptionFeedback(QObject):
                 progress.setGeometry(x+10,cy-5,max(1,bar-20),10)
                 numeric.setGeometry(x+bar+gap,0,count,row.height())
             x+=bar+gap+count+gap
-            button.setGeometry(x,cy-11,action,22);x+=action+gap
-            info.setGeometry(x,cy-10,detail,20);close.setGeometry(x+detail+gap,cy-10,detail,20)
+            button.setFixedWidth(action)
+            right=row.mapFrom(self.window,self.host.strip.pos()).x()+self.host.strip.width()
+            self._place_actions(row.operations,right,cy)
 
     def paint_header(self,key,job):
         h=self.host;is_task=job['state'] in ACTIVE;glyph,tone=appearance(job)
@@ -335,8 +358,7 @@ class CaptionFeedback(QObject):
             action=PushButton(row);action.setFixedHeight(22);line.addWidget(action)
             detail=TransparentToolButton(Icon.INFO,row);detail.setFixedSize(20,20);line.addWidget(detail)
             close=TransparentToolButton(Icon.CLOSE,row);close.setFixedSize(20,20);line.addWidget(close)
-            for button in (action,detail,close):
-                policy=button.sizePolicy();policy.setRetainSizeWhenHidden(True);button.setSizePolicy(policy)
+            row.operations=self._action_box(row,detail,action,close)
             close.clicked.connect(lambda:h.remove_task(key));action.clicked.connect(lambda:h._task_action(key));detail.clicked.connect(lambda:h._task_details(key))
             h._named_widgets[key]=(row,icon,label,progress,count,action,detail,close)
             self.rows_layout.addWidget(row)

@@ -1649,8 +1649,8 @@ class GalleryInterface(QWidget):
         contextual = self.mode == 'manage' or count >= 2
         self.command_bar.setVisible(contextual)
         bind_text(self.selected_count_label, t('已选 {value_0} 项').format(value_0=count), 'setText')
-        direct = {e['id'] for e in self.entry_model.entries_of(self.content_scope_node())
-                  if e['kind'] == 'resource'}
+        direct = ({e['id'] for e in self.entry_model.entries_of(self.content_scope_node())
+                   if e['kind'] == 'resource'} if resources else set())
         context = ActionContext.from_entries(resources, direct, self.content_scope_node())
         self.btn_add_to.setEnabled(ActionPolicy.enabled('category_membership', context))
         self.btn_tags.setEnabled(ActionPolicy.enabled('tag_edit', context))
@@ -1746,6 +1746,8 @@ class GalleryInterface(QWidget):
     # Grid rendering
     # ==================================================================
     def clear_gallery(self):
+        self.renderer._batch_timer.stop()
+        self.renderer._pending.clear()
         for card in list(self.renderer.active.values()):
             self.renderer.retire(card)
         self.renderer.active.clear()

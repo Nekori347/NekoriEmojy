@@ -1,6 +1,7 @@
 """Mixed flow layout index and a viewport-sized pool of existing card widgets."""
 from bisect import bisect_left, bisect_right
-from PySide6.QtCore import QPoint, QRect, Qt, QSignalBlocker
+from time import perf_counter
+from PySide6.QtCore import QPoint, QRect, Qt, QSignalBlocker, QTimer
 from PySide6.QtWidgets import QWidget, QLabel
 from fluent_ui.components.gallery_model import occurrence_id
 from fluent_ui.components.gallery_thumbnails import GalleryThumbnails
@@ -83,6 +84,11 @@ class VirtualGallery:
         self.loader = GalleryThumbnails(gallery.config, gallery)
         self.updating = False
         self.created = 0
+        self._pending = []
+        self._batch_timer = QTimer(gallery)
+        self._batch_timer.setSingleShot(True)
+        self._batch_timer.setInterval(8)
+        self._batch_timer.timeout.connect(self._drain)
 
     def relayout(self, first=0, anchor=None, scroll=None):
         g = self.gallery
@@ -170,6 +176,7 @@ class VirtualGallery:
     def sync(self):
         if self.updating:
             return
+        self._batch_timer.stop()
         g = self.gallery
         top = g.scroll_area.verticalScrollBar().value()
         height = max(100, g.scroll_area.viewport().height())
@@ -182,8 +189,18 @@ class VirtualGallery:
         ordered = sorted(wanted, key=lambda key: (
             max(top-self.index.rects[wanted[key]].bottom(),
                 self.index.rects[wanted[key]].top()-(top+height), 0), wanted[key]))
-        for key in ordered:
-            index = wanted[key]
+        self._wanted = wanted
+        self._ordered = ordered
+        self._pending = list(ordered)
+        self._drain()
+
+    def _drain(self):
+        """Prepare visible cards first, yielding between small GUI-thread batches."""
+        g = self.gallery
+        started = perf_counter()
+        while self._pending:
+            key = self._pending.pop(0)
+            index = self._wanted[key]
             entry = g._entries[index]
             card = self.active.get(key)
             if card is None:
@@ -197,12 +214,22 @@ class VirtualGallery:
                 card._renderer.show()
             if card.isHidden():
                 card.show()
+            if perf_counter()-started >= .008:
+                break
         # Compatibility list now contains ONLY viewport/buffer renderers.
-        g._all_card_widgets = [self.active[key] for key in sorted(wanted, key=wanted.get)]
-        g._loaded_count = g._target_load_count = len(g._all_card_widgets)
-        self.loader.request([self.active[key] for key in ordered])
+        g._all_card_widgets = [self.active[key] for key in sorted(self._wanted, key=self._wanted.get)
+                               if key in self.active]
+        g._loaded_count = len(g._all_card_widgets)
+        g._target_load_count = len(self._wanted)
+        # request() replaces its queue: include earlier batches so pending
+        # decodes remain wanted while subsequent renderers are prepared.
+        self.loader.request([self.active[key] for key in self._ordered if key in self.active])
+        if self._pending:
+            self._batch_timer.start()
+            return
         # A small/empty category must not discard the viewport's reusable bank.
         # Its bound depends on visible geometry, never the library item count.
+        height = max(100, g.scroll_area.viewport().height())
         columns=max(1,(self.index.width+4)//(self.index.size+4))
         capacities={'resource':max(32,columns*((height*3+self.index.size+3)//(self.index.size+4))),
                     'node':max(32,(height*3+47)//48)}

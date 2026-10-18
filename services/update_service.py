@@ -67,12 +67,16 @@ class UpdateService:
             raise Cancelled()
 
     def check(self):
+        self.last_check_status='current'
         self._cancelled()
         if not self.channel_available:return None
         with requests.get(self.api_url, headers={"User-Agent": "NekoriEmojy-Updater", "Accept": "application/vnd.github+json"}, timeout=(8, 15)) as response:
-            if getattr(response,'status_code',200)==404:return None
+            if getattr(response,'status_code',200)==404:
+                self.last_check_status='unpublished';return None
             response.raise_for_status()
             release = response.json()
+        if not release:
+            self.last_check_status='unpublished';return None
         self._cancelled()
         if release.get("draft") or release.get("prerelease"):
             raise ValueError("No stable release available")
