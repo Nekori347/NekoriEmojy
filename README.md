@@ -16,8 +16,8 @@ Windows 本地表情 / 图片资源管理器，基于 SuzuEmojy v1.13.0（`0152f
 
 更新只替换发布清单拥有的程序文件，配置、表情库与可选文字识别组件具有独立位置。重装或移动程序后继续使用原配置中的表情库路径；路径变化时在设置中重新连接。手动删除程序目录前，确认没有把自定义表情库放在其中，并先备份配置与整个表情库。源码回退不代表数据库可以直接降级。
 
-`build.bat`构建轻量包，`build_nuitka.bat`/`build_nuitka.py`为独立版入口；当前候选包的实际构建/验收范围以发布记录为准。ZIP名称读取`version.json`的`update_asset`，内部更新清单协议仍保留兼容名称。不存在Windows安装器或卸载器，不声称验证了尚不存在的安装形式。
+正式工程位于 `F:\NekoriEmojy`，本目录仍是唯一活动 Git 工作树。`build.bat` 默认仅构建独立的 `../Build/lightweight-时间/application/` 验证目录，不会生成分发ZIP；`--archive` 为下一阶段明确制作ZIP时使用。`build_nuitka.bat`/`build_nuitka.py`保留独立版编译入口，最终也进入工程外层Build独立暂存区。正向白名单与生成物规则见 [DISTRIBUTION](docs/DISTRIBUTION.md)。不从工程根、DevData、旧包或Archive递归打包。ZIP名称仍读取version.json，既有更新协议文件名保持不变。当前没有Inno Setup安装器，本阶段不制作或发布安装包。
 
-文字识别为可选本地组件，不混入基础依赖。当前公开组件下载地址尚未发布，本轮验证的是本地组件安装与运行，不声称联网部署已经完成。随附`说明书.md`明确标记为Suzu历史参考，不作为当前Nekori操作指南。
+文字识别为可选本地组件，不混入基础依赖。当前公开组件下载地址尚未发布，本轮验证的是本地组件安装与运行，不声称联网部署已经完成。源码中的`说明书.md`为Suzu历史参考，不随新基础包分发。
 
 ProjectDocs 等在本 Git 仓库外，交接必须保留完整 NekoriEmojy 根目录。

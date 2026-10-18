@@ -11,27 +11,28 @@ sys.path.insert(0, str(ROOT))
 from services.update_protocol import MANIFEST, PROTECTED, atomic_json, read_manifest, sha256, version_key
 
 
-def package_release(release_dir, flavor):
+def package_release(release_dir, flavor, *, compiler_files=None, archive=True):
     release_dir = Path(release_dir).resolve()
     version = json.loads((ROOT / "version.json").read_text(encoding="utf-8"))
     version_key(version["version"])
     if version.get("channel") != "stable":
         raise ValueError("Only stable releases are currently supported")
+    from scripts.release_layout import validate_layout
+    validate_layout(release_dir,flavor,compiler_files)
     # Both packaging modes use an independent updater without Qt dependencies.
     subprocess.run([
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--noconsole",
         "--name", "SuzuEmojyUpdater", "--distpath", str(release_dir),
-        "--workpath", str(ROOT / "dist" / "updater-build"),
-        "--specpath", str(ROOT / "dist"), str(ROOT / "updater.py"),
+        "--workpath", str(release_dir.parent / "updater-build"),
+        "--specpath", str(release_dir.parent), str(ROOT / "updater.py"),
     ], cwd=ROOT, check=True)
     atomic_json(release_dir / "version.json", version)
-    files = {}
-    for path in sorted(release_dir.rglob("*")):
-        name = path.relative_to(release_dir).as_posix()
-        if path.is_file() and name != MANIFEST and not any(p.lower() in PROTECTED for p in path.relative_to(release_dir).parts):
-            files[name] = sha256(path)
+    from scripts.release_layout import validate_layout
+    files = {name:sha256(release_dir/name) for name in validate_layout(release_dir,flavor,compiler_files)}
     atomic_json(release_dir / MANIFEST, {"protocol": 1, "version": version["version"], "flavor": flavor, "files": files})
     read_manifest(release_dir, verify=True)
+    if not archive:
+        return release_dir
     archive_name = version.get("update_asset", "SuzuEmojy_Release.zip")
     if Path(archive_name).name != archive_name or not archive_name.endswith(".zip"):
         raise ValueError("Invalid release archive name")

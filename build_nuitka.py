@@ -184,7 +184,7 @@ def main():
                 os.remove(optional_file)
         
         # 3. 复制文档、图标和数据
-        files_to_copy = ["README.md", "说明书.md", "ico.ico", "LICENSE"]
+        files_to_copy = ["README.md", "ico.ico", "LICENSE", "THIRD_PARTY_NOTICES.md"]
         for f in files_to_copy:
             if os.path.exists(f):
                 shutil.copy2(f, release_dir)
@@ -230,7 +230,15 @@ def main():
         
         print("\n====================================")
         from scripts.package_release import package_release
-        package_release(release_dir, "standalone")
+        from pathlib import Path
+        compiler_files=[p.relative_to(Path(release_dir)).as_posix() for p in Path(bin_dir).rglob('*') if p.is_file()]
+        info={"source_commit":subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip(),"flavor":"standalone"}
+        (Path(release_dir)/"BUILD_INFO.json").write_text(__import__('json').dumps(info,indent=2),encoding="utf-8")
+        # Publishable staging is separate from the compiler scratch directory.
+        final=Path(__file__).resolve().parent.parent/'Build'/('standalone-'+__import__('datetime').datetime.now().strftime('%Y%m%d-%H%M%S'))/'application'
+        final.parent.mkdir(parents=True,exist_ok=False)
+        shutil.move(release_dir,str(final))
+        package_release(final, "standalone",compiler_files=compiler_files,archive=False)
         print("All Done!")
         print(f"Clean release package is ready at: {os.path.abspath(release_dir)}")
         print("====================================")
