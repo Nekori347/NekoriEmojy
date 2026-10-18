@@ -62,7 +62,7 @@ class QQExtractor:
     @staticmethod
     def get_temp_gif_cache_dir():
         """获取 APNG 预览转码临时缓存目录"""
-        temp_dir = os.path.join(tempfile.gettempdir(), "SuzuEmojy_QQ_GIF_Cache")
+        temp_dir = os.path.join(tempfile.gettempdir(), "NekoriEmojy_QQ_GIF_Cache")
         os.makedirs(temp_dir, exist_ok=True)
         return temp_dir
 
@@ -243,7 +243,7 @@ class QQExtractor:
         appdata_path = os.getenv('LOCALAPPDATA')
         if not appdata_path:
             appdata_path = os.path.join(os.getenv('USERPROFILE', ''), 'AppData', 'LocalLow')
-        cache_dir = os.path.join(appdata_path, 'SuzuEmojy_QQ_Cache')
+        cache_dir = os.path.join(appdata_path, 'NekoriEmojy_QQ_Cache')
         os.makedirs(cache_dir, exist_ok=True)
         return os.path.join(cache_dir, 'user_nicknames.json')
 

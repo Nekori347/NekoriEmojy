@@ -17,9 +17,9 @@ from services.update_protocol import (
     MANIFEST, atomic_json, child, read_manifest, safe_name, sha256, version_key,
 )
 
-RELEASES_URL = "https://github.com/IxinorTyan/SuzuEmojy/releases"
-API_URL = "https://api.github.com/repos/IxinorTyan/SuzuEmojy/releases/latest"
-ASSET_NAME = "SuzuEmojy_Release.zip"
+RELEASES_URL = "https://github.com/Nekori347/NekoriEmojy/releases"
+API_URL = "https://api.github.com/repos/Nekori347/NekoriEmojy/releases/latest"
+ASSET_NAME = "NekoriEmojy-{version}-Windows-Portable.zip"
 MAX_DOWNLOAD = 2 * 1024 ** 3
 MAX_EXTRACTED = 8 * 1024 ** 3
 
@@ -83,7 +83,7 @@ class UpdateService:
         latest = release["tag_name"]
         if version_key(latest) <= version_key(current_version(self.root)):
             return None
-        assets = [a for a in release.get("assets", []) if a["name"] == self.asset_name and a.get("state") == "uploaded"]
+        assets = [a for a in release.get("assets", []) if a["name"] == self.asset_name.format(version=latest.lstrip("v")) and a.get("state") == "uploaded"]
         if not assets and self.asset_name.startswith('NekoriEmojy'):
             return {'version':latest.lstrip('v'),'notes':release.get('body') or '',
                     'date':release.get('published_at',''),'size':0,'manual_only':True}
@@ -129,7 +129,7 @@ class UpdateService:
             if shutil.disk_usage(work).free < release["size"] * 2:
                 raise OSError("Insufficient disk space")
             received = 0
-            with requests.get(release["url"], stream=True, timeout=(8, 15), headers={"User-Agent": "SuzuEmojy-Updater"}) as response:
+            with requests.get(release["url"], stream=True, timeout=(8, 15), headers={"User-Agent": "NekoriEmojy-Updater"}) as response:
                 response.raise_for_status()
                 if not response.url.startswith("https://"):
                     raise ValueError("Insecure download redirect")
@@ -210,10 +210,10 @@ class UpdateService:
         local = read_manifest(self.root)
         if incoming["flavor"] != local["flavor"] or incoming["version"] != item["version"]:
             raise ValueError("Prepared package mismatch")
-        helper = self.workspace / "SuzuEmojyUpdater.exe"
-        shutil.copy2(child(self.root, "SuzuEmojyUpdater.exe"), helper)
+        helper = self.workspace / "NekoriEmojyUpdater.exe"
+        shutil.copy2(child(self.root, "NekoriEmojyUpdater.exe"), helper)
         # Never execute an updater copied from the downloaded package before installation.
-        if sha256(helper) != local["files"]["SuzuEmojyUpdater.exe"]:
+        if sha256(helper) != local["files"]["NekoriEmojyUpdater.exe"]:
             raise ValueError("Installed updater verification failed")
         handshake = self.workspace / "installer-ready"
         handshake.unlink(missing_ok=True)

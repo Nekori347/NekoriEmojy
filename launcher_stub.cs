@@ -36,7 +36,7 @@ internal static class LauncherStub
         if (File.Exists(Path.Combine(updateDirectory, "journal.json")) ||
             File.Exists(Path.Combine(updateDirectory, "installer-ready")))
         {
-            string recovery = Path.Combine(updateDirectory, "SuzuEmojyUpdater.exe");
+            string recovery = Path.Combine(updateDirectory, "NekoriEmojyUpdater.exe");
             try
             {
                 Process.Start(new ProcessStartInfo {
@@ -49,18 +49,18 @@ internal static class LauncherStub
             }
             catch (Exception error)
             {
-                MessageBox.Show("更新恢复失败，请保留 .update 目录并重试。\n" + error.Message, "SuzuEmojy");
+                MessageBox.Show("更新恢复失败，请保留 .update 目录并重试。\n" + error.Message, "NekoriEmojy");
             }
             return;
         }
-        string targetPath = Path.Combine(baseDirectory, "bin", "SuzuEmojy.exe");
+        string targetPath = Path.Combine(baseDirectory, "bin", "NekoriEmojy.exe");
 
         if (!File.Exists(targetPath))
         {
             MessageBox.Show(
                 "找不到核心程序：" + Environment.NewLine + targetPath + Environment.NewLine + Environment.NewLine +
                 "请确保 bin 文件夹完整。",
-                "SuzuEmojy",
+                "NekoriEmojy",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
             return;
@@ -81,7 +81,7 @@ internal static class LauncherStub
         {
             MessageBox.Show(
                 "启动核心程序失败：" + Environment.NewLine + error.Message,
-                "SuzuEmojy",
+                "NekoriEmojy",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }

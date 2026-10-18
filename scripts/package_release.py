@@ -19,10 +19,13 @@ def package_release(release_dir, flavor, *, compiler_files=None, archive=True):
         raise ValueError("Only stable releases are currently supported")
     from scripts.release_layout import validate_layout
     validate_layout(release_dir,flavor,compiler_files)
+    from scripts.windows_version import version_resource
+    resource = version_resource(release_dir.parent / "updater-version.txt", "NekoriEmojyUpdater.exe", "NekoriEmojy Updater")
     # Both packaging modes use an independent updater without Qt dependencies.
     subprocess.run([
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--noconsole",
-        "--name", "SuzuEmojyUpdater", "--distpath", str(release_dir),
+        "--version-file", str(resource), "--icon", str(ROOT / "ico.ico"),
+        "--name", "NekoriEmojyUpdater", "--distpath", str(release_dir),
         "--workpath", str(release_dir.parent / "updater-build"),
         "--specpath", str(release_dir.parent), str(ROOT / "updater.py"),
     ], cwd=ROOT, check=True)
@@ -33,7 +36,7 @@ def package_release(release_dir, flavor, *, compiler_files=None, archive=True):
     read_manifest(release_dir, verify=True)
     if not archive:
         return release_dir
-    archive_name = version.get("update_asset", "SuzuEmojy_Release.zip")
+    archive_name = version.get("update_asset", "NekoriEmojy-{version}-Windows-Portable.zip").format(version=version["version"])
     if Path(archive_name).name != archive_name or not archive_name.endswith(".zip"):
         raise ValueError("Invalid release archive name")
     archive = release_dir.parent / archive_name

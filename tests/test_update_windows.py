@@ -1,4 +1,4 @@
-"""Opt-in native test: set SUZU_TEST_UPDATER to a compiled updater executable."""
+"""Opt-in native test: set NEKORI_TEST_UPDATER to a compiled updater executable."""
 import json
 import os
 from pathlib import Path
@@ -13,26 +13,26 @@ from services.update_protocol import MANIFEST, atomic_json, read_manifest, sha25
 from test_updates import make_release
 
 
-@unittest.skipUnless(os.name == "nt" and os.environ.get("SUZU_TEST_UPDATER"), "compiled Windows updater not supplied")
+@unittest.skipUnless(os.name == "nt" and os.environ.get("NEKORI_TEST_UPDATER"), "compiled Windows updater not supplied")
 class NativeUpdateTests(unittest.TestCase):
     def test_native_helper_waits_installs_and_restarts_root_launcher(self):
         from build_nuitka import build_launcher_stub, find_csc
-        with tempfile.TemporaryDirectory(prefix="Suzu 更新验证 ") as directory:
+        with tempfile.TemporaryDirectory(prefix="Nekori 更新验证 ") as directory:
             root = Path(directory)
             make_release(root)
             build_launcher_stub(str(root))
             core_source = root / "marker.cs"
             core_source.write_text('using System.IO; class Marker { static void Main() { File.WriteAllText(Path.Combine(System.Environment.CurrentDirectory, "restarted.txt"), "ok"); } }', encoding="utf-8")
-            subprocess.run([find_csc(), "/nologo", "/target:winexe", "/out:" + str(root / "bin/SuzuEmojy.exe"), str(core_source)], check=True, capture_output=True)
-            helper = Path(os.environ["SUZU_TEST_UPDATER"]).resolve()
-            shutil.copy2(helper, root / "SuzuEmojyUpdater.exe")
+            subprocess.run([find_csc(), "/nologo", "/target:winexe", "/out:" + str(root / "bin/NekoriEmojy.exe"), str(core_source)], check=True, capture_output=True)
+            helper = Path(os.environ["NEKORI_TEST_UPDATER"]).resolve()
+            shutil.copy2(helper, root / "NekoriEmojyUpdater.exe")
             manifest = read_manifest(root)
             manifest["files"] = {name: sha256(root / name) for name in manifest["files"]}
             atomic_json(root / MANIFEST, manifest)
             work = root / ".update"
             stage = work / "stage-native"
             make_release(stage, "1.14.0")
-            for name in ("SuzuEmojy.exe", "SuzuEmojyUpdater.exe", "bin/SuzuEmojy.exe"):
+            for name in ("NekoriEmojy.exe", "NekoriEmojyUpdater.exe", "bin/NekoriEmojy.exe"):
                 shutil.copy2(root / name, stage / name)
             manifest = read_manifest(stage)
             manifest["files"] = {name: sha256(stage / name) for name in manifest["files"]}

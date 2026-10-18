@@ -37,9 +37,9 @@ def _package_launcher(executable=None):
             if metadata.get('update_repository') != 'Nekori347/NekoriEmojy':
                 continue
             manifest = read_manifest(root)
-            # These names belong to Nekori's existing protocol-1 packages.
-            entry = root / 'SuzuEmojy.exe'
-            if 'SuzuEmojy.exe' in manifest['files'] and entry.is_file():
+            # Public entry and manifest use the same current Nekori identity.
+            entry = root / 'NekoriEmojy.exe'
+            if 'NekoriEmojy.exe' in manifest['files'] and entry.is_file():
                 return entry
         except (OSError, ValueError, KeyError, TypeError):
             continue

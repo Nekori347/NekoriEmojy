@@ -2,6 +2,8 @@ import os
 import subprocess
 import sys
 import shutil
+import json
+from pathlib import Path
 
 
 def find_csc():
@@ -29,13 +31,16 @@ def build_launcher_stub(release_dir):
 
     source_path = os.path.abspath("launcher_stub.cs")
     icon_path = os.path.abspath("ico.ico")
-    output_path = os.path.abspath(os.path.join(release_dir, "SuzuEmojy.exe"))
+    output_path = os.path.abspath(os.path.join(release_dir, "NekoriEmojy.exe"))
 
     if not os.path.isfile(source_path):
         raise FileNotFoundError(f"找不到启动器源码: {source_path}")
     if not os.path.isfile(icon_path):
         raise FileNotFoundError(f"找不到图标文件: {icon_path}")
 
+    version=json.loads((Path(__file__).resolve().parent / "version.json").read_text("utf-8"))["version"]
+    metadata=Path(release_dir).resolve().parent / "launcher-identity.cs"
+    metadata.write_text('using System.Reflection;\n[assembly: AssemblyTitle("NekoriEmojy")]\n[assembly: AssemblyProduct("NekoriEmojy")]\n[assembly: AssemblyDescription("NekoriEmojy")]\n[assembly: AssemblyVersion("'+version+'.0")]\n[assembly: AssemblyFileVersion("'+version+'.0")]\n',encoding="utf-8")
     compile_cmd = [
         csc_path,
         "/nologo",
@@ -43,7 +48,7 @@ def build_launcher_stub(release_dir):
         "/platform:x64",
         f"/out:{output_path}",
         f"/win32icon:{icon_path}",
-        source_path,
+        source_path, str(metadata),
         "/reference:System.dll",
         "/reference:System.Windows.Forms.dll",
     ]
@@ -64,7 +69,7 @@ def main():
     # Fail early instead of discovering the updater build dependency after Nuitka.
     subprocess.run([sys.executable, "-m", "PyInstaller", "--version"], check=True)
     print("====================================")
-    print("Building SuzuEmojy with Nuitka")
+    print("Building NekoriEmojy with Nuitka")
     print("====================================")
 
     # 清理 Nuitka 上一次的 standalone 产物，避免旧依赖残留到新发布包。
@@ -77,6 +82,11 @@ def main():
     cmd = [
         sys.executable, "-m", "nuitka",
         "--standalone",
+        "--update-check=never",
+        "--product-name=NekoriEmojy",
+        "--file-description=NekoriEmojy",
+        "--file-version="+json.loads(Path("version.json").read_text("utf-8"))["version"]+".0",
+        "--product-version="+json.loads(Path("version.json").read_text("utf-8"))["version"],
         "--windows-disable-console",
         "--enable-plugin=pyside6",
         "--windows-icon-from-ico=ico.ico",
@@ -85,7 +95,7 @@ def main():
         "--include-data-file=ocr-component.json=ocr-component.json",
         "--include-package-data=opencc",
         "--output-dir=dist",
-        "--output-filename=SuzuEmojy.exe",
+        "--output-filename=NekoriEmojy.exe",
         "--assume-yes-for-downloads",
         "--include-package=qfluentwidgets",
         # services/fluent_ui 均通过入口和页面的显式导入自动跟踪，
@@ -160,7 +170,7 @@ def main():
         print("\n====================================")
         print("Nuitka Build Complete! Now preparing clean release folder...")
         
-        release_dir = "dist/SuzuEmojy_Release"
+        release_dir = "dist/NekoriEmojy_Release"
         bin_dir = os.path.join(release_dir, "bin")
         
         # 1. 清理旧的 release 文件夹
@@ -204,9 +214,9 @@ def main():
 
         # 清理可能遗留的旧版 PyInstaller 外壳及临时文件。
         for stale_path in (
-            "dist/SuzuEmojy.exe",
+            "dist/NekoriEmojy.exe",
             "mini_launcher.py",
-            "SuzuEmojy.spec",
+            "NekoriEmojy.spec",
         ):
             if os.path.isfile(stale_path):
                 os.remove(stale_path)
@@ -220,7 +230,7 @@ def main():
         # 运行 AVX-512 检测脚本
         check_script = "check_avx512.py"
         if os.path.exists(check_script):
-            check_cmd = [sys.executable, check_script, os.path.join(bin_dir, "SuzuEmojy.exe")]
+            check_cmd = [sys.executable, check_script, os.path.join(bin_dir, "NekoriEmojy.exe")]
             check_process = subprocess.run(check_cmd)
             if check_process.returncode != 0:
                 print("\n====================================")
@@ -230,7 +240,6 @@ def main():
         
         print("\n====================================")
         from scripts.package_release import package_release
-        from pathlib import Path
         compiler_files=[p.relative_to(Path(release_dir)).as_posix() for p in Path(bin_dir).rglob('*') if p.is_file()]
         info={"source_commit":subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip(),"flavor":"standalone"}
         (Path(release_dir)/"BUILD_INFO.json").write_text(__import__('json').dumps(info,indent=2),encoding="utf-8")
@@ -238,9 +247,10 @@ def main():
         final=Path(__file__).resolve().parent.parent/'Build'/('standalone-'+__import__('datetime').datetime.now().strftime('%Y%m%d-%H%M%S'))/'application'
         final.parent.mkdir(parents=True,exist_ok=False)
         shutil.move(release_dir,str(final))
+        (final.parent/"compiler-files.json").write_text(json.dumps(compiler_files,indent=2),encoding="utf-8")
         package_release(final, "standalone",compiler_files=compiler_files,archive=False)
         print("All Done!")
-        print(f"Clean release package is ready at: {os.path.abspath(release_dir)}")
+        print(f"VALIDATION_STAGE={final}",flush=True)
         print("====================================")
     else:
         print("\n====================================")
@@ -251,6 +261,6 @@ def main():
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help"):
         print("Usage: python build_nuitka.py")
-        print("Builds standalone SuzuEmojy release package using Nuitka.")
+        print("Builds standalone NekoriEmojy release package using Nuitka.")
         sys.exit(0)
     main()

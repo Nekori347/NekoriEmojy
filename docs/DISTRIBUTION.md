@@ -35,8 +35,10 @@ not inside it. No source archives are added to Git history.
 
 The default creates a validated application stage and updater manifest only.
 `--archive` explicitly enables ZIP creation for the next distribution phase.
-Do not publish validation stages. The package names inherited from protocol 1
-(SuzuEmojy.exe and SuzuEmojyUpdater.exe) are intentional compatibility names.
+Current executables are NekoriEmojy.exe and NekoriEmojyUpdater.exe. Protocol 1
+keeps its manifest schema; its required files use these names. No old Demo
+executable aliases are shipped. Update assets use the target release version:
+NekoriEmojy-{version}-Windows-Portable.zip.
 
 Nuitka's existing compiler pipeline is preserved; its final application stage
 is moved under ../Build before allowlist validation. It is a separate, slower
@@ -46,4 +48,6 @@ Keep LICENSE, original copyright, font/icon notices and
 THIRD_PARTY_NOTICES.md. BUILD_INFO records the exact local commit; the adjacent
 corresponding-source.zip preserves its application source. Local unpublished
 commits are not claimed to exist on GitHub. Optional OCR has separate notices
-and distribution. Inno Setup and public release remain a later phase.
+and distribution. The standalone file set is the only input for both Portable ZIP and Inno Setup.
+Installation is per-user; uninstall must not remove user configuration or library.
+Build products are local candidates, not a public release.

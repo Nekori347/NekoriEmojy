@@ -15,7 +15,7 @@ class WindowsAutostartTests(unittest.TestCase):
         self.root=r'Software\NekoriEmojy\AutostartTests'+chr(92)+uuid.uuid4().hex
         self.service.RUN_KEY=self.root+r'\Run'
         self.service.APPROVAL_KEYS=(self.root+r'\Approval',self.root+r'\Approval32')
-        self.command=patch.object(self.service,'command',return_value='"C:\\中文 空格\\SuzuEmojy.exe" --autostart')
+        self.command=patch.object(self.service,'command',return_value='"C:\\中文 空格\\NekoriEmojy.exe" --autostart')
         self.command.start();self.addCleanup(self.command.stop);self.addCleanup(self.cleanup)
 
     def cleanup(self):
@@ -29,7 +29,7 @@ class WindowsAutostartTests(unittest.TestCase):
 
     def test_enabled_disabled_and_moved_path_use_real_registry(self):
         self.service.set_enabled(True);self.assertTrue(self.service.is_enabled())
-        with patch.object(self.service,'command',return_value='"D:\\新 位置\\SuzuEmojy.exe" --autostart'):
+        with patch.object(self.service,'command',return_value='"D:\\新 位置\\NekoriEmojy.exe" --autostart'):
             self.assertFalse(self.service.is_enabled())
             self.service.set_enabled(True);self.assertTrue(self.service.is_enabled())
         self.service.set_enabled(False);self.assertFalse(self.service.is_enabled())
@@ -75,7 +75,7 @@ class Marker { static void Main(string[] args) {
     for(int i=0;i<args.Length;i++) lines[i+1]=Convert.ToBase64String(Encoding.UTF8.GetBytes(args[i]));
     File.WriteAllLines(Path.Combine(Environment.CurrentDirectory,"args.txt"),lines);
 } }''',encoding='utf-8')
-            subprocess.run([find_csc(),'/nologo','/target:winexe','/out:'+str(root/'bin/SuzuEmojy.exe'),str(marker)],check=True,capture_output=True)
+            subprocess.run([find_csc(),'/nologo','/target:winexe','/out:'+str(root/'bin/NekoriEmojy.exe'),str(marker)],check=True,capture_output=True)
             args=['--autostart','中文 空格','','含"引号','C:'+chr(92)+'结尾 空格'+chr(92)]
             subprocess.run([launcher]+args,cwd=Path(folder).parent,check=True,timeout=10)
             deadline=time.monotonic()+10

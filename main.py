@@ -18,6 +18,9 @@ def _lock_ffmpeg_path_for_frozen_app():
         "ffmpeg*.exe",
     )
     ffmpeg_candidates = sorted(glob.glob(pattern))
+    standalone_ffmpeg = os.path.join(executable_dir, "ffmpeg", "ffmpeg.exe")
+    if os.path.isfile(standalone_ffmpeg):
+        ffmpeg_candidates.insert(0, standalone_ffmpeg)
     if ffmpeg_candidates:
         os.environ["IMAGEIO_FFMPEG_EXE"] = ffmpeg_candidates[0]
         print(f"[INFO] Locked FFmpeg executable: {ffmpeg_candidates[0]}")

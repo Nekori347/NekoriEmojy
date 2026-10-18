@@ -13,8 +13,8 @@ import updater
 
 def make_release(root, version="1.13.0", extra=None, flavor="standalone"):
     root.mkdir(parents=True, exist_ok=True)
-    files = {"SuzuEmojy.exe": b"launcher", "SuzuEmojyUpdater.exe": b"updater",
-             "bin/SuzuEmojy.exe" if flavor == "standalone" else "main.py": version.encode(),
+    files = {"NekoriEmojy.exe": b"launcher", "NekoriEmojyUpdater.exe": b"updater",
+             "bin/NekoriEmojy.exe" if flavor == "standalone" else "main.py": version.encode(),
              "version.json": json.dumps({"version": version, "channel": "stable"}).encode()}
     files.update(extra or {})
     for name, contents in files.items():
@@ -151,8 +151,8 @@ class UpdateTests(unittest.TestCase):
         get.assert_not_called()
 
     def test_check_selects_fixed_asset_and_compares_tag(self):
-        release = {"tag_name": "v1.14.0", "assets": [{"name": "SuzuEmojy_Release.zip", "state": "uploaded", "size": 100,
-                   "digest": "sha256:" + "a" * 64, "browser_download_url": "https://github.com/IxinorTyan/SuzuEmojy/releases/download/v1.14.0/SuzuEmojy_Release.zip"}]}
+        release = {"tag_name": "v1.14.0", "assets": [{"name": "NekoriEmojy-1.14.0-Windows-Portable.zip", "state": "uploaded", "size": 100,
+                   "digest": "sha256:" + "a" * 64, "browser_download_url": "https://github.com/Nekori347/NekoriEmojy/releases/download/v1.14.0/NekoriEmojy-1.14.0-Windows-Portable.zip"}]}
         with patch("services.update_service.requests.get") as get:
             get.return_value.__enter__.return_value.json.return_value = release
             self.assertEqual(self.service.check()["version"], "1.14.0")

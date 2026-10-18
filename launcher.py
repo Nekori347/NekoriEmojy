@@ -317,7 +317,7 @@ def main():
     update_dir = os.path.join(BASE_DIR, ".update")
     if any(os.path.isfile(os.path.join(update_dir, name)) for name in ("journal.json", "installer-ready")):
         try:
-            subprocess.Popen([os.path.join(update_dir, "SuzuEmojyUpdater.exe"), "--recover", "--root", BASE_DIR],
+            subprocess.Popen([os.path.join(update_dir, "NekoriEmojyUpdater.exe"), "--recover", "--root", BASE_DIR],
                              cwd=update_dir, creationflags=subprocess.CREATE_NO_WINDOW)
         except OSError as error:
             messagebox.showerror("NekoriEmojy", "更新恢复失败，请保留 .update 目录并重试。\n" + str(error))

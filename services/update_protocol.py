@@ -84,8 +84,8 @@ def read_manifest(root, verify=False):
         seen.add(name.casefold())
         if verify and (not path.is_file() or sha256(path) != digest):
             raise ValueError("Package file verification failed: " + name)
-    required = {"SuzuEmojy.exe", "SuzuEmojyUpdater.exe", "version.json"}
-    required.add("bin/SuzuEmojy.exe" if manifest["flavor"] == "standalone" else "main.py")
+    required = {"NekoriEmojy.exe", "NekoriEmojyUpdater.exe", "version.json"}
+    required.add("bin/NekoriEmojy.exe" if manifest["flavor"] == "standalone" else "main.py")
     if not required.issubset(files):
         raise ValueError("Incomplete update package")
     if verify:

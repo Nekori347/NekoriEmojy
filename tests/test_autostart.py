@@ -66,10 +66,10 @@ class AutostartTests(unittest.TestCase):
         self.assertTrue(command.endswith(' --autostart'))
 
     def test_frozen_command_does_not_use_python_or_script(self):
-        with patch.object(sys, 'executable', r'C:\程序 目录\SuzuEmojy.exe'), \
+        with patch.object(sys, 'executable', r'C:\程序 目录\NekoriEmojy.exe'), \
                 patch.object(sys, 'frozen', True, create=True), \
-                patch('services.autostart._process_executable', return_value=Path(r'C:\程序 目录\SuzuEmojy.exe')):
-            self.assertEqual(self.service.command(), '"C:\程序 目录\\SuzuEmojy.exe" --autostart')
+                patch('services.autostart._process_executable', return_value=Path(r'C:\程序 目录\NekoriEmojy.exe')):
+            self.assertEqual(self.service.command(), '"C:\程序 目录\\NekoriEmojy.exe" --autostart')
 
     def test_startup_visibility(self):
         self.assertTrue(should_start_hidden(['app', '--autostart'], True))
@@ -80,17 +80,17 @@ class AutostartTests(unittest.TestCase):
         with patch.object(sys, 'executable', r'C:\错误 占位\python.exe'), \
                 patch.object(sys, 'frozen', False, create=True), \
                 patch('services.autostart.__compiled__', True, create=True), \
-                patch('services.autostart._process_executable', return_value=Path(r'C:\程序 目录\SuzuEmojy.exe')):
-            self.assertEqual(self.service.command(), '"C:\程序 目录\\SuzuEmojy.exe" --autostart')
+                patch('services.autostart._process_executable', return_value=Path(r'C:\程序 目录\NekoriEmojy.exe')):
+            self.assertEqual(self.service.command(), '"C:\程序 目录\\NekoriEmojy.exe" --autostart')
 
     def test_repair_is_narrow_and_never_clears_system_disable(self):
         for value, expected in [
             ('"C:\\当前 安装\\python.exe" --autostart', True),
             ('"C:\\另一 安装\\python.exe" --autostart', False),
-            ('"C:\\当前 安装\\SuzuEmojy.exe" --autostart', False),
+            ('"C:\\当前 安装\\NekoriEmojy.exe" --autostart', False),
         ]:
             with self.subTest(value=value), patch('services.autostart.__compiled__', True, create=True), \
-                    patch('services.autostart._process_executable', return_value=Path(r'C:\当前 安装\SuzuEmojy.exe')), \
+                    patch('services.autostart._process_executable', return_value=Path(r'C:\当前 安装\NekoriEmojy.exe')), \
                     patch('services.autostart._package_launcher', return_value=None):
                 self.registry.QueryValueEx.return_value = (value, 1)
                 self.registry.SetValueEx.reset_mock()

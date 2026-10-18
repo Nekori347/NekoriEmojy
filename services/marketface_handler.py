@@ -63,7 +63,7 @@ def is_marketface_candidate(file_path: str) -> bool:
 
 
 def get_cache_dir() -> str:
-    cache_dir = os.path.join(tempfile.gettempdir(), "SuzuEmojy_QQ_GIF_Cache")
+    cache_dir = os.path.join(tempfile.gettempdir(), "NekoriEmojy_QQ_GIF_Cache")
     os.makedirs(cache_dir, exist_ok=True)
     return cache_dir
 

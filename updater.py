@@ -169,9 +169,9 @@ def main():
         (work / "installer-ready").unlink(missing_ok=True)
         lock.close()
     if error:
-        ctypes.windll.user32.MessageBoxW(None, "更新未完成 / Update failed:\n\n" + error + "\n\n请重新启动软件以恢复，或查看 .update/last-error.txt。", "SuzuEmojy", 0x10)
+        ctypes.windll.user32.MessageBoxW(None, "更新未完成 / Update failed:\n\n" + error + "\n\n请重新启动软件以恢复，或查看 .update/last-error.txt。", "NekoriEmojy", 0x10)
     if restart:
-        subprocess.Popen([str(root / "SuzuEmojy.exe")], cwd=str(root))
+        subprocess.Popen([str(root / "NekoriEmojy.exe")], cwd=str(root))
 
 
 if __name__ == "__main__":
