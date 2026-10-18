@@ -111,6 +111,7 @@ class OcrSettings(QObject):
             widget.dropButton.clicked.connect(lambda checked=False,w=widget:self.show_more(w.dropButton))
             return widget
         self.retry_group=group('重试失败项',lambda:self.service.supplement(failed_only=True))
+        self.retry_group.dropButton.setFixedWidth(24)
         self.supplement_group=group('补充识别',lambda:self.service.supplement(),True)
         self.stop_group=group('停止',self.cancel)
         self.retry=self.retry_group.button;self.supplement=self.supplement_group.button;self.cancel_button=self.stop_group.button
@@ -219,3 +220,4 @@ class OcrSettings(QObject):
             # Details remain available even when recognition cannot start.
             widget.dropButton.setProperty('role','primary' if widget.property('role')=='primary' and widget.button.isEnabled() else None)
             widget.update()
+        self.retry.setMinimumWidth(self.retry.fontMetrics().horizontalAdvance(self.retry.text())+28)

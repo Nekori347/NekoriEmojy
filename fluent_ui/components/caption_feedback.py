@@ -150,7 +150,8 @@ class CaptionFeedback(QObject):
         self.leave_timer.timeout.connect(self.collapse_if_outside)
         self.panel=QFrame(window);self.panel.setObjectName('CaptionTaskList')
         self.panel.hide()
-        outer=QVBoxLayout(self.panel);outer.setContentsMargins(0,4,0,4)
+        self.list_left_padding=12
+        outer=QVBoxLayout(self.panel);outer.setContentsMargins(self.list_left_padding,4,0,4)
         self.scroll=QScrollArea(self.panel);self.scroll.setWidgetResizable(True);self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff);outer.addWidget(self.scroll)
         self.content=QWidget();self.rows_layout=QVBoxLayout(self.content);self.rows_layout.setContentsMargins(0,0,0,0);self.rows_layout.setSpacing(2)
@@ -397,10 +398,11 @@ class CaptionFeedback(QObject):
         height=min(desired,280,max(34,self.window.height()-top-28))
         extent=round(height*self.expansion)
         area=h.strip.geometry().adjusted(-4,0,4,0)
-        if extent:area.adjust(0,0,14,0)
+        if extent:area.adjust(-self.list_left_padding,0,0,0)
         area.setHeight(area.height()+extent)
         self.material.setGeometry(area);self.material.setVisible(bool((self.primary and not self.overlay) or extent) and self.window.isVisible())
-        self.panel.setGeometry(h.strip.x(),top,h.strip.width()+14,extent)
+        self.panel.setGeometry(h.strip.x()-self.list_left_padding,top,
+                               h.strip.width()+self.list_left_padding,extent)
         self.layout_rows()
         self.ear.move(h.strip.geometry().center().x()-self.ear.width()//2,area.bottom()-3)
         self.material.raise_();h.strip.raise_();self.panel.raise_();self.ear.raise_()
