@@ -106,10 +106,23 @@ def test_preview_information_order_long_text_and_animation(case):
  info={'name':'用户的日本語.gif','path':'very long folder / '*20+'用户的日本語.gif','ocr_text':'笑嘻了 日本語 example '*20}
  p.show_preview(str(source),pane.mapToGlobal(QPoint(20,20)),320,'分类A, 分類B','TagA 日本語',info=info,container_rect=QRect(pane.mapToGlobal(QPoint()),pane.size()))
  QTest.qWait(120)
- assert p.meta_layout.itemAt(0).widget() is p.ocr_heading and p.ocr_label.text()==info['ocr_text'].strip()
+ assert p.meta_layout.itemAt(0).widget() is p.ocr_heading and p.ocr_label.text()==' '.join(info['ocr_text'].split())
+ assert not p.ocr_label.wordWrap() and not p.ocr_label.toolTip()
  assert [item.name for item in p.tags._items]==['TagA','日本語']
  assert p.path_label.toolTip()==str(source.resolve()) and not p.path_label.wordWrap()
- assert p.ocr_label.height()<=p.ocr_label.fontMetrics().lineSpacing()*3
+ assert p.ocr_label.height()>=p.ocr_label.fontMetrics().height()
+ assert p.ocr_label.height()<=p.ocr_label.fontMetrics().height()+6
+ assert p.ocr_marker.height()==p.ocr_label.height()
+ baseline=p.height();image_size=p.image_label.size()
+ for text in ('短文字','很长的文字 '*100,'竖\n排\n文\n字\n'*80):
+  info['ocr_text']=text
+  p.show_preview(str(source),pane.mapToGlobal(QPoint(20,20)),320,'分类A, 分類B','TagA 日本語',info=info,container_rect=pane.rect());case.app.processEvents()
+  assert p.height()==baseline and p.image_label.size()==image_size
+  assert info['ocr_text']==text and p.ocr_label.text()==' '.join(text.split())
+  assert not p.ocr_label.toolTip()
+ p.show_preview(str(source),pane.mapToGlobal(QPoint(20,20)),320,'分类名称'*100,' '.join('tag'+str(i) for i in range(100)),info=info,container_rect=pane.rect());case.app.processEvents()
+ assert p.metadata_footer.height()<200 and not p.category_label.wordWrap()
+ assert p.category_label.height()>=p.category_label.fontMetrics().height()
  assert p.current_movie is not None and p.current_movie.currentFrameNumber()>=0
  p.hide_preview();info['ocr_text']=''
  p.show_preview(str(source),pane.mapToGlobal(QPoint(20,20)),320,'','',info=info)

@@ -1,7 +1,7 @@
 import os
 from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout, QApplication, QHBoxLayout, QFrame, QSizePolicy
-from PySide6.QtCore import Qt, QSize, QByteArray, QBuffer, QRect, QRectF
-from PySide6.QtGui import QPixmap, QMovie, QImageReader, QPainter, QPainterPath, QColor, QTextLayout, QTextOption, QPalette, QFont
+from PySide6.QtCore import Qt, QSize, QByteArray, QBuffer, QRect, QRectF, QEvent
+from PySide6.QtGui import QPixmap, QMovie, QImageReader, QPainter, QPainterPath, QColor, QPalette, QFont
 from fluent_ui.icons import Icon
 from qfluentwidgets import BodyLabel, CaptionLabel
 import darkdetect
@@ -14,8 +14,10 @@ class IconCaption(QLabel):
     def __init__(self,icon,text):
         super().__init__(text);self.icon=icon;self.setContentsMargins(20,0,0,0);self.setFont(visual.font('secondary'))
     def paintEvent(self,event):
-        super().paintEvent(event)
-        p=QPainter(self);self.icon.render(p,QRect(0,(self.height()-13)//2,13,13),fill=visual.colors()['text_secondary'])
+        p=QPainter(self);p.setFont(self.font());p.setPen(self.palette().color(QPalette.WindowText))
+        rect=self.contentsRect()
+        p.drawText(rect,Qt.AlignLeft|Qt.AlignVCenter|Qt.TextSingleLine,self.fontMetrics().elidedText(self.text(),Qt.ElideRight,rect.width()))
+        self.icon.render(p,QRect(0,(self.height()-13)//2,13,13),fill=visual.colors()['text_secondary'])
 
 
 class PreviewTags(TagFlow):
@@ -30,37 +32,39 @@ class PreviewTags(TagFlow):
     def heightForWidth(self, width):
         return min(self._content_height,2*self.CHIP_HEIGHT+self.CHIP_GAP+2*self.PAD)
 
+    def sizeHint(self):return QSize(0,self.heightForWidth(self.width()))
+    def minimumSizeHint(self):return self.sizeHint()
+
 
 class PreviewText(QLabel):
-    """Readable OCR text with a three-line limit, and the full text as tooltip."""
+    """One metric-sized OCR line; normalization is presentation-only."""
     def __init__(self,parent=None):
-        super().__init__(parent); self.setWordWrap(True)
-        self.setMinimumWidth(0); self.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Preferred)
+        super().__init__(parent)
+        self.setWordWrap(False)
+        self.setMinimumWidth(0)
+        self.setContentsMargins(0,2,0,2)
+        self.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Fixed)
+        self._sync_height()
 
-    def _lines(self,width):
-        layout=QTextLayout(self.text().replace('\n','\u2028'),self.font())
-        option=QTextOption();option.setWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere);layout.setTextOption(option)
-        layout.beginLayout();lines=[]
-        for _ in range(3):
-            line=layout.createLine()
-            if not line.isValid():break
-            line.setLineWidth(max(1,width));lines.append(line)
-        layout.endLayout();return layout,lines
+    def _sync_height(self):
+        margins=self.contentsMargins()
+        self.setFixedHeight(self.fontMetrics().height()+margins.top()+margins.bottom())
 
-    def heightForWidth(self,width):
-        return max(1,len(self._lines(width)[1]))*self.fontMetrics().lineSpacing()
+    def changeEvent(self,event):
+        super().changeEvent(event)
+        if event.type()==QEvent.FontChange:self._sync_height()
 
-    def sizeHint(self):return QSize(0,self.heightForWidth(self.width()))
-    def minimumSizeHint(self):return QSize(0,self.fontMetrics().lineSpacing())
+    def setText(self,text):
+        super().setText(' '.join(str(text).split()))
+
+    def sizeHint(self):return QSize(0,self.height())
+    def minimumSizeHint(self):return self.sizeHint()
 
     def paintEvent(self,event):
         painter=QPainter(self);painter.setFont(self.font());painter.setPen(self.palette().color(QPalette.WindowText))
-        layout,lines=self._lines(self.width());text=self.text().replace('\n','\u2028');height=self.fontMetrics().lineSpacing()
-        for index,line in enumerate(lines):
-            value=text[line.textStart():line.textStart()+line.textLength()]
-            if index==2 and line.textStart()+line.textLength()<len(text):
-                value=self.fontMetrics().elidedText(text[line.textStart():].replace('\u2028',' '),Qt.ElideRight,self.width())
-            painter.drawText(QRect(0,index*height,self.width(),height),Qt.AlignLeft|Qt.AlignVCenter,value)
+        rect=self.contentsRect()
+        painter.drawText(rect,Qt.AlignLeft|Qt.AlignVCenter|Qt.TextSingleLine,
+                         self.fontMetrics().elidedText(self.text(),Qt.ElideRight,rect.width()))
 
 
 class IdentityCaption(QLabel):
@@ -169,11 +173,13 @@ class HoverPreviewPopup(QWidget):
         
         self.ocr_heading=QWidget(self.metadata_footer)
         heading_layout=QHBoxLayout(self.ocr_heading);heading_layout.setContentsMargins(0,2,0,5);heading_layout.setSpacing(7)
-        self.ocr_marker=QFrame(self.ocr_heading);self.ocr_marker.setFixedSize(2,16)
+        self.ocr_marker=QFrame(self.ocr_heading);self.ocr_marker.setFixedWidth(2)
         self.ocr_label=PreviewText(self.ocr_heading)
-        heading_layout.addWidget(self.ocr_marker,0,Qt.AlignTop);heading_layout.addWidget(self.ocr_label,1)
+        heading_layout.addWidget(self.ocr_marker,0,Qt.AlignVCenter);heading_layout.addWidget(self.ocr_label,1)
         self.category_label=IconCaption(Icon.FOLDER,'')
-        self.category_label.setWordWrap(True)
+        self.category_label.setWordWrap(False)
+        self.category_label.setMinimumWidth(0)
+        self.category_label.setSizePolicy(QSizePolicy.Ignored,QSizePolicy.Fixed)
         self.tags=PreviewTags(self.metadata_footer);self.tags.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.identity_rule=QFrame(self.metadata_footer);self.identity_rule.setFixedHeight(1)
         self.name_label=IdentityCaption(self.metadata_footer)
@@ -215,7 +221,9 @@ class HoverPreviewPopup(QWidget):
         self.category_label.setStyleSheet(text_style)
         self.tags.refresh_theme()
         font=visual.font('body');font.setPixelSize(14);font.setWeight(QFont.Medium);self.ocr_label.setFont(font)
-        self.ocr_label.setMaximumHeight(self.ocr_label.fontMetrics().lineSpacing()*3)
+        self.ocr_label._sync_height()
+        self.ocr_marker.setFixedHeight(self.ocr_label.height())
+        self.category_label.setFixedHeight(max(13,self.category_label.fontMetrics().height())+4)
         self.ocr_label.setStyleSheet(text_style)
         self.ocr_marker.setStyleSheet('background:'+palette['accent']+';')
         self.identity_rule.setStyleSheet('background:'+palette['border_soft']+';')
@@ -245,12 +253,11 @@ class HoverPreviewPopup(QWidget):
 
         self.update_texts(i18n_engine.current_lang)
         self.category_label.setToolTip(category_str)
-        self.category_label.setMaximumHeight(self.category_label.fontMetrics().lineSpacing()*2)
         from services.storage import StorageService
         tags=StorageService.parse_tags(keyword_str) if keyword_str else []
         self.tags.set_items([TagItem(name) for name in tags]);self.tags.setVisible(bool(tags));self.tags.setToolTip(keyword_str)
         ocr=str(info.get('ocr_text') or '').strip()
-        self.ocr_label.setText(ocr);self.ocr_label.setToolTip(ocr);self.ocr_heading.setVisible(bool(ocr))
+        self.ocr_label.setText(ocr);self.ocr_heading.setVisible(bool(ocr))
         self.path_label.setToolTip(os.path.abspath(image_path))
 
         # 1. 停止清理上一次的动图
@@ -274,7 +281,13 @@ class HoverPreviewPopup(QWidget):
         display_size=min(int(size_config),max_popup_width)
         for _ in range(2):
             self.metadata_footer.setFixedWidth(max(1,display_size-8))
-            metadata_height=max(1,self.meta_layout.heightForWidth(max(1,display_size-8)))
+            margins=self.meta_layout.contentsMargins()
+            self.tags.setFixedWidth(max(1,display_size-8-margins.left()-margins.right()))
+            self.tags._relayout()
+            rows=[self.meta_layout.itemAt(i).widget() for i in range(self.meta_layout.count())]
+            rows=[row for row in rows if not row.isHidden()]
+            metadata_height=(margins.top()+margins.bottom()+sum(row.sizeHint().height() for row in rows)
+                             +self.meta_layout.spacing()*max(0,len(rows)-1))
             display_size=min(display_size,max(1,screen_rect.height()-gap*2-metadata_height-24))
         self.metadata_footer.setFixedHeight(metadata_height)
         total_height = display_size + metadata_height + 4
