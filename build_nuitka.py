@@ -250,6 +250,8 @@ def main():
         final.parent.mkdir(parents=True,exist_ok=False)
         shutil.move(release_dir,str(final))
         (final.parent/"compiler-files.json").write_text(json.dumps(compiler_files,indent=2),encoding="utf-8")
+        from scripts.dependency_notices import write_notices
+        write_notices(final/"THIRD_PARTY_LICENSES.txt", "dist/compilation-report.xml", final/"bin/ffmpeg/ffmpeg.exe")
         package_release(final, "standalone",compiler_files=compiler_files,archive=False)
         print("All Done!")
         print(f"VALIDATION_STAGE={final}",flush=True)

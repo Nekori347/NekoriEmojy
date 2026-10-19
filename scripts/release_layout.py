@@ -8,7 +8,7 @@ FILES=('main.py','requirements.txt','ocr-component.json','ico.ico','README.md','
 PACKAGES=('fluent_ui/','services/')
 LANGUAGES=tuple('translations/'+lang+'.json' for lang in ('zh','en','ja','zh_TW'))
 SOURCE_OVERRIDES={'README.md':'docs/PACKAGE_README.md'}
-GENERATED=('NekoriEmojy.exe','NekoriEmojyUpdater.exe','version.json','BUILD_INFO.json')
+GENERATED=('NekoriEmojy.exe','NekoriEmojyUpdater.exe','version.json','BUILD_INFO.json','THIRD_PARTY_LICENSES.txt')
 
 def source_files():
     # Git defines the reviewed source/resource set; caches/untracked data cannot leak in.
