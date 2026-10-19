@@ -25,7 +25,7 @@ def test_duration_sampling_is_distinct_and_thumbnail_first(tmp_path,suffix,forma
     assert [i for i,_ in sampled_frames(still,99)]==[0]
 
 
-def test_failed_local_install_and_no_release_keep_library_data(tmp_path):
+def test_failed_local_install_and_no_release_keep_library_data(tmp_path,monkeypatch):
     index=LibraryIndex(tmp_path/'library')
     path=index.root/'image.png';Image.new('RGB',(8,8),'red').save(path)
     rid=index.register(path);index.edit_ocr_text(rid,'人工文字')
@@ -35,6 +35,7 @@ def test_failed_local_install_and_no_release_keep_library_data(tmp_path):
     with pytest.raises(ValueError):component.install(package)
     assert not component.installed
     assert not (component.base/'escaped.txt').exists()
+    monkeypatch.setattr(component,'release',lambda:dict(url='',sha256=''))
     with pytest.raises(ValueError,match='尚未发布'):component.install()
     component.uninstall()
     assert index.ocr_info(rid)['text']=='人工文字'

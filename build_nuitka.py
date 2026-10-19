@@ -153,14 +153,14 @@ def main():
     # Run the build process
     env = os.environ.copy()
     # Clear existing CFLAGS/CCFLAGS to avoid conflicts
-    for key in ["CFLAGS", "CCFLAGS", "CXXFLAGS", "LDFLAGS", "CPPFLAGS"]:
+    for key in ["CFLAGS", "CCFLAGS", "CXXFLAGS", "LDFLAGS", "CPPFLAGS", "CL", "_CL_"]:
         if key in env:
             del env[key]
             
     # This Windows build uses MSVC, whose architecture option is /arch.
-    # GNU -march produces localized diagnostics that clcache cannot decode on
-    # this system. Keep the existing AVX2 ceiling using MSVC's own option.
-    env["CCFLAGS"] = "/arch:AVX2"
+    # Compile application code for the normal x64 SSE2 baseline. Dependencies
+    # have their own baselines/CPU dispatch; this is not a hardware certification.
+    env["CCFLAGS"] = "/arch:SSE2"
     env["VSLANG"] = "1033"
 
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
@@ -228,24 +228,19 @@ def main():
             shutil.rmtree("build")
         
         print("\n====================================")
-        print("Running AVX-512 verification...")
+        print("Application CPU target: Windows x64 / SSE2")
         print("====================================")
         
-        # 运行 AVX-512 检测脚本
-        check_script = "check_avx512.py"
-        if os.path.exists(check_script):
-            check_cmd = [sys.executable, check_script, os.path.join(bin_dir, "NekoriEmojy.exe")]
-            check_process = subprocess.run(check_cmd)
-            if check_process.returncode != 0:
-                print("\n====================================")
-                print("BUILD FAILED: AVX-512 instructions detected in the binary!")
-                print("====================================")
-                sys.exit(1)
+        # A missing disassembler or dispatched instructions in a DLL cannot
+        # establish the minimum CPU. Record the actual compiler target instead.
         
         print("\n====================================")
         from scripts.package_release import package_release
         compiler_files=[p.relative_to(Path(release_dir)).as_posix() for p in Path(bin_dir).rglob('*') if p.is_file()]
-        info={"source_commit":subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip(),"flavor":"standalone"}
+        info={"source_commit":subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip(),"flavor":"standalone",
+              "version":json.loads(Path("version.json").read_text("utf-8"))["version"],
+              "application_cpu_target":"x64 SSE2", "compiler":"MSVC", "compiler_flags":env["CCFLAGS"],
+              "cpu_validation":"Dependency baselines are separate; non-AVX2 hardware not certified."}
         (Path(release_dir)/"BUILD_INFO.json").write_text(__import__('json').dumps(info,indent=2),encoding="utf-8")
         # Publishable staging is separate from the compiler scratch directory.
         final=Path(__file__).resolve().parent.parent/'Build'/('standalone-'+__import__('datetime').datetime.now().strftime('%Y%m%d-%H%M%S'))/'application'
@@ -253,7 +248,8 @@ def main():
         shutil.move(release_dir,str(final))
         (final.parent/"compiler-files.json").write_text(json.dumps(compiler_files,indent=2),encoding="utf-8")
         from scripts.dependency_notices import write_notices
-        write_notices(final/"THIRD_PARTY_LICENSES.txt", "dist/compilation-report.xml", final/"bin/ffmpeg/ffmpeg.exe")
+        info["dependencies"]=write_notices(final/"THIRD_PARTY_LICENSES.txt", "dist/compilation-report.xml", final/"bin/ffmpeg/ffmpeg.exe")
+        (final/"BUILD_INFO.json").write_text(json.dumps(info,indent=2),encoding="utf-8")
         package_release(final, "standalone",compiler_files=compiler_files,archive=False)
         print("All Done!")
         print(f"VALIDATION_STAGE={final}",flush=True)

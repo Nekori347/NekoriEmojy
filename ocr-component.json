@@ -1,8 +1,8 @@
 {
   "version": "rapidocr-3.10.0-ort-1.31.0-v6-small-layout1-frames1",
   "filename": "NekoriOCR-win-x64-1.zip",
-  "url": "",
-  "sha256": "",
+  "size": 121029415,
   "installed_size": 285538834,
-  "size": 121029415
+  "sha256": "89b2cda5d35e43d2ece9f83071d383ee63f3f472c154c89c2d1e1904d871fad6",
+  "url": "https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.1/NekoriOCR-win-x64-1.zip"
 }

@@ -54,6 +54,13 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
+LanguageDetectionMethod=uilanguage
+ShowLanguageDialog=auto
+[Languages]
+Name: "english"; MessagesFile: "compiler:Default.isl"
+Name: "chinesesimp"; MessagesFile: "{quoted(ROOT/'scripts/installer_languages/ChineseSimplified.isl')}"
+Name: "chinesetrad"; MessagesFile: "{quoted(ROOT/'scripts/installer_languages/ChineseTraditional.isl')}"
+Name: "japanese"; MessagesFile: "{quoted(ROOT/'scripts/installer_languages/Japanese.isl')}"
 [Tasks]
 Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: "{{cm:AdditionalIcons}}"; Flags: unchecked
 [Files]

@@ -1,0 +1,23 @@
+[
+  {
+    "file": "ChineseSimplified.isl",
+    "source": "https://github.com/jrsoftware/issrc/blob/is-6_7_3/Files/Languages/Unofficial/ChineseSimplified.isl",
+    "git_blob": "d6a11c4490de07dad443ade668289fc954dfa1ed",
+    "unofficial": true,
+    "license": "Inno Setup translation file; original header/attribution retained"
+  },
+  {
+    "file": "ChineseTraditional.isl",
+    "source": "https://github.com/jrsoftware/issrc/blob/is-6_7_3/Files/Languages/Unofficial/ChineseTraditional.isl",
+    "git_blob": "b8a50d595fe5dda3308fcbf27c4ce8ffddb2c9cc",
+    "unofficial": true,
+    "license": "Inno Setup translation file; original header/attribution retained"
+  },
+  {
+    "file": "Japanese.isl",
+    "source": "https://github.com/jrsoftware/issrc/blob/is-6_7_3/Files/Languages/Japanese.isl",
+    "git_blob": "334a780b36685fc34346496985fa617072fdba8e",
+    "unofficial": false,
+    "license": "Inno Setup translation file; original header/attribution retained"
+  }
+]
