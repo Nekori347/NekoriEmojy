@@ -95,6 +95,7 @@ def main():
         "--include-data-dir=fluent_ui/assets=fluent_ui/assets",
         "--include-data-file=ocr-component.json=ocr-component.json",
         "--include-package-data=opencc",
+        "--include-package-data=pypinyin",
         "--output-dir=dist",
         "--output-filename=NekoriEmojy.exe",
         "--assume-yes-for-downloads",
