@@ -1,6 +1,6 @@
 # Build and distribution boundary
 
-The sole active project is F:\NekoriEmojy; Git remains in Source/. Historical
+The sole active project is F:\[2]Ai\NekoriEmojy; Git remains in Source/. Historical
 projects, snapshots and test assets are not application inputs.
 
 ## Positive inventory

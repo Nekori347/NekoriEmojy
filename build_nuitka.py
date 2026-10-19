@@ -1,4 +1,5 @@
 import os
+import glob
 import subprocess
 import sys
 import shutil
@@ -113,7 +114,8 @@ def main():
         "--nofollow-import-to=PySide6.QtPdfWidgets",
         
         # imageio-ffmpeg 只用于定位 FFmpeg；发布包仅携带实际需要的单个可执行文件。
-        "--include-data-file=" + __import__("imageio_ffmpeg").get_ffmpeg_exe() + "=ffmpeg/ffmpeg.exe",
+        # Nuitka treats source paths as globs; keep [2] in the root literal.
+        "--include-data-file=" + glob.escape(__import__("imageio_ffmpeg").get_ffmpeg_exe()) + "=ffmpeg/ffmpeg.exe",
 
         # ---- 体积优化：禁止无用的 OpenCV/NumPy 整套依赖进入发布包 ----
         "--nofollow-import-to=cv2",
