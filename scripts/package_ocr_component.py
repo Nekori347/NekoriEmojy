@@ -31,7 +31,12 @@ def build(runtime,output):
         text=meta.read_text(encoding='utf-8')
         fields={k:v.strip() for k,v in (line.split(':',1) for line in text.splitlines() if line.startswith(('Name:','Version:','License:','License-Expression:')))}
         notices.append(f"- {fields.get('Name')} {fields.get('Version')}: {fields.get('License-Expression',fields.get('License','see bundled notices'))}")
-    (stage/'THIRD_PARTY_NOTICES.md').write_text('# Nekori optional OCR component\n\nPrivate Python: LICENSE.txt. All wheel notices are retained in site-packages.\n'
+    shutil.copyfile(ROOT/'LICENSE',stage/'LICENSE.NekoriEmojy')
+    (stage/'THIRD_PARTY_NOTICES.md').write_text('# Nekori optional OCR component\n\n'
+        'Nekori worker, layout and image-frame helpers: GPL-3.0, see LICENSE.NekoriEmojy.\n'
+        'Project and source history: https://github.com/Nekori347/NekoriEmojy\n'
+        'Corresponding 0.2.1 source: https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.1/NekoriEmojy-0.2.1-Source.zip\n'
+        'Bundled Python runtime: LICENSE.txt. All wheel notices are retained in site-packages.\n'
         'RapidOCR model provenance: rapidocr-3.10.0.dist-info/licenses/MODEL_LICENSES.md.\n\n'+'\n'.join(notices)+'\n',encoding='utf-8')
     files={p.relative_to(stage).as_posix():sha256(p) for p in sorted(stage.rglob('*')) if p.is_file()}
     atomic_json(stage/'nekori-ocr.json',dict(protocol=1,version=OCR_VERSION,files=files))
