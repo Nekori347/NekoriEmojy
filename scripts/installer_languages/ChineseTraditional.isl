@@ -211,14 +211,11 @@ ReadyMemoGroup=「開始」功能表資料夾:
 ReadyMemoTasks=附加工作:
 
 ; *** TDownloadWizardPage wizard page and DownloadTemporaryFile
-DownloadingLabel=正在下載額外檔案...
 ButtonStopDownload=停止下載 (&S)
 StopDownload=您確定要停止下載嗎？
 ErrorDownloadAborted=已停止下載
 ErrorDownloadFailed=下載失敗: %1 %2
 ErrorDownloadSizeFailed=取得檔案大小失敗: %1 %2
-ErrorFileHash1=檔案雜湊失敗: %1
-ErrorFileHash2=檔案雜湊無效: 必須為 %1，收到 %2
 ErrorProgress=進度無效: %1 之 %2
 ErrorFileSize=檔案大小無效: 必須為 %1，收到 %2
 
@@ -382,3 +379,29 @@ AssocingFileExtension=正在將 %1 與檔案副檔名 %2 產生關聯...
 AutoStartProgramGroupDescription=開啟:
 AutoStartProgram=自動開啟 %1
 AddonHostProgramNotFound=%1 無法在您所選的資料夾中找到。%n%n您是否還要繼續？
+
+; Nekori compatibility additions for Inno Setup 6.7.3.
+[Messages]
+ArchiveIncorrectPassword=壓縮檔密碼不正確
+ArchiveIsCorrupted=壓縮檔已損毀
+ArchiveUnsupportedFormat=不支援的壓縮檔格式
+ButtonStopExtraction=停止解壓縮(&S)
+DownloadingLabel2=正在下載檔案...
+ErrorDownloading=下載檔案時發生錯誤：
+ErrorExtracting=解壓縮檔案時發生錯誤：
+ErrorExtractionAborted=已中止解壓縮
+ErrorExtractionFailed=解壓縮失敗：%1
+ExtractingLabel=正在解壓縮檔案...
+RetryCancelCancel=取消(&C)
+RetryCancelRetry=重試(&T)
+RetryCancelSelectAction=選擇操作
+SourceVerificationFailed=來源檔案驗證失敗：%1
+StatusDownloadFiles=正在下載檔案...
+StopExtraction=您確定要停止解壓縮嗎？
+VerificationFileHashIncorrect=檔案雜湊值不正確
+VerificationFileNameIncorrect=檔案名稱不正確
+VerificationFileSizeIncorrect=檔案大小不正確
+VerificationFileTagIncorrect=檔案標記不正確
+VerificationKeyNotFound=簽章檔案「%1」使用了未知的金鑰
+VerificationSignatureDoesntExist=簽章檔案「%1」不存在
+VerificationSignatureInvalid=簽章檔案「%1」無效
