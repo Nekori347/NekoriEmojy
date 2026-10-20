@@ -1,189 +1,114 @@
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout
-from PySide6.QtGui import QMouseEvent
-from qfluentwidgets import (
-    SettingCard, SettingCardGroup, ScrollArea, ExpandLayout,
-    FluentIcon as FIF, TransparentToolButton, TitleLabel,
-    PushButton
-)
+"""Resource exchange uses the same editorial groups as Settings."""
+from services.i18n import t, bind_text, translated
+import os
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, QFrame, QFileDialog
+from fluent_ui.components.controls import TransparentToolButton
+from fluent_ui.icons import Icon as FIF
+from fluent_ui import visual
+from fluent_ui.components import dialogs
+from fluent_ui.components.setting_rows import ActionRow, SettingSection, apply_row_theme
 from services.i18n import t, i18n_engine
-from fluent_ui.views.setting_view import disable_wheel_scroll_adjustment
-
-
-class ActionSettingCard(SettingCard):
-    """
-    带右侧操作按钮且整行可点击的 Fluent 风格卡片
-    """
-    clicked = Signal()
-
-    def __init__(self, icon, title, content=None, btn_text="", parent=None):
-        super().__init__(icon, title, content, parent)
-        self.setCursor(Qt.PointingHandCursor)
-
-        self.button = PushButton(btn_text, self)
-        self.button.setFixedWidth(110)
-        self.button.clicked.connect(self.clicked.emit)
-
-        # 插入到 SettingCard 的右侧布局中
-        self.hBoxLayout.addWidget(self.button, 0, Qt.AlignRight)
-        self.hBoxLayout.addSpacing(16)
-
-    def mouseReleaseEvent(self, e: QMouseEvent):
-        super().mouseReleaseEvent(e)
-        if e.button() == Qt.LeftButton:
-            self.clicked.emit()
 
 
 class ExchangeInterface(QWidget):
-    """导出导入数据交换界面 (View)"""
     back_requested = Signal()
     import_requested = Signal()
     export_all_requested = Signal()
     export_selected_requested = Signal()
     qq_scan_requested = Signal()
     tg_sticker_requested = Signal()
+    nekori_export_requested = Signal()
+    nekori_import_requested = Signal()
+    suzu_data_migration_requested = Signal()
+    suzu_package_migration_requested = Signal()
 
     def __init__(self, parent=None):
-        super().__init__(parent=parent)
-        self.setObjectName("ExchangeInterface")
-        
-        self._init_ui()
-        self._connect_signals()
-
-    def _init_ui(self):
-        self.mainLayout = QVBoxLayout(self)
-        self.mainLayout.setContentsMargins(0, 0, 0, 0)
-        self.mainLayout.setSpacing(0)
-
-        # 顶部返回工具栏（固定在页面顶端）
-        self.topBar = QWidget(self)
-        self.topBarLayout = QHBoxLayout(self.topBar)
-        self.topBarLayout.setContentsMargins(36, 10, 36, 12)
-        self.topBarLayout.setSpacing(12)
-
-        self.btnBack = TransparentToolButton(FIF.LEFT_ARROW, self.topBar)
-        self.btnBack.setToolTip(t("返回主面板"))
+        super().__init__(parent)
+        self.setObjectName('ExchangeInterface')
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 8, 20, 12)
+        root.setSpacing(14)
+        header = QHBoxLayout()
+        self.btnBack = TransparentToolButton(FIF.LEFT_ARROW, self)
+        bind_text(self.btnBack, t('返回表情库'), 'setToolTip')
         self.btnBack.clicked.connect(self.back_requested.emit)
-
-        self.titleLabel = TitleLabel(t("导入导出"), self.topBar)
-
-        self.topBarLayout.addWidget(self.btnBack)
-        self.topBarLayout.addWidget(self.titleLabel)
-        self.topBarLayout.addStretch()
-
-        self.mainLayout.addWidget(self.topBar)
-
-        # 独立滚动区域
-        self.scrollArea = ScrollArea(self)
-        self.scrollWidget = QWidget()
-        self.expandLayout = ExpandLayout(self.scrollWidget)
-
-        self.scrollArea.setWidget(self.scrollWidget)
+        header.addWidget(self.btnBack)
+        self.titleLabel = translated(QLabel, '导入与导出', self)
+        self.titleLabel.setProperty('role', 'title')
+        self.titleLabel.setStyleSheet('font-size: 22px; font-weight: 600;')
+        header.addWidget(self.titleLabel)
+        header.addStretch()
+        root.addLayout(header)
+        self.scrollArea = QScrollArea(self)
+        self.scrollArea.setFrameShape(QFrame.NoFrame)
         self.scrollArea.setWidgetResizable(True)
-        self.scrollArea.enableTransparentBackground()
-        self.scrollArea.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
-        self.scrollWidget.setStyleSheet("QWidget { background-color: transparent; }")
-        
-        # =================== 1. 表情资源包卡片组 ===================
-        self.resourceGroup = SettingCardGroup(t("表情资源包"), self.scrollWidget)
+        self.scrollArea.setStyleSheet('QScrollArea { background: transparent; border: none; }')
+        self.scrollWidget = QWidget()
+        self.scrollWidget.setObjectName('ExchangeBody')
+        self.groups = QVBoxLayout(self.scrollWidget)
+        self.groups.setContentsMargins(0, 0, 8, 8)
+        self.groups.setSpacing(16)
+        self.scrollArea.setWidget(self.scrollWidget)
+        root.addWidget(self.scrollArea)
+        self.nativeGroup = self._group('Nekori 表情合集')
+        self.nativeExportCard = self._row(self.nativeGroup, '导出整理结果', '表情、分类树、图标、标签与分类内混排顺序。', '导出…', self.nekori_export_requested.emit)
+        self.nativeImportCard = self._row(self.nativeGroup, '导入 Nekori 表情合集', '恢复整理结果，并合并重复表情的分类关系。', '导入…', self.nekori_import_requested.emit)
+        self.migrationGroup = self._group('从 SuzuEmojy 单向迁移')
+        self.suzuDataCard = self._row(self.migrationGroup, '正在运行的 Suzu', '选择运行实例，预览其实际数据后导入 Nekori。', '查找实例…', self.suzu_data_migration_requested.emit)
+        self.suzuPackageCard = self._row(self.migrationGroup, 'Suzu ZIP 表情合集', '迁移包内真实携带的表情、分类、图标与 Tag。', '选择 ZIP…', self.suzu_package_migration_requested.emit)
+        self.resourceGroup = self._group('Suzu 分享包')
+        self.importCard = self._row(self.resourceGroup, '导入分享包', '读取平面分类和表情，并自动去重。', '导入…', self.import_requested.emit)
+        self.exportAllCard = self._row(self.resourceGroup, '导出全部表情', '导出为 Suzu 平面分享格式。需要完整节点树时请使用 Nekori 表情合集。', '导出全部…', self.export_all_requested.emit)
+        self.exportSelectedCard = self._row(self.resourceGroup, '导出指定分类', '选择要分享的分类。', '选择分类…', self.export_selected_requested.emit)
+        self.splitCard = self._row(self.resourceGroup, '表情合集分卷', '按完整表情切分，每卷不超过 100 MB。', '选择表情合集…', self._split_package)
+        self.thirdPartyGroup = self._group('其他来源')
+        self.qqScanCard = self._row(self.thirdPartyGroup, 'QQ 表情缓存', '扫描本地缓存并导入已有表情。', '扫描…', self.qq_scan_requested.emit)
+        self.tgStickerCard = self._row(self.thirdPartyGroup, 'Telegram 表情', '下载表情并转换表情格式。', '打开…', self.tg_sticker_requested.emit)
+        self.groups.addStretch()
+        self.refresh_theme()
+        visual.theme.changed.connect(self.refresh_theme)
 
-        # 1.1 导入资源包
-        self.importCard = ActionSettingCard(
-            FIF.FOLDER_ADD,
-            t("导入资源包"),
-            t("导入外部表情包文件（.zip），自动识别表情分类并去重"),
-            btn_text=t("导入..."),
-            parent=self.resourceGroup
+    def _group(self, title):
+        group = SettingSection(title, self.scrollWidget)
+        self.groups.addWidget(group)
+        return group
+
+    def _row(self, group, title, hint, button, callback):
+        row = ActionRow(title, hint, [(button, callback, False)], group)
+        group.add_row(row)
+        return row
+
+    def refresh_theme(self):
+        self.setStyleSheet(visual.settings_style() + 'QWidget#ExchangeBody { background: transparent; }')
+        apply_row_theme(self)
+
+    def _split_package(self, owner=None):
+        owner = owner or self.window()
+        from fluent_ui.components.feedback import feedback_for
+        from services.exchange_split import split_package
+        from fluent_ui.components.exchange_task_dialog import run_exchange_task
+
+        source, _ = QFileDialog.getOpenFileName(
+            owner, t("表情合集切割分卷"), "", "ZIP (*.zip)"
         )
-        self.importCard.clicked.connect(self.import_requested.emit)
-
-        # 1.2 导出全部表情包
-        self.exportAllCard = ActionSettingCard(
-            FIF.SAVE,
-            t("导出全部资源包"),
-            t("将本地表情库的所有分类及表情完整导出为一个资源包"),
-            btn_text=t("导出全部"),
-            parent=self.resourceGroup
+        if not source:
+            return
+        output = QFileDialog.getExistingDirectory(
+            owner, t("选择分卷保存文件夹"), os.path.dirname(source)
         )
-        self.exportAllCard.clicked.connect(self.export_all_requested.emit)
+        if not output:
+            return
+        try:
+            destination, paths = run_exchange_task(
+                owner, t("正在切割表情合集"),
+                lambda progress: split_package(source, output, progress),
+            )
+            feedback_for(owner).toast( t("分卷完成"),
+                t("已生成 {count} 个分卷，每卷不超过 100 MB，表情内容保持不变。\n保存位置：{path}\n请通过“导入表情合集”逐卷导入，分类会自动合并。").format(
+                    count=len(paths), path=destination,
+                ),
+            )
+        except Exception as exc:
+            feedback_for(owner).notice(t("分卷失败"), str(exc), error=True)
 
-        # 1.3 导出选中分类
-        self.exportSelectedCard = ActionSettingCard(
-            FIF.TAG,
-            t("导出指定分类"),
-            t("自由勾选需要导出的表情分类，单独打包生成资源包"),
-            btn_text=t("挑选导出..."),
-            parent=self.resourceGroup
-        )
-        self.exportSelectedCard.clicked.connect(self.export_selected_requested.emit)
-
-        self.resourceGroup.addSettingCard(self.importCard)
-        self.resourceGroup.addSettingCard(self.exportAllCard)
-        self.resourceGroup.addSettingCard(self.exportSelectedCard)
-
-        # =================== 2. 第三方平台导入卡片组 ===================
-        self.thirdPartyGroup = SettingCardGroup(t("第三方导入"), self.scrollWidget)
-
-        # 2.1 扫描 QQ 文件
-        self.qqScanCard = ActionSettingCard(
-            FIF.PEOPLE,
-            t("扫描 QQ 聊天表情"),
-            t("扫描本地 QQ 缓存目录，提取接收到的表情与个人表情"),
-            btn_text=t("开始扫描"),
-            parent=self.thirdPartyGroup
-        )
-        self.qqScanCard.clicked.connect(self.qq_scan_requested.emit)
-
-        # 2.2 下载 TG 贴纸
-        self.tgStickerCard = ActionSettingCard(
-            FIF.SEND,
-            t("下载 TG 贴纸"),
-            t("批量解析并下载 Telegram 贴纸包/表情包，支持格式转换与入库"),
-            btn_text=t("前往下载"),
-            parent=self.thirdPartyGroup
-        )
-        self.tgStickerCard.clicked.connect(self.tg_sticker_requested.emit)
-
-        self.thirdPartyGroup.addSettingCard(self.qqScanCard)
-        self.thirdPartyGroup.addSettingCard(self.tgStickerCard)
-
-        # 布局排列
-        self.expandLayout.setSpacing(28)
-        self.expandLayout.setContentsMargins(36, 0, 36, 20)
-        
-        self.expandLayout.addWidget(self.resourceGroup)
-        self.expandLayout.addWidget(self.thirdPartyGroup)
-
-        self.mainLayout.addWidget(self.scrollArea)
-        disable_wheel_scroll_adjustment(self)
-
-    def _connect_signals(self):
-        # 绑定多语言切换
-        i18n_engine.language_changed.connect(self.update_texts)
-
-    def update_texts(self, lang):
-        """动态刷新界面文本"""
-        self.titleLabel.setText(t("导入导出"))
-        self.btnBack.setToolTip(t("返回主面板"))
-
-        self.resourceGroup.titleLabel.setText(t("表情资源包"))
-        self.importCard.setTitle(t("导入资源包"))
-        self.importCard.setContent(t("导入外部表情包文件（.zip），自动识别表情分类并去重"))
-        self.importCard.button.setText(t("导入..."))
-
-        self.exportAllCard.setTitle(t("导出全部资源包"))
-        self.exportAllCard.setContent(t("将本地表情库的所有分类及表情完整导出为一个资源包"))
-        self.exportAllCard.button.setText(t("导出全部"))
-
-        self.exportSelectedCard.setTitle(t("导出指定分类"))
-        self.exportSelectedCard.setContent(t("自由勾选需要导出的表情分类，单独打包生成资源包"))
-        self.exportSelectedCard.button.setText(t("挑选导出..."))
-
-        self.thirdPartyGroup.titleLabel.setText(t("第三方导入"))
-        self.qqScanCard.setTitle(t("扫描 QQ 聊天表情"))
-        self.qqScanCard.setContent(t("扫描本地 QQ 缓存目录，提取接收到的表情与个人表情"))
-        self.qqScanCard.button.setText(t("开始扫描"))
-
-        self.tgStickerCard.setTitle(t("下载 TG 贴纸"))
-        self.tgStickerCard.setContent(t("批量解析并下载 Telegram 贴纸包/表情包，支持格式转换与入库"))
-        self.tgStickerCard.button.setText(t("前往下载"))

@@ -12,7 +12,7 @@ from tkinter import messagebox
 # 检查单例互斥锁，防止重复启动
 def check_already_running():
     import ctypes
-    mutex_name = "SuzuEmojy_App_Instance"
+    mutex_name = "NekoriEmojy_Launcher_Instance"
     mutex = ctypes.windll.kernel32.CreateMutexW(None, False, mutex_name)
     last_error = ctypes.windll.kernel32.GetLastError()
     if last_error == 183: # ERROR_ALREADY_EXISTS
@@ -36,9 +36,20 @@ PYTHON_VERSION = "3.11.9"
 PYTHON_URL = f"https://www.python.org/ftp/python/{PYTHON_VERSION}/python-{PYTHON_VERSION}-embed-amd64.zip"
 GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py"
 
-RUNTIME_DIR = os.path.join(BASE_DIR, "runtime")
+LEGACY_RUNTIME_DIR = os.path.join(BASE_DIR, "runtime")
+USER_DATA_DIR = os.path.join(os.environ.get('NEKORI_APP_DATA') or
+    os.path.join(os.environ.get('LOCALAPPDATA') or os.path.expanduser('~/AppData/Local'),'NekoriEmojy'))
+RUNTIME_DIR = os.path.join(USER_DATA_DIR, 'runtime', 'python-'+PYTHON_VERSION+'-amd64')
+INSTALL_LOG = os.path.join(USER_DATA_DIR, 'runtime', 'install_error.log')
 REQUIREMENTS_FILE = os.path.join(BASE_DIR, "requirements.txt")
 MAIN_SCRIPT = os.path.join(BASE_DIR, "main.py")
+
+
+def launch_application(python_exe):
+    # Argument forwarding follows Suzu dc14f4a1f5 (GPL-3.0), including --autostart.
+    environment=os.environ.copy();environment['PYTHONDONTWRITEBYTECODE']='1'
+    return subprocess.Popen([python_exe, MAIN_SCRIPT] + sys.argv[1:],
+                            cwd=BASE_DIR, env=environment, creationflags=subprocess.CREATE_NO_WINDOW)
 
 def find_system_python():
     """扫描系统中已安装的 Python"""
@@ -74,9 +85,17 @@ def find_system_python():
 def check_dependencies(python_exe):
     """检查依赖是否已安装"""
     try:
-        # 简单检查 PySide6 和 qfluentwidgets
+        # TGS 渲染也需要本地 rlottie 动态库，旧环境升级时一并补齐。
         result = subprocess.run(
-            [python_exe, "-c", "import PySide6; import qfluentwidgets"], 
+            [python_exe, "-c",
+             "import sys; import PySide6; import qfluentwidgets; "
+             "from rlottie_python.rlottie_wrapper import RLOTTIE_LIB; assert RLOTTIE_LIB is not None; "
+             "from importlib.metadata import version; from pip._vendor.packaging.requirements import Requirement; "
+             "requirements = [Requirement(line.strip()) for line in open(sys.argv[1], encoding='utf-8') "
+             "if line.strip() and not line.lstrip().startswith('#')]; "
+             "assert all((r.marker is not None and not r.marker.evaluate()) or "
+             "r.specifier.contains(version(r.name), prereleases=True) for r in requirements)",
+             REQUIREMENTS_FILE],
             capture_output=True, 
             creationflags=subprocess.CREATE_NO_WINDOW
         )
@@ -88,7 +107,7 @@ class LauncherApp:
     def __init__(self, root, python_exe=None):
         self.root = root
         self.system_python = python_exe
-        self.root.title("SuzuEmojy - 初始化运行环境")
+        self.root.title("NekoriEmojy - 初始化运行环境")
         self.root.geometry("450x180")
         self.root.resizable(False, False)
         
@@ -176,7 +195,8 @@ class LauncherApp:
                     # 记录错误日志
                     error_log = f"System Python pip install failed.\nReturn code: {result.returncode}\nStdout:\n{result.stdout}\nStderr:\n{result.stderr}"
                     try:
-                        with open(os.path.join(BASE_DIR, "install_error.log"), "a", encoding="utf-8") as f:
+                        os.makedirs(os.path.dirname(INSTALL_LOG),exist_ok=True)
+                        with open(INSTALL_LOG, "a", encoding="utf-8") as f:
                             f.write(error_log + "\n\n")
                     except:
                         pass
@@ -269,7 +289,7 @@ class LauncherApp:
             
             # 7. 启动主程序
             self.root.destroy()
-            subprocess.Popen([python_exe, MAIN_SCRIPT], cwd=BASE_DIR, creationflags=subprocess.CREATE_NO_WINDOW)
+            launch_application(python_exe)
             
         except Exception as e:
             self.progress.stop()
@@ -277,30 +297,42 @@ class LauncherApp:
             error_msg = str(e)
             
             # 将完整错误写入日志文件
-            log_file = os.path.join(BASE_DIR, "install_error.log")
+            log_file = INSTALL_LOG
             try:
+                os.makedirs(os.path.dirname(log_file),exist_ok=True)
                 with open(log_file, "w", encoding="utf-8") as f:
                     f.write(error_msg)
             except:
                 pass
                 
             if len(error_msg) > 200:
-                error_msg = error_msg[:200] + "...\n(完整错误已保存至 install_error.log)"
+                error_msg = error_msg[:200] + "..."
                 
             self.update_status("初始化失败", f"错误: {error_msg}", 0)
-            messagebox.showerror("初始化失败", f"在配置环境时发生错误：\n\n{error_msg}\n\n请检查网络连接或重试。")
+            hint='请检查用户数据目录是否可写，然后重试。' if isinstance(e,PermissionError) else '请检查网络连接及用户数据目录，然后重试。'
+            messagebox.showerror("初始化失败", f"在配置环境时发生错误：\n\n{error_msg}\n\n{hint}")
 
 def main():
-    # 1. 优先检查本地独立环境
-    local_python = os.path.join(RUNTIME_DIR, "python.exe")
-    if os.path.exists(local_python) and check_dependencies(local_python):
-        subprocess.Popen([local_python, MAIN_SCRIPT], cwd=BASE_DIR, creationflags=subprocess.CREATE_NO_WINDOW)
+    # Local recovery only; never check or download releases during startup.
+    update_dir = os.path.join(BASE_DIR, ".update")
+    if any(os.path.isfile(os.path.join(update_dir, name)) for name in ("journal.json", "installer-ready")):
+        try:
+            subprocess.Popen([os.path.join(update_dir, "NekoriEmojyUpdater.exe"), "--recover", "--root", BASE_DIR],
+                             cwd=update_dir, creationflags=subprocess.CREATE_NO_WINDOW)
+        except OSError as error:
+            messagebox.showerror("NekoriEmojy", "更新恢复失败，请保留 .update 目录并重试。\n" + str(error))
         return
+    # 1. 优先检查本地独立环境
+    for directory in (LEGACY_RUNTIME_DIR,RUNTIME_DIR):
+        local_python = os.path.join(directory, "python.exe")
+        if os.path.exists(local_python) and check_dependencies(local_python):
+            launch_application(local_python)
+            return
 
     # 2. 扫描系统 Python
     system_python = find_system_python()
     if system_python and check_dependencies(system_python):
-        subprocess.Popen([system_python, MAIN_SCRIPT], cwd=BASE_DIR, creationflags=subprocess.CREATE_NO_WINDOW)
+        launch_application(system_python)
         return
 
     # 如果环境未就绪，先弹出确认框
@@ -321,7 +353,7 @@ def main():
             "是否立即开始下载？"
         )
     
-    if messagebox.askyesno("SuzuEmojy - 环境初始化", msg):
+    if messagebox.askyesno("NekoriEmojy - 环境初始化", msg):
         root.deiconify() # 恢复显示主窗口
         app = LauncherApp(root, python_exe=system_python)
         root.mainloop()

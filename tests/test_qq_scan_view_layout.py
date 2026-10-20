@@ -13,18 +13,18 @@ class TestQQScanViewLayout(unittest.TestCase):
         w = QQScanInterface()
         w.show()
 
-        # 验证初始状态：配置卡片展开，摘要栏隐藏
-        self.assertFalse(w.configCard.isHidden())
+        # Core source controls now stay beside results after a scan.
+        self.assertTrue(w.presentation.inputs.isVisible())
         self.assertTrue(w.summaryRow.isHidden())
 
         # 验证折叠行为
         w.collapse_config(animated=False)
-        self.assertTrue(w.configCard.isHidden())
-        self.assertFalse(w.summaryRow.isHidden())
+        self.assertTrue(w.presentation.inputs.isVisible())
+        self.assertTrue(w.summaryRow.isHidden())
 
         # 验证再次展开
         w.expand_config(animated=False)
-        self.assertFalse(w.configCard.isHidden())
+        self.assertTrue(w.presentation.inputs.isVisible())
         self.assertTrue(w.summaryRow.isHidden())
 
         # 验证按钮存在性
@@ -45,7 +45,7 @@ class TestQQScanViewLayout(unittest.TestCase):
         w.emojiFolderComboBox.addItem("测试分类", userData="test")
         w.emojiFolderComboBox.setCurrentIndex(w.emojiFolderComboBox.count() - 1)
         self.assertEqual(w.previewListWidget.count(), 0)
-        self.assertFalse(w.configCard.isHidden())
+        self.assertTrue(w.presentation.inputs.isVisible())
 
         w.close()
 

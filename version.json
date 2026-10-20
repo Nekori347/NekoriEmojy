@@ -1,0 +1,8 @@
+{
+  "version": "0.2.1",
+  "channel": "stable",
+  "update_repository": "Nekori347/NekoriEmojy",
+  "update_asset": "NekoriEmojy-{version}-Windows-Portable.zip",
+  "upstream_version": "1.13.0",
+  "upstream_commit": "0152f075a5595f12cf71512321b84fa76755820e"
+}

@@ -14,12 +14,8 @@ class ClipboardService(QObject):
         self.config_service = config_service
         
         # 确定缓存目录
-        import sys
-        if getattr(sys, 'frozen', False):
-            base_dir = os.path.dirname(sys.executable)
-        else:
-            base_dir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
-        self.cache_dir = os.path.join(base_dir, "data", "cache", "gif_output")
+        from services.app_paths import app_data_dir
+        self.cache_dir = str(app_data_dir() / "cache" / "gif_output")
         try:
             os.makedirs(self.cache_dir, exist_ok=True)
         except Exception as e:
@@ -91,53 +87,91 @@ class ClipboardService(QObject):
             print(f"[ERROR] 静态图片转 1 帧 GIF 失败 ({image_path}): {e}")
             return None
 
-    def get_data_from_clipboard(self):
-        """
-        尝试从系统剪切板读取数据
-        优先级: 1.本地文件路径 -> 2.网络图片URL(从HTML提取) -> 3.纯位图
-        :return: (type, data)
-                 type 为 'file' 时，data 为本地文件绝对路径列表
-                 type 为 'network_url' 时，data 为网络图片URL字符串
-                 type 为 'image' 时，data 为 QImage 对象
-                 什么都没有返回 (None, None)
-        """
-        mime_data = self.clipboard.mimeData()
-        
-        # 1. 优先判断是否包含文件路径 (比如右键复制文件)
+    @staticmethod
+    def decode_mime_data(mime_data):
+        """Paste and external drops share the same payload recognition."""
+        if mime_data is None:
+            return None, None
         if mime_data.hasUrls():
-            urls = mime_data.urls()
-            filepaths = []
-            for url in urls:
-                if url.isLocalFile():
-                    filepaths.append(url.toLocalFile())
-            if filepaths:
-                return 'file', filepaths
-                
-        # 2. 如果是从浏览器右键复制动图，虽然不给文件，但会写入带 <img src> 的 HTML 数据
+            files = [url.toLocalFile() for url in mime_data.urls() if url.isLocalFile()]
+            if files:
+                return 'file', files
         if mime_data.hasHtml():
-            html_text = mime_data.html()
-            # 简单的正则提取 src 属性
-            match = re.search(r'<img[^>]+src=["\']([^">]+)["\']', html_text, re.IGNORECASE)
+            match = re.search(r'<img[^>]+src=["\']([^"\'>]+)["\']', mime_data.html(), re.IGNORECASE)
             if match:
-                img_url = match.group(1)
-                # 必须反编译 HTML 实体字符，否则带有 & 等 token 会导致 403 错误
-                img_url = html.unescape(img_url)
-                if img_url.startswith("http://") or img_url.startswith("https://"):
-                    return 'network_url', img_url
-                    
-        # 3. 判断是否是纯文本的 URL (比如直接复制了一个图片链接)
-        if mime_data.hasText():
-            text = mime_data.text().strip()
-            if text.startswith("http://") or text.startswith("https://"):
-                return 'network_url', text
-
-        # 4. 退而求其次，判断是否包含直接的图像数据 (比如截图/不支持富文本的复制)
+                url = html.unescape(match.group(1))
+                if QUrl(url).scheme() in ('http', 'https'):
+                    return 'network_url', url
         if mime_data.hasImage():
-            image = self.clipboard.image()
-            if not image.isNull():
+            image = mime_data.imageData()
+            if hasattr(image, 'toImage'):
+                image = image.toImage()
+            if isinstance(image, QImage) and not image.isNull():
                 return 'image', image
-                
+        if mime_data.hasUrls():
+            for url in mime_data.urls():
+                if url.isValid() and url.scheme() in ('http', 'https'):
+                    return 'network_url', url.toString()
+        if mime_data.hasText():
+            url = QUrl(mime_data.text().strip())
+            if url.isValid() and url.scheme() in ('http', 'https') and url.host():
+                return 'network_url', url.toString()
         return None, None
+
+    def get_data_from_clipboard(self):
+        return self.decode_mime_data(self.clipboard.mimeData())
+
+    @classmethod
+    def importable_payload(cls, mime, supported_formats):
+        kind, payload = cls.decode_mime_data(mime)
+        if kind == 'file':
+            paths = [path for path in payload if os.path.isdir(path) or
+                     (os.path.isfile(path) and path.lower().endswith(supported_formats))]
+            return ('file', paths) if paths else (None, None)
+        return kind, payload
+
+    def has_importable_data(self, supported_formats):
+        # QWindowsMimeData.hasImage() asks the external OLE provider to convert
+        # formats. Native advertisements avoid that work on window activation.
+        import sys
+        if sys.platform=='win32' and QGuiApplication.platformName()=='windows' and not self.clipboard.ownsClipboard():
+            import win32clipboard as native
+            key=(native.GetClipboardSequenceNumber(),tuple(supported_formats))
+            if getattr(self,'_availability_key',None)==key:return self._availability_value
+            images=(2,6,8,17)+tuple(native.RegisterClipboardFormat(name) for name in ('PNG','image/png','image/jpeg','GIF','JFIF'))
+            if any(native.IsClipboardFormatAvailable(fmt) for fmt in images):value=True
+            else:
+                advertised={'urls':native.IsClipboardFormatAvailable(15),
+                    'html':native.IsClipboardFormatAvailable(native.RegisterClipboardFormat('HTML Format')),
+                    'text':native.IsClipboardFormatAvailable(13) or native.IsClipboardFormatAvailable(1)}
+                value=self._has_importable_mime(supported_formats,advertised)
+            self._availability_key=key;self._availability_value=value
+            return value
+        return self._has_importable_mime(supported_formats)
+
+    def _has_importable_mime(self,supported_formats,advertised=None):
+        # Availability is a cheap advertisement check. Retrieving imageData
+        # here asks an external OLE provider to render its payload on every
+        # clipboard notification, before the user has chosen to import it.
+        mime=self.clipboard.mimeData()
+        if mime is None:return False
+        if advertised is None and mime.hasImage():return True
+        if (mime.hasUrls() if advertised is None else advertised['urls']):
+            for url in mime.urls():
+                if url.isLocalFile():
+                    path=url.toLocalFile()
+                    if os.path.isdir(path) or (os.path.isfile(path) and path.lower().endswith(supported_formats)):return True
+                elif url.isValid() and url.scheme() in ('http','https') and url.host():return True
+        if (mime.hasHtml() if advertised is None else advertised['html']):
+            match=re.search(r'<img[^>]+src=["\']([^"\'>]+)["\']',mime.html(),re.IGNORECASE)
+            if match:
+                url=QUrl(html.unescape(match.group(1)))
+                if url.isValid() and url.scheme() in ('http','https') and url.host():return True
+        if (mime.hasText() if advertised is None else advertised['text']):
+            text=mime.text().strip()
+            url=QUrl(text)
+            return bool(url.isValid() and url.scheme() in ('http','https') and url.host())
+        return False
 
     def copy_image_to_clipboard(self, image_path):
         """

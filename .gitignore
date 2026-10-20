@@ -42,5 +42,16 @@ mini_launcher.py
 *.log
 
 # User Data & Config
+.update/
 data/
 config/config.json
+
+# Nekori local environment and isolated checks
+.venv/
+.tmp/
+.verification/
+.pytest_cache/
+
+# Local compiler diagnostics, not release source inputs
+nuitka-crash-report.xml
+nuitka_help.txt

@@ -3,6 +3,7 @@ import sys
 import json
 import sqlite3
 import logging
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
@@ -20,9 +21,11 @@ class FeatureDB:
                 base_dir = os.path.dirname(sys.executable)
             else:
                 base_dir = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
-            data_dir = os.path.join(base_dir, "data")
+            from services.app_paths import selected_library
+            from services.config import ConfigService
+            data_dir = str(selected_library(ConfigService()))
             os.makedirs(data_dir, exist_ok=True)
-            self.db_path = os.path.join(data_dir, "features.db")
+            self.db_path = os.path.join(data_dir, "index.sqlite3")
             self.base_dir = base_dir
             self.data_dir = data_dir
         else:
@@ -32,16 +35,22 @@ class FeatureDB:
             self.base_dir = os.path.dirname(self.data_dir)
 
         self._init_db()
-        self.check_and_migrate_from_json()
+        # JSON 迁移由 main.py 启动阶段的 MigrationManager 负责。
+        # 后台索引创建 FeatureDB 时不得读取或删除运行中的 JSON 备份。
 
-    def _get_connection(self) -> sqlite3.Connection:
+    @contextmanager
+    def _get_connection(self):
         """获取 SQLite 数据库连接，设置 row_factory 便于按字典形式读取列名"""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     def _init_db(self):
-        """初始化数据库表 image_features"""
+        """初始化数据库表 image_features 并平滑升级结构"""
         try:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
@@ -55,8 +64,17 @@ class FeatureDB:
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+                cursor.execute("PRAGMA table_info(image_features)")
+                columns = [row[1] for row in cursor.fetchall()]
+                if "sync_key" not in columns:
+                    cursor.execute("ALTER TABLE image_features ADD COLUMN sync_key TEXT")
+                if "file_size" not in columns:
+                    cursor.execute("ALTER TABLE image_features ADD COLUMN file_size INTEGER")
+                if "mtime_ns" not in columns:
+                    cursor.execute("ALTER TABLE image_features ADD COLUMN mtime_ns INTEGER")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_features_sync_key ON image_features(sync_key)")
                 conn.commit()
-                logger.info(f"[FeatureDB] 数据库初始化成功: {self.db_path}")
+                logger.info(f"[FeatureDB] 数据库初始化/升级成功: {self.db_path}")
         except Exception as e:
             logger.error(f"[FeatureDB] 数据库初始化失败: {e}")
             print(f"[ERROR] [FeatureDB] 数据库初始化失败: {e}")

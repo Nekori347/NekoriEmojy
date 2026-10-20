@@ -124,6 +124,13 @@ class TestQQExtractor(unittest.TestCase):
 
         cfg = MockConfig(mock_config_dict)
         interface = QQScanInterface(config_service=cfg)
+        # Account/category discovery now completes asynchronously.
+        import time
+        from PySide6.QtTest import QTest
+        deadline=time.monotonic()+3
+        while time.monotonic()<deadline:
+            QTest.qWait(10)
+            if interface.readPathEdit.text() and not interface._discovery_workers:break
         self.assertEqual(interface.savePath, self.temp_dir)
         self.assertEqual(interface.userdata_save_path_cache, str(self.userdata))
         self.assertEqual(interface.savePathEdit.text(), self.temp_dir)
@@ -132,7 +139,7 @@ class TestQQExtractor(unittest.TestCase):
         # 检查是否成功扫描出 pic 分类并加入下拉列表
         categories = [interface.emojiFolderComboBox.itemText(i) for i in range(interface.emojiFolderComboBox.count())]
         self.assertIn(interface._category_display_name("pic"), categories)
-        interface.deleteLater()
+        interface.shutdown();interface.deleteLater()
 
 
 if __name__ == "__main__":

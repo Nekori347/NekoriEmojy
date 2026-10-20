@@ -1,451 +1,306 @@
-# 🥟 SuzuEmojy
+[简体中文](README.md) | [English](README.en.md) | [日本語](README.ja.md)
 
-[简体中文](#-suzuemojy-cn) | [English](#-suzuemojy-en)
+# NekoriEmojy
+
+一个用于 Windows 的本地表情管理工具。
+
+用于收藏、整理、查找和发送表情。除了分类、标签和搜索，也尝试让日常操作更直接一些：看到的表情可以拖动整理，常用的操作尽量不用绕几个菜单才能完成。
+
+<!-- 发布制作：将下方图片替换为独立演示库中的真实软件截图；界面可见的自然语言统一用临时萨卡兹字形展示。不得把字体、转换代码或演示数据库打入正式发行包。截图须展示「终末地」子分类中：四张前置表情 → 「陈千语」可折叠分类节点 → 其它直属表情；不要把磁盘素材根目录「表情」当作分类。 -->
+
+<p align="center">
+  <img src="docs/media/hero.png" alt="NekoriEmojy 主面板：分类、子分类、混合排列的分类节点与表情，以及标签面板" width="100%">
+</p>
+
+[**下载最新版本**](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.1) · [**问题反馈**](https://github.com/Nekori347/NekoriEmojy/issues) · [**功能速览**](#features)
 
 ---
 
-<span id="-suzuemojy-cn"></span>
-
-## 🥟 SuzuEmojy (简体中文)
-
-一个专注于 Windows 的本地表情包管理工具。
-
-快速搜索、分类整理、一键发送，让收藏多年的表情包真正用起来。
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E5%A4%9C%E9%97%B4ui.png" width="50%" alt="日间ui">
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E6%97%A5%E9%97%B4ui.png" width="50%" alt="夜间ui">
-
-为什么会有 SuzuEmojy？
-
-(首先是因为开发者常年使用多个账号,但是账号之间的表情包是不互通的，用起来非常不顺手．于是就会经常的在电脑里存一堆表情包)
-聊天软件里的表情包越来越多。
-几百张、几千张图片散落在各个文件夹里。
-每次想找一张图，都要翻半天。
-浏览器里的图片不好保存。
-下载下来的图片又经常不能直接发送。
-于是就有了这个软件。
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/QQ%E6%8B%96%E6%8B%BD.gif" width="80%" alt="快速添加">
-
-SuzuEmojy 希望把这些麻烦全部解决。
-
-功能
-
-\\全局快捷键呼出\\
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E5%BF%AB%E6%8D%B7%E9%94%AE.gif" width="80%" alt="快捷键">
-
-无论当前正在使用什么软件。
-按下快捷键即(默认ctrl+shift+e,可更改)可立即打开表情面板。
-选择图片后自动粘贴到原来的聊天窗口(没粘上的话可能是光标失焦,不过这个时候表情包依旧复制在剪切板了)。
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E5%BF%AB%E6%8D%B7%E7%AA%97%E5%8F%A3.gif" width="80%" alt="快捷框">
-
-快捷窗口.按下快捷键(默认ctrl+shift+d,可更改)快速唤出
-在快捷窗口可以搜索到(仅)自己打过关键词的表情包
-按顺序排列最近使用的表情包(默认30,可自定义1-999)
-
-\\快捷导入\\
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E5%AF%BC%E5%85%A5.gif" width="80%" alt="导入">
-
-即使导入上千张图片。界面依然保持流畅。无需等待全部加载完成。
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E5%A4%B9.gif" width="80%" alt="文件夹">
-
-支持直接导入分类好的文件夹,会自动创建同名分类夹
-
-\\搜索比翻文件夹快得多\\
-
-(虽然要提前打好tag)
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E6%90%9C%E7%B4%A2.gif" width="80%" alt="搜索">
-
-支持自定义关键词,实时过滤
-
-真正做到想找什么立刻找到。
-
-\\自由整理\\
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E6%8B%96%E5%8A%A8%E6%95%B4%E7%90%86.gif" width="80%" alt="拖拽整理">
-
-支持：
-
-拖拽排序
-
-跨分类移动
-
-批量操作
-
-\\图片一键收藏\\
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E6%89%92%E5%9B%BE.gif" width="80%" alt="扒图">
-
-复制粘贴导入(这里因为b站评论区动图只有点开才会加载,所以必须点开才能保存)
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E5%A4%8D%E5%88%B6url.gif" width="80%" alt="url">
-
-通过复制url尝试下载图片(不过不是所有url都能下载)
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/telegram.gif" width="80%" alt="T">
-
-另存为到(\bin)\data\inbox文件夹实现转换webm(导入,所有另存为都可以这样用)
-
-很多网页图片(webp,webm)直接拖到聊天软件会变成文件。
-
-SuzuEmojy 可以自动重新编码。使其真正作为图片保存。
-
-\\更多细节\\
-
-支持：
-
-Fluent Design 风格界面
-
-Ctrl + 鼠标滚轮缩放
-
-高清悬停预览
-
-网格 / 列表双布局
-
-JSON 数据存储
-
-数据迁移
-
-\\下载\\
-
-前往 Release(https://github.com/IxinorTyan/SuzuEmojy/releases) 下载最新版。
-
-解压即可运行。
-
-运行软件会自动检测依赖安装(安装不上可以执行同文件夹旁边的小脚本)
-
-所有数据都保存在程序目录。
-
-换电脑时复制 data 文件夹即可。
-
-\\常用快捷键:\\
-
-Ctrl + Shift + E(可更改)-----呼出主页面
-
-Ctrl + 滚轮-----缩放缩略图
-
-双击 "全部表情"-----在侧边栏的“列表模式”与“网格模式”之间切换
-
-等等。
-
-\\关于默认表情包\\
-
-软件默认内置了一套 Suzu 表情包。
-
-只是为了让第一次打开软件时就可以直接体验。
-
-如果你更喜欢自己的表情包。
-
-完全可以删除它们(真的要吗QAQ)。
-
-希望有一天，你也会喜欢她。
-
-------------------------------------------------------
-
-💻 开发者指南
-
-如果你想从源码运行或二次开发：
-
-### 环境要求
-- Python 3.9+
-- Windows 10/11 (推荐 Windows 11 以获得最佳的云母特效体验)
-
-### 安装依赖
-```bash
-git clone https://github.com/IxinorTyan/SuzuEmojy.git
-cd SuzuEmojy
-pip install -r requirements.txt
-```
-
-### 运行程序
-```bash
-python main.py
-```
-
-### 打包为 EXE
-本项目提供了两种打包方式：
-
-**方式一：轻量级启动器 (推荐)**
-双击运行 `build.bat`。这会使用 PyInstaller 将 `launcher.py` 打包为一个极小的单文件 EXE（约 10MB）。
-用户首次运行该 EXE 时，它会自动检测系统环境，并下载所需的 Python 运行环境和图形库依赖（如 PySide6）。
-
-**方式二：完全独立打包**
-如果你希望打包出一个包含所有依赖的完整离线版（体积较大），请运行：
-```bash
-python build_nuitka.py
-```
-这会使用 Nuitka 将整个程序编译为独立的二进制文件，产物在 `dist/main.dist` 目录下。
+<a id="features"></a>
+## 功能速览
+
+- [🗂️ **分类、子分类与节点**](#organization) — 不同层级的分类、顶部标签页、内容中可折叠和排序的分类节点。
+- [↕️ **拖动与自由排序**](#drag-and-sort) — 单张或多张表情一起调整顺序，分类节点也能参与整理。
+- [🔎 **查找与预览**](#find-and-preview) — 名称、标签、可选文字识别、最近使用及 GIF 缩略帧。
+- [⚡ **快速使用**](#quick-use) — 一键粘贴导入、点击发送、拖动发送与快速面板。
+- [🎨 **界面与个性化**](#appearance) — 深浅主题、实时调整主题强调色、灵活布局、自定义软件图标和多语言界面。
+- [📦 **导入与数据管理**](#import-and-data) — 独立表情库、Suzu 数据迁移、原生资源包、兼容分享包与设置备份。
 
 ---
 
-## 📁 目录结构
+<a id="organization"></a>
+## 🗂️ 分类、子分类与节点
 
-```text
-SuzuEmojy/
-├── launcher.py            # 轻量级环境初始化启动器
-├── main.py                # 主程序入口点
-├── build.bat              # 启动器打包脚本 (PyInstaller)
-├── build_nuitka.py        # 完整程序编译脚本 (Nuitka)
-├── requirements.txt       # 依赖列表
-├── ico.ico                # 程序图标
-├── fluent_ui/             # 现代化界面核心代码
-│   ├── main_window.py     # 主窗口容器
-│   ├── components/        # UI 组件 (表情卡片、悬停预览等)
-│   └── views/             # 主要视图 (图库页、设置页)
-└── services/              # 核心业务逻辑
-    ├── clipboard.py       # 剪贴板监听与操作系统API
-    ├── config.py          # 设置项存储
-    └── storage.py         # 图片物理存储与JSON元数据管理
-```
+分类不只有左侧的一列文件夹。NekoriEmojy 使用同一套分类层级，根据当前位置在**左侧分类栏、顶部标签页和表情内容区域**呈现不同层级的分类。可以从大分类进入子分类，也可以直接在当前视图中整理更深一层的内容。
 
----
+其中，**分类节点可以和普通表情排在一起**。一个节点可以出现在几张表情之后，而它的后面仍然是其它普通表情；节点还能够展开、折叠和调整顺序。它不是只能放在列表顶部的目录入口，也不是没有内容关系的分隔线。
 
-## 🤝 贡献与反馈
+这样的组织方式适合把大量表情按角色、用途或其它习惯分成几个部分：需要时展开，平时收起；也不必为每一小组都重新建立一层单独的浏览页面。
 
-非常欢迎提交 Pull Request 或者在 Issues 中反馈你遇到的问题和想要的特性！
+<p align="center">
+  <img src="docs/media/category-node.png" alt="子分类中的混合排列：节点前后都有表情，展开节点可查看其内容" width="100%">
+</p>
 
-## 🙏 致谢与鸣谢
+<p align="center">
+  <img src="docs/media/category-node-demo.gif" alt="从父分类进入子分类、展开与折叠节点的实际操作" width="82%">
+</p>
 
-本项目在开发过程中，参考与借鉴了以下优秀开源项目的思路与技术实现，在此向原作者们致以衷心的感谢：
+> **分类、分类节点和标签并不相同。** 分类与节点属于同一套层级组织关系；顶部标签页方便切换当前位置的分类视图；表情标签则是另一种关联和查找方式。一张表情也可以关联到多个分类，而不用重复保存图片文件。
 
-- **[QQFavoriteExtract](https://github.com/VanillaNahida/QQFavoriteExtract)** (by [VanillaNahida](https://github.com/VanillaNahida))：为本项目的 QQNT 本地表情扫描、数据解析与提取导出功能提供了重要的实现思路与参考。
-- **[tg_sticker_downloader](https://github.com/Kiowx/tg_sticker_downloader)** (by [Kiowx](https://github.com/Kiowx))：为本项目的 Telegram 贴纸包解析、下载与转码处理功能提供了宝贵的技术借鉴。
+<a id="drag-and-sort"></a>
+## ↕️ 拖动与自由排序
 
-### ⚠️ 合规与正确使用声明
-1. **仅供个人学习与备份**：本项目提供的 QQ 表情扫描与 Telegram 贴纸下载等功能，仅用于用户对自己合法拥有或授权的表情数据进行本地备份、整理与学习交流。
-2. **遵守相关法规与平台规范**：请在遵守相关法律法规及对应平台服务条款的前提下使用本软件。
-3. **尊重原创版权**：表情包与贴纸资源的著作权及知识产权归原作者所有，请勿将获取的资源用于任何未经授权的商业用途或侵权传播。用户需自行承担因不当或违规使用而产生的法律责任。
+整理时，尽量直接在表情所在的位置操作。
 
-## 📄 许可证
+- 拖动单张表情改变顺序，也可以**多选后一起拖动排序**。
+- 将表情拖到支持的分类或节点目标区域，按对应操作完成整理。
+- 在分类视图中调整分类节点的位置，让节点与普通表情按自己的顺序穿插排列。
+- 根据实际需要调整分类层级和同级顺序，不必只依赖单独的管理对话框。
+- 使用标签面板和批量操作，减少逐张重复设置。
 
-本项目基于 [GNU General Public License v3.0 (GPL-3.0)](LICENSE) 协议开源。
+除了通过快捷键或按钮粘贴，还可以在内容区域的指定位置使用右键粘贴，将新表情直接加入当前整理位置。
+
+下面的演示重点不是“把文件拖进文件夹”，而是**在同一个内容视图中，移动多张表情和可折叠节点，直接改变浏览顺序**。
+
+<p align="center">
+  <img src="docs/media/drag-sort-demo.gif" alt="多选表情排序、移动分类节点，并保留节点前后普通表情的演示" width="82%">
+</p>
 
 ---
 
-<span id="-suzuemojy-en"></span>
+<a id="find-and-preview"></a>
+## 🔎 查找与预览
 
-## 🥟 SuzuEmojy (English)
+表情越来越多时，能否快速认出和找到想要的那张，比单纯保存进去更重要。
 
-[Back to Chinese version (返回中文版)](#-suzuemojy-cn)
+- **名称与标签搜索**：根据已有名称、标签和关键词缩小范围。
+- **文字识别（OCR）**：按需安装本地组件，识别表情里的文字并用于搜索；识别文字与手动标签分别保存。
+- **最近使用**：在主面板或快速面板找回近期用过的表情。
+- **动态预览**：查看 GIF 等动态表情的实际效果。
+- **自定义 GIF 缩略图停留帧**：选取更有辨识度的画面作为列表缩略图，不修改原始动图。
 
-A local meme and emoji sticker manager focused on Windows.
+尤其是最后一项：如果 GIF 默认显示的是空白或动作过渡帧，可以选取更容易认出的画面，避免收藏了却在列表里找不到。
 
-Fast search, categorized organization, and one-click sending—making your meme collection of years truly useful.
+<p align="center">
+  <img src="docs/media/search-demo.gif" alt="通过名称、标签或文字识别结果查找表情" width="82%">
+</p>
 
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E5%A4%9C%E9%97%B4ui.png" width="50%" alt="Day UI">
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E6%97%A5%E9%97%B4ui.png" width="50%" alt="Night UI">
-
-Why SuzuEmojy?
-
-(First of all, because the developer uses multiple accounts all year round, but stickers cannot be shared across accounts, which is very inconvenient. As a result, a large number of meme pictures are often saved on the PC.)
-Stickers in chat applications are increasing.
-Hundreds or thousands of pictures are scattered across various folders.
-Every time you want to find a picture, you have to spend a long time searching.
-Images on browsers are difficult to save directly.
-Downloaded images often cannot be sent as stickers directly.
-So this software was created.
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/QQ%E6%8B%96%E6%8B%BD.gif" width="80%" alt="Quick Add">
-
-SuzuEmojy aims to solve all these troubles.
-
-Features
-
-\\Global Hotkey Callout\\
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E5%BF%AB%E6%8D%B7%E9%94%AE.gif" width="80%" alt="Hotkey">
-
-No matter what software you are currently using.
-Press the hotkey (default: Ctrl+Shift+E, customizable) to immediately open the emoji panel.
-After selecting an image, it is automatically pasted into your previous chat window (if it fails to paste, it may be due to losing focus, but the sticker is still copied to your clipboard).
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E5%BF%AB%E6%8D%B7%E7%AA%97%E5%8F%A3.gif" width="80%" alt="Quick Box">
-
-Quick Panel: quickly summon with a hotkey (default: Alt+2 / customizable).
-In the quick window, you can search for emojis that you have added keywords to (only).
-Arranges recently used emojis in order (default: 30, customizable: 1-999).
-
-\\Fast Import\\
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E5%AF%BC%E5%85%A5.gif" width="80%" alt="Import">
-
-Even when importing thousands of images, the interface remains smooth without waiting for all images to finish loading.
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E5%A4%B9.gif" width="80%" alt="Folder">
-
-Supports directly importing categorized folders, automatically creating category folders with the same names.
-
-\\Search is Much Faster Than Browsing Folders\\
-
-(Although tags need to be set in advance)
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E6%90%9C%E7%B4%A2.gif" width="80%" alt="Search">
-
-Supports custom keywords and real-time filtering.
-
-Truly find whatever you want right away.
-
-\\Free Organization\\
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E6%8B%96%E5%8A%A8%E6%95%B4%E7%90%86.gif" width="80%" alt="Drag & Drop Organization">
-
-Supports:
-
-Drag-and-drop reordering
-
-Cross-category moving
-
-Batch operations
-
-\\One-Click Image Capture / Import\\
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E6%89%92%E5%9B%BE.gif" width="80%" alt="Image Scraper">
-
-Import via copy & paste (Note: animated images in Bilibili comments only load when clicked, so they must be expanded before saving).
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/%E5%A4%8D%E5%88%B6url.gif" width="80%" alt="URL">
-
-Try downloading images by copying the URL (note: not all URLs support direct download).
-
-<img src="https://github.com/IxinorTyan/SuzuEmojy/blob/main/assets/telegram.gif" width="80%" alt="Telegram">
-
-Save directly to the `(\bin)\data\inbox` folder to convert WebM / import (all "Save As" can be used this way).
-
-Many web images (WebP, WebM) will turn into files if dragged directly into chat apps.
-
-SuzuEmojy can automatically re-encode them so they are properly saved as stickers/images.
-
-\\More Details\\
-
-Supports:
-
-Fluent Design UI
-
-Ctrl + Mouse Wheel Zoom
-
-HD Hover Preview
-
-Grid / List Dual Layout
-
-SQLite + JSON Data Storage
-
-Data Migration
-
-\\Download\\
-
-Go to [Releases](https://github.com/IxinorTyan/SuzuEmojy/releases) to download the latest version.
-
-Extract and run.
-
-Running the software will automatically detect and install dependencies (if installation fails, you can run the helper script in the folder).
-
-All data is stored in the application directory.
-
-When switching PCs, simply copy the `data` folder.
-
-\\Common Shortcuts:\\
-
-Ctrl + Shift + E (customizable) ----- Summon main window
-
-Ctrl + Wheel ----- Zoom thumbnails
-
-Double click "All Emojis" ----- Switch between "List Mode" and "Grid Mode" in the sidebar
-
-And more.
-
-\\About Default Emoji Pack\\
-
-The software comes with a built-in set of Suzu emojis by default.
-
-Just so you can experience it right away the first time you open the app.
-
-If you prefer your own emoji collection,
-
-you can delete them completely (do you really want to QAQ).
-
-Hope that one day, you will like her too.
-
-------------------------------------------------------
-
-💻 Developer Guide
-
-If you want to run from source code or do secondary development:
-
-### Requirements
-- Python 3.9+
-- Windows 10/11 (Windows 11 recommended for the best Mica effect experience)
-
-### Install Dependencies
-```bash
-git clone https://github.com/IxinorTyan/SuzuEmojy.git
-cd SuzuEmojy
-pip install -r requirements.txt
-```
-
-### Run Application
-```bash
-python main.py
-```
-
-### Build as EXE
-This project provides two packaging methods:
-
-**Method 1: Lightweight Launcher (Recommended)**
-Double-click and run `build.bat`. This uses PyInstaller to package `launcher.py` into a tiny single-file EXE (~10MB).
-When users launch this EXE for the first time, it automatically detects the system environment and downloads the required Python runtime and GUI libraries (such as PySide6).
-
-**Method 2: Fully Standalone Packaging**
-If you want to package a complete offline standalone bundle with all dependencies (larger file size), run:
-```bash
-python build_nuitka.py
-```
-This uses Nuitka to compile the entire program into standalone binary files under the `dist/main.dist` directory.
+<p align="center">
+  <img src="docs/media/gif-frame-compare.png" alt="同一张 GIF 在默认缩略帧与自定义停留帧下的对比" width="100%">
+</p>
 
 ---
 
-## 📁 Project Structure
+<a id="quick-use"></a>
+## ⚡ 快速使用
 
-```text
-SuzuEmojy/
-├── launcher.py            # Lightweight environment initialization launcher
-├── main.py                # Main application entry point
-├── build.bat              # Launcher build script (PyInstaller)
-├── build_nuitka.py        # Full standalone build script (Nuitka)
-├── requirements.txt       # Dependencies list
-├── ico.ico                # Application icon
-├── fluent_ui/             # Modern UI core code
-│   ├── main_window.py     # Main window container
-│   ├── components/        # UI components (emoji cards, hover preview, etc.)
-│   └── views/             # Main views (gallery view, settings view)
-└── services/              # Core business logic
-    ├── clipboard.py       # Clipboard listener and OS APIs
-    ├── config.py          # Configuration storage
-    └── storage.py         # Image storage and metadata management
-```
+不需要每次都打开完整的管理界面。
+
+- **点击发送**：在支持的目标窗口中，直接点击表情完成既有发送流程；无需每次手动切回窗口再粘贴。
+- **拖动发送**：把表情拖到目标程序中需要的位置。
+- **一键粘贴导入**：复制图片后，通过界面按钮将它添加到表情库。
+- **快速面板**：通过快捷方式呼出紧凑面板，搜索表情或选择最近使用的内容。
+
+主图库可设置单击表情时执行选择或直接发送，按自己的使用习惯调整。
+
+发送方式仍受目标软件的接收方式及 Windows 窗口状态影响；不兼容的目标可以使用复制、粘贴等常规方式。
+
+**静态表情按 GIF 发送**
+
+部分聊天软件会将普通静态图片按较大的原图形式展示。
+
+NekoriEmojy 提供「发送时将静态图转为 GIF」选项，可在发送时将静态表情临时转换为单帧 GIF，尝试让它以更适合表情的形式显示。
+
+这不会把原本静止的表情变成动画，也不会修改表情库中收藏的原始图片。实际显示效果仍取决于接收图片的聊天软件。
+
+<p align="center">
+  <img src="docs/media/send-as-gif.png" alt="发送时将静态图转为 GIF 的设置" width="65%">
+</p>
+
+<p align="center">
+  <img src="docs/media/quick-panel.png" alt="快速面板与最近使用" width="60%">
+</p>
+
+<p align="center">
+  <img src="docs/media/quick-use-demo.gif" alt="一键粘贴导入、快速查找与点击发送的实际操作" width="82%">
+</p>
 
 ---
 
-## 🤝 Contribution & Feedback
+<a id="appearance"></a>
+## 🎨 界面与个性化
 
-Pull Requests and Issues reporting bugs or requesting new features are very welcome!
+界面的安排也可以按自己的使用习惯调整。
 
-## 🙏 Acknowledgments
+- 分类栏的不同显示模式，以及子分类与内容区域的浏览方式。
+- 顶部分类标签页、可折叠节点和标签面板的组合使用。
+- 标签面板的位置与展开状态、表情缩略图大小等布局选项。
+- 浅色、深色主题与窗口外观设置。
+- **自定义软件图标**，调整窗口、任务栏及托盘中的软件识别形象。
+- **i18n 多语言界面**与可自定义的快捷键。
 
-During the development of this project, we referenced and learned from the ideas and implementations of the following excellent open-source projects. We express our sincere gratitude to the original authors:
+主面板用于整理和管理，快速面板用于更紧凑的日常查找与发送，两者共享表情数据。
 
-- **[QQFavoriteExtract](https://github.com/VanillaNahida/QQFavoriteExtract)** (by [VanillaNahida](https://github.com/VanillaNahida)): Provided great ideas and reference for local QQNT emoji scanning, parsing, and extraction features.
-- **[tg_sticker_downloader](https://github.com/Kiowx/tg_sticker_downloader)** (by [Kiowx](https://github.com/Kiowx)): Provided valuable technical inspiration and references for Telegram sticker pack downloading and conversion workflows.
+### 主题与强调色
 
-### ⚠️ Fair Use & Compliance Statement
-1. **For Personal Backup & Study Only**: The emoji scanning and sticker downloading features in this project are strictly intended for users to backup, organize, and manage their own legitimately accessed emoji/sticker assets locally for personal use and learning.
-2. **Platform & Legal Compliance**: Please use this software in full compliance with applicable laws, regulations, and platform Terms of Service.
-3. **Respect Intellectual Property**: The copyright and intellectual property rights of all stickers, memes, and artwork belong to their original creators. Do not use acquired assets for unauthorized commercial purposes or infringing redistribution. Users are solely responsible for any misuse.
+NekoriEmojy 支持浅色、深色及跟随系统的外观模式，也可以自行调整主题强调色。
 
-## 📄 License
+调整强调色时，界面能够实时预览颜色变化，不必每次保存后再回到主窗口查看效果。不满意时可以取消或放弃修改，确认后再保存。
 
-This project is licensed under the [GNU General Public License v3.0 (GPL-3.0)](LICENSE).
+浅色和深色主题可以配合不同的强调色使用。
+
+<p align="center">
+  <img src="docs/media/theme-light-dark.png" alt="浅色与深色主题" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/media/theme-accent-live.gif" alt="调整主题强调色时的实时界面预览" width="82%">
+</p>
+
+### 自定义软件图标
+
+除了界面配色，还可以更换 NekoriEmojy 自身的软件图标。
+
+支持从本地选择图片，也可以直接使用表情库中的图片作为软件图标。设置后会更新软件窗口、任务栏和系统托盘中的图标，需要时也可以恢复默认图标。
+
+<p align="center">
+  <img src="docs/media/custom-app-icon.png" alt="使用表情作为软件图标，并展示窗口、任务栏与托盘中的效果" width="80%">
+</p>
+
+---
+
+<a id="import-and-data"></a>
+## 📦 导入与数据管理
+
+除了日常收藏与整理，还提供一些维护表情库的工具：
+
+- 导入本地文件、文件夹或剪贴板中的图片。
+- 导入、导出表情合集，便于整理与分享。
+- 多选管理、分类关联调整与排序。
+- QQ、Telegram 等来源的导入工具，以及从 SuzuEmojy 迁移已有表情数据的途径。
+- 可选文字识别组件的安装和任务管理。
+- 相似图片查找：扫描表情库中的相似图片，集中预览后自行选择需要整理的内容。
+
+不同来源和格式的适用条件可能不同，遇到不支持的内容时以软件中的实际提示为准。
+
+### 独立的表情库目录
+
+NekoriEmojy 的表情库不必和程序放在同一个文件夹中。
+
+可以自行选择表情库的存放位置，例如其它磁盘或专门用于收藏图片的目录。导入的表情文件、分类信息和资源索引保存在所选表情库中，程序的个人设置则单独保存。
+
+更换安装位置或重新安装程序时，不必因此重新整理整套表情；只要原来的表情库仍然完整，就可以通过设置重新连接。
+
+需要注意的是，选择新的表情库后，需要保存设置并重启软件才能切换。导入表情时，程序会将图片复制或转换后保存到所选资源库，而不是直接管理原始来源文件。
+
+这种方式也方便将表情库单独备份、迁移或存放在更适合的位置。
+
+<p align="center">
+  <img src="docs/media/external-library.png" alt="独立表情库目录与重新连接设置" width="80%">
+</p>
+
+### 资源包、分享与备份
+
+整理好的表情库也可以导出保存。
+
+NekoriEmojy 提供几种不同用途的数据导出方式：
+
+**Nekori 原生资源包**
+
+可以将当前表情库导出为 ZIP 资源包。除了表情图片，还会保存分类与子分类结构、分类图标、节点与表情的排列顺序、标签、文字识别结果，以及 GIF 缩略帧选择等已记录的相关信息。
+
+原生资源包适合保存和转移 Nekori 中的表情整理结果。导入时会与当前表情库的数据进行合并，而不是直接覆盖整个现有表情库。
+
+<p align="center">
+  <img src="docs/media/nekori-package.png" alt="Nekori 原生资源包的导入导出与实际 ZIP" width="75%">
+</p>
+
+**兼容分享包**
+
+也支持导出 Suzu 格式的表情分享包，可以导出整个表情库或指定分类，方便使用兼容格式整理和分享图片。
+
+较大的分享包还可以按大小拆分成多个压缩包，便于保存或传输。
+
+不同资源包格式保存的信息范围并不完全相同。如果主要目的是保留 Nekori 中的节点混合排序等整理结果，建议优先使用 Nekori 原生资源包。
+
+**设置文件**
+
+软件设置可以单独导出为 JSON 文件，并在需要时重新导入。
+
+这样可以在整理表情数据之外，另外保存个人界面与操作习惯。
+
+<p align="center">
+  <img src="docs/media/data-export.png" alt="资源包、兼容分享包与设置文件导出" width="80%">
+</p>
+
+**完整数据备份**
+
+表情库目录和应用设置分别存放。需要完整备份时，建议另外保存实际表情库目录及必要的应用数据，而不只保留一个分享包。
+
+资源包适合导出、迁移与分享整理结果；完整目录备份则适合保留原始资源库状态。两者可以按需要配合使用。
+
+### 从 SuzuEmojy 迁移
+
+如果之前使用 SuzuEmojy，可以通过 NekoriEmojy 提供的迁移工具继续使用已有的表情收藏。
+
+目前支持两种来源：
+
+- **读取现有 SuzuEmojy 数据：** 查找本机正在运行的 SuzuEmojy 实例，读取其已有数据并迁入 Nekori。
+- **导入 Suzu 分享包：** 选择此前导出的表情资源压缩包进行导入。
+
+迁移时会尽量保留能够读取的图片、分类、子分类、分类图标、标签关键词与排序信息。原有 Suzu 数据保持不变，不需要为了迁移先删除旧软件。
+
+由于数据来源和格式可能不同，实际能够保留的信息以源数据包含的内容为准。迁移完成后，建议检查分类、表情数量和排列结果。
+
+这项兼容功能主要是为了减少更换软件时重复导入和重新整理表情的工作。
+
+<p align="center">
+  <img src="docs/media/suzu-migration.png" alt="SuzuEmojy 迁移入口" width="65%">
+</p>
+
+---
+
+<a id="download"></a>
+## 下载与使用
+
+前往 [GitHub Releases](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.1) 获取最新版本。
+
+目前准备了两种 Windows x64 使用方式：
+
+- **安装版**：通过安装程序完成安装。
+- **免安装版**：解压后按包内说明运行，适合不希望使用安装程序的情况。
+
+文字识别属于**可选组件**。不使用 OCR 时，普通的整理、查找（名称和标签）及发送功能不需要先安装识别组件。需要识别图片文字时，再在软件设置中按提示安装。
+
+快捷键及部分界面行为可以在设置中查看和调整。
+
+**更新与数据：** 表情库和个人配置可能保存在不同位置。更新或更换安装方式前，建议先备份表情库与个人配置，不要把卸载或删除程序目录等同于清理用户数据。具体以对应版本的 Release 说明为准。
+
+---
+
+<a id="development"></a>
+## 关于开发
+
+NekoriEmojy 是一个个人维护的 **Vibe Coding 项目**。功能规划、界面设计和交互调整主要依据个人使用需求，代码主要借助 AI 编写、修改与迭代。
+
+项目仍可能存在没有发现的缺陷，尤其是不同软件的拖动、发送和不同 Windows 环境下的行为差异。欢迎在 [GitHub Issues](https://github.com/Nekori347/NekoriEmojy/issues) 反馈可以复现的问题或提出改进建议。
+
+---
+
+## 开源项目与致谢
+
+**SuzuEmojy**
+
+NekoriEmojy 以 [SuzuEmojy](https://github.com/IxinorTyan/SuzuEmojy)（IxinorTyan）的开源代码为开发基础，在此基础上继续调整了表情库的数据组织方式、分类与节点交互、界面布局以及其它日常使用细节。
+
+感谢原作者开放项目源码，也感谢相关开源项目及第三方组件作者的工作。
+
+SuzuEmojy 原项目采用 GPL-3.0 许可证。项目本身及第三方代码、资源的具体授权信息以仓库中的 LICENSE 和相关许可文件为准。
+
+部分发布截图使用 [Endfield_Font](https://github.com/lhclbt/Endfield_Font) 的社区复刻字形作临时展示文字（作者：lhclbt / 罗醭坦；[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)）。该字体不作为 NekoriEmojy 正式程序的内置资源。
+
+项目与第三方组件的具体授权、署名及适用范围，请参阅仓库中的 [LICENSE](LICENSE) 与相关许可文件。
+
+---
+
+*这是一个仍在完善的个人工具，介绍与演示以对应发布版本的实际功能为准。*
