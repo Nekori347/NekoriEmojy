@@ -6,6 +6,18 @@
 
 用于收藏、整理、查找和发送表情。除了分类、标签和搜索，也尝试让日常操作更直接一些：看到的表情可以拖动整理，常用的操作尽量不用绕几个菜单才能完成。
 
+## 下载 v0.2.1
+
+| Windows 下载 | 适用方式 |
+| --- | --- |
+| **[Windows 安装版（推荐）](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.1/NekoriEmojy-Setup-0.2.1.exe)** | 适合普通用户，下载安装程序后正常使用。 |
+| [Windows 免安装版](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.1/NekoriEmojy-0.2.1-Windows-Portable.zip) | 下载 ZIP，解压后使用；用户数据不一定保存在软件目录。 |
+
+- OCR 为可选组件，可从软件设置中按需安装。
+- 源代码及 SHA-256 校验文件见完整 Release 附件。
+
+[查看完整 Release 与全部附件](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.1)
+
 <!-- 发布制作：将下方图片替换为独立演示库中的真实软件截图；界面可见的自然语言统一用临时萨卡兹字形展示。不得把字体、转换代码或演示数据库打入正式发行包。截图须展示「终末地」子分类中：四张前置表情 → 「陈千语」可折叠分类节点 → 其它直属表情；不要把磁盘素材根目录「表情」当作分类。 -->
 
 <p align="center">

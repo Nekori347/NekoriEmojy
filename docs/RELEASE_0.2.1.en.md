@@ -6,6 +6,20 @@ NekoriEmojy is a local sticker manager for Windows, with categories and nodes fo
 
 This release provides an installer and a portable package, along with a text recognition component for those who need it.
 
+## Download v0.2.1
+
+| Windows download | Which one to choose |
+| --- | --- |
+| **[Windows installer (recommended)](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.1/NekoriEmojy-Setup-0.2.1.exe)** | For most users: download and run the installer. |
+| [Windows portable package](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.1/NekoriEmojy-0.2.1-Windows-Portable.zip) | Download the ZIP and extract it to use the app. User data is not necessarily stored in the program folder. |
+
+- **OCR is optional** and can be installed from app settings when needed. Most users do not need to download an OCR ZIP or JSON file manually first; ordinary sticker management does not require OCR.
+- `BUILD_INFO.json`, `RELEASE_INFO.json`, and `NekoriOCR-win-x64-1.metadata.json` contain build, release, and OCR component metadata for diagnostics or the component installation process. They are not app installers.
+- `SHA256SUMS.txt` lets you verify the SHA-256 checksums of downloaded files.
+- `NekoriEmojy-0.2.1-Source.zip` and GitHub's automatically provided Source code ZIP / tar.gz are for reading the code or building the project yourself. They are not needed for everyday use.
+
+[View the full Release and all assets](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.1)
+
 ## Main features
 
 - **Categories and nodes**: multiple category levels, subcategories, top category tabs, and collapsible nodes that can be interleaved with ordinary stickers.
@@ -16,17 +30,6 @@ This release provides an installer and a portable package, along with a text rec
 - **Import and data management:** separate sticker library storage, Nekori native resource package import and export, Suzu-compatible sharing packages, settings file backups, and migration of collections from existing SuzuEmojy data or sharing packages.
 
 See the repository's README for more screenshots and demonstrations.
-
-## Downloads
-
-Choose the appropriate file under **Assets** below:
-
-- **Installer**: run the installer to install the app.
-- **Portable package**: extract it and follow the included instructions to launch it.
-- **Optional OCR component**: install it only if you need to recognize text in sticker images. Ordinary sticker management does not depend on it.
-- **Source code**: for those who want to read the code or build the project themselves.
-
-Use the actual filenames and descriptions in Assets at publication time. Take care to distinguish the installer, portable package, and OCR component package.
 
 ## Updates and personal data
 
