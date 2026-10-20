@@ -51,3 +51,7 @@ config/config.json
 .tmp/
 .verification/
 .pytest_cache/
+
+# Local compiler diagnostics, not release source inputs
+nuitka-crash-report.xml
+nuitka_help.txt
