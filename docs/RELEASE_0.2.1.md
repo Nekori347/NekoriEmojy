@@ -6,6 +6,20 @@ NekoriEmojy 是一个用于 Windows 的本地表情管理工具，提供分类�
 
 本次提供安装版与免安装版，并附有需要时使用的文字识别组件。
 
+## 下载 v0.2.1
+
+| Windows 下载 | 适用方式 |
+| --- | --- |
+| **[Windows 安装版（推荐）](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.1/NekoriEmojy-Setup-0.2.1.exe)** | 适合普通用户，下载安装程序后正常使用。 |
+| [Windows 免安装版](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.1/NekoriEmojy-0.2.1-Windows-Portable.zip) | 下载 ZIP，解压后使用；用户数据不一定保存在软件目录。 |
+
+- **OCR 为可选组件**，可从软件设置中按需安装。普通用户无需先手动下载 OCR ZIP 或 JSON，普通表情管理不依赖 OCR。
+- `BUILD_INFO.json`、`RELEASE_INFO.json` 和 `NekoriOCR-win-x64-1.metadata.json` 是构建、发行和 OCR 组件元数据，供诊断或组件安装流程使用，不是主程序安装包。
+- `SHA256SUMS.txt` 用于核对下载文件的 SHA-256 校验值。
+- `NekoriEmojy-0.2.1-Source.zip` 及 GitHub 自动提供的 Source code ZIP / tar.gz 面向阅读源码或自行构建的用户，日常使用无需下载。
+
+[查看完整 Release 与全部附件](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.1)
+
 ## 主要功能
 
 - **分类与节点**：多级分类、子分类、顶部分类标签页，以及可以与普通表情混合排列的可折叠节点。
@@ -16,17 +30,6 @@ NekoriEmojy 是一个用于 Windows 的本地表情管理工具，提供分类�
 - **导入与数据管理：** 支持独立表情库存储、Nekori 原生资源包导入导出、Suzu 兼容分享包、设置文件备份，以及从 SuzuEmojy 现有数据或分享包迁移收藏。
 
 更多截图与操作演示请参阅仓库首页的 README。
-
-## 下载
-
-请在下方 **Assets** 中选择适合自己的文件：
-
-- **安装版**：运行安装程序进行安装。
-- **免安装版**：解压后按包内说明启动。
-- **可选 OCR 组件**：仅在需要识别表情图片中的文字时安装；普通表情管理不依赖它。
-- **源码**：供希望阅读或自行构建项目的用户使用。
-
-发布时以 Assets 中的实际文件名及对应说明为准，请勿混淆安装包、免安装包与 OCR 组件包。
 
 ## 更新与个人数据
 
