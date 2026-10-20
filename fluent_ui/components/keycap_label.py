@@ -81,6 +81,13 @@ class KeycapLabel(QLabel):
         return result
 
     def paintEvent(self,event):
+        # Wrapped paragraphs must honour the label's horizontal alignment;
+        # translating a full-width document cannot centre its individual lines.
+        option=self._document.defaultTextOption()
+        alignment=self.alignment() & Qt.AlignHorizontal_Mask
+        if option.alignment()!=alignment:
+            option.setAlignment(alignment)
+            self._document.setDefaultTextOption(option)
         p=QPainter(self);rect=self.contentsRect()
         self._document.setTextWidth(rect.width() if self.wordWrap() else -1)
         size=self._document.size();x=rect.x();y=rect.y()

@@ -99,6 +99,13 @@ class HierarchyLocationHeader(QWidget):
         visual.theme.changed.connect(self._layout_counts)
         visual.theme.accent_changed.connect(self.update)
 
+    def sizeHint(self):
+        # Offer the current title's real width to the heading layout. The
+        # heading band can still cap/yield it when search needs the space.
+        text = self.path[-1][1] if self.path else ''
+        width = QFontMetrics(visual.font('page_title')).horizontalAdvance(text)
+        return QSize(max(self.minimumWidth(), 24 + width + 8), visual.HIERARCHY_HEADER_HEIGHT)
+
     def _get_progress(self):
         return self._progress
 
@@ -118,6 +125,7 @@ class HierarchyLocationHeader(QWidget):
         self._release_display = None
         self.animation.stop()
         self.path, self._old_path = path, old
+        self.updateGeometry()
         self.return_item, self._old_return = return_item, self.return_item
         self._preview = None
         self._scrub_position = None

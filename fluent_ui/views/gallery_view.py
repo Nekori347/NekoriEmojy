@@ -784,14 +784,32 @@ class GalleryInterface(QWidget):
         self.scroll_area.setWidget(self.grid_container)
         self.scroll_area.viewport().setAcceptDrops(True)
 
-        self.placeholder = KeycapLabel("", self.grid_container)
+        # Empty content belongs to the visible resource area, not to the
+        # scrollable card canvas. Its layout follows viewport/dock geometry
+        # even when the Gallery widget itself receives no resize event.
+        self.empty_state = QWidget(self.scroll_area.viewport())
+        self.empty_state.setProperty("galleryDropSurface", True)
+        self.empty_state.setAcceptDrops(True)
+        self.empty_state.installEventFilter(self)
+        viewport_layout = QVBoxLayout(self.scroll_area.viewport())
+        viewport_layout.setContentsMargins(0, 0, 0, 0)
+        viewport_layout.addWidget(self.empty_state)
+        empty_layout = QVBoxLayout(self.empty_state)
+        empty_layout.setContentsMargins(24, 20, 24, 20)
+        empty_layout.setSpacing(12)
+        empty_layout.addStretch()
+        self.placeholder = KeycapLabel("", self.empty_state)
+        self.placeholder.setWordWrap(True)
         self.placeholder.setAlignment(Qt.AlignCenter)
         self.placeholder.setProperty("role", "data")
-        self.placeholder.hide()
-        self.empty_import_button=translated(PushButton,'导入表情',self.placeholder)
+        empty_layout.addWidget(self.placeholder)
+        self.empty_import_button=translated(PushButton,'导入表情',self.empty_state)
         self.empty_import_button.setFixedHeight(32)
         self.empty_import_button.clicked.connect(lambda:self._pick_import_files())
         self.empty_import_button.hide()
+        empty_layout.addWidget(self.empty_import_button, 0, Qt.AlignHCenter)
+        empty_layout.addStretch()
+        self.empty_state.hide()
 
         # Right-clicking the empty content area is the position-aware entry for
         # the level being viewed; cards keep their own menus.
@@ -800,7 +818,7 @@ class GalleryInterface(QWidget):
         # the grid fills the viewport, so it is the widget actually under the
         # cursor in the empty area, and its default context-menu policy does not
         # forward the event to the viewport. Without this the menu never opens.
-        for surface in (self.scroll_area.viewport(), self.grid_container):
+        for surface in (self.scroll_area.viewport(), self.grid_container, self.empty_state):
             surface.setContextMenuPolicy(Qt.CustomContextMenu)
             surface.customContextMenuRequested.connect(
                 lambda position, surface=surface: self.show_content_menu(position, surface))
@@ -1371,7 +1389,7 @@ class GalleryInterface(QWidget):
 
     def _update_placeholder(self):
         if self._entries:
-            self.placeholder.hide()
+            self.empty_state.hide()
             return
         if getattr(self,'_recent_view',False):
             text = t('暂无最近使用的表情')
@@ -1382,15 +1400,9 @@ class GalleryInterface(QWidget):
         else:
             text = t("该分类还没有内容\n把表情拖到左侧分类或此区域即可加入")
         self.placeholder.setText(text)
-        self.placeholder.resize(self.scroll_area.viewport().size())
         self.empty_import_button.setVisible(self.current_node==ALL_RESOURCES and self._display_mode!='search' and not getattr(self,'_recent_view',False))
-        self._position_empty_import()
-        self.placeholder.show()
-
-    def _position_empty_import(self):
-        button=self.empty_import_button
-        button.resize(max(100,button.sizeHint().width()),32)
-        button.move((self.placeholder.width()-button.width())//2,self.placeholder.height()//2+30)
+        self.empty_state.show()
+        self.empty_state.raise_()
 
     # ==================================================================
     # Location header and compact active filter context
@@ -1885,10 +1897,6 @@ class GalleryInterface(QWidget):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._schedule_responsive_layout()
-        placeholder = getattr(self, "placeholder", None)
-        if placeholder is not None and placeholder.isVisible():
-            placeholder.resize(self.scroll_area.viewport().size())
-            self._position_empty_import()
 
     def eventFilter(self, obj, event):
         if obj == getattr(self, 'command_bar', None) and event.type() in (QEvent.Resize, QEvent.Show):
