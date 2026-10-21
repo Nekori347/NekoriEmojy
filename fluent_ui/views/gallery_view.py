@@ -2546,6 +2546,12 @@ class GalleryInterface(QWidget):
                 done=request.done;total=request.total
             if request.kind=='migration' and state!='recognizing':
                 title=t('等待 Suzu 迁移') if state=='waiting' else t('正在 Suzu 迁移') if state=='running' else (t('Suzu 迁移部分完成') if request.failed else t('Suzu 迁移完成')) if state=='completed' else t('Suzu 迁移失败') if state=='failed' else t('Suzu 迁移已停止')
+                if state in {'waiting','running'}:
+                    # The task title is the only persistent text bound to this
+                    # job; the content stays as its tooltip/summary. Both are
+                    # cleared by the normal terminal states below.
+                    title=t('等待迁移，勿动数据') if state=='waiting' else t('迁移中，勿动源数据')
+                    summary+='\n'+t('迁移期间请保持源数据可用，不要移动或删除源文件；Nekori 只读取源数据，不会修改它。')
             if job.get('failed'):
                 summary+=' · '+t('文字识别失败 {count} 张').format(count=job['failed'])
                 details+='\n'+job.get('error','')
