@@ -1,5 +1,10 @@
 # NekoriEmojy 版本记录
 
+
+## Unreleased / Post-0.2.1
+
+尚无已完成的用户可见变化；需求和验收进度见 POST_0.2.1_PLAN.md 与本地 ProjectDocs/CURRENT.md。
+
 ## 0.1.3 · development · 2026-10-16
 
 按实际使用反馈继续修正高亮、发送与设置控件。键盘 Enter 只转接已有发送入口，拖动发送只补说明，原有发送和导入去重服务不重建。

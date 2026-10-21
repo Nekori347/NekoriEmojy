@@ -1,0 +1,64 @@
+--- a/ProjectDocs/CURRENT.md
++++ b/ProjectDocs/CURRENT.md
+@@ -1,4 +1,21 @@
+ # NekoriEmojy — CURRENT
++
++## 当前：Unreleased / Post-0.2.1（2026-10-21）
++
++v0.2.1 已发布。开发分支 `dev/post-0.2.1`，基点 `b6b07b5b20cb7c1fd4c2a60e3e046bf17f272cbf`，保留发布后下载指引；正式 Tag 为 `b1788f85f9a125596645a8a2c7caae4b8a048ef1`，二进制来源仍 `6657e89`。
++
++- 已完成：发布基线/远端只读核对、干净工作树确认、独立开发分支建立、需求原文归档。文档准备提交见 Source 的 `docs: prepare post-0.2.1 development baseline`。
++- 正在处理：WP-A（W-01/02/03，P0）窗口宿主实际复现和调用链确认；尚未修改业务代码。
++- 待验收：主窗/附属窗生命周期、八向缩放、标题栏拖动、圆角/材质、DPI/尺寸/主题；机器结果与人工体验分别记录。
++- 阻塞：当前无基线阻塞；Issue #7 的 Windows 10 LTSC 21H2 环境尚未实测，视频上传失败，无视频证据。
++- 下一步：完成文档准备提交后实施 WP-A；WP-B 至 WP-I 未开始，保留原编号、优先级和依赖。
++
++[完整需求规划](../Source/docs/POST_0.2.1_PLAN.md) / [本轮基线及回退说明](../Source/docs/POST_0.2.1_BASELINE.md)。规划原文的“尚未授权开发”是归档时状态；2026-10-21 用户已授权本轮准备及 WP-A，未授权其它工作包自动展开。
++
++唯一工程仍为本目录；仅用 DevData/post-021-wpa 隔离验证。真实用户库、Suzu、Distribution、正式安装包不改；不 Push、不 Release、不改 Tag、不预定新版本号。
++
++下方为原样保留的历史阶段记录，不代表当前状态。
++
+ 
+ ## 快照收拢与根安装包（2026-10-20）
+ 
+--- a/ProjectDocs/AI_START.md
++++ b/ProjectDocs/AI_START.md
+@@ -1,4 +1,9 @@
+ # NekoriEmojy — AI_START
++
++## 当前入口：Post-0.2.1 / WP-A（2026-10-21）
++
++先读 [CURRENT 顶部](CURRENT.md)，再按需读 [本轮基线](../Source/docs/POST_0.2.1_BASELINE.md)、[需求规划](../Source/docs/POST_0.2.1_PLAN.md) 和 [开发手册](../Reference/AI开发手册_最新版.md)。当前分支 `dev/post-0.2.1`，仅推进窗口宿主 WP-A；发布后的 main 文档改动保留。下方全部为历史交接记录，以 CURRENT 顶部为准。
++
+ 
+ ## NekoriEmojy v0.2.1 已正式公开（2026-10-20）
+ 
+--- a/ProjectDocs/DECISIONS.md
++++ b/ProjectDocs/DECISIONS.md
+@@ -1,4 +1,12 @@
+ # NekoriEmojy — DECISIONS
++
++## Post-0.2.1 工作边界（2026-10-21）
++
++- WP-A 保留 PySide6 / NekoriWindow 和有用途的继承代码；窗口形状必须有唯一最终责任层，材质、Qt 绘制及原生命中按实际复现确定职责，不再用“显示后多应用一次圆角”替代根因修复。具体实现结论待运行证据，不将旧线索写成根因。
++- 后续 WP-F 收敛到已有任务 ID / upsert_task：一次操作的运行、完成与失败更新同一任务，不新增大一统后台平台。本轮未实施。
++- E-01 仅预留外部资源接收与预分类契约；不开发浏览器插件、油猴、Eagle 适配器或无消费者的常驻服务。本轮未实施。
++- 完整需求与优先级唯一来源为 [规划](../Source/docs/POST_0.2.1_PLAN.md)；本轮用户授权范围覆盖原文的未授权状态，WP-B 至 WP-I 留待后续逐包推进。
++
+ 
+ ## 本地 OCR 正式路线确认（2026-10-17）
+ 
+--- a/ProjectDocs/WORKSPACE.md
++++ b/ProjectDocs/WORKSPACE.md
+@@ -1,4 +1,10 @@
+ # 唯一正式工程与本地分区
++
++## 当前开发位置（2026-10-21）
++
++唯一工程 `F:\[2]Ai\NekoriEmojy`，唯一 Git 工作树 `Source`。main 为 b6b07b5，发布 Tag v0.2.1 为 b1788f8；发布后开发使用 `dev/post-0.2.1`。
++ProjectDocs 是本地状态/决策入口；Source/docs 是可版本化的技术/需求/发行文档；DevData 是报告与隔离验证数据。当前验证目录为 DevData/post-021-wpa，正式 Distribution 与用户数据保留。
++
+ 
+ ## 当前维护布局（2026-10-20 发布后）
+ 
