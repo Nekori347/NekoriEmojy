@@ -1,0 +1,36 @@
+--- a/ProjectDocs/CURRENT.md
++++ b/ProjectDocs/CURRENT.md
+@@ -9,8 +9,9 @@
+ - 提交定位：W-02 源码 `f6fc10f`；当前 HEAD `762efdd`（补充 150% 验证限制），分支 `dev/post-0.2.1`。
+ - 本轮交付：W-02 / #9 关闭后重新打开导致原生缩放标志丢失；共享宿主按原生句柄生命周期修复，待人工体验。[根因、验证、遗留状态](../Source/docs/WP_A_W02.md)。
+ - 待验收：主窗/附属窗生命周期、八向缩放、标题栏拖动、圆角/材质、DPI/尺寸/主题；机器结果与人工体验分别记录。
+-- 阻塞：当前无基线阻塞；Issue #7 的 Windows 10 LTSC 21H2 环境尚未实测，视频上传失败，无视频证据。
+-- 下一步：暂停扩大范围，验收 W-02。W-01 仍有未提交材质候选、未人工验收；W-03 未有独立修复。WP-B 至 WP-I 未开始。
++- 阻塞：W-01 的 Region 不能裁剪当前 Acrylic 合成面，尚无满足透明材质约束的已验证修正；只有 Win11 本机复现，实际 Win10 验证环境待提供。Issue #7 的 Windows 10 LTSC 21H2 环境仍未实测。
++- 当前 W-01 / #8：已将 Acrylic 在 Region 外漏底缩到纯 Win32 窗口复现，去掉 Qt/业务生命周期仍失败；未找到保留透明材质的已验证小范围修复。原五文件未提交候选保留，不透明降级不作为交付。[本轮证据与阻碍](../Source/docs/WP_A_W01.md)。
++- 下一步：Win10 实机运行最小复现，确认合成行为后决定修复；W-01 未完成，W-02 待人工验收，W-03 未展开。WP-B 至 WP-I 未开始。
+ 
+ [当前小任务计划](../Source/docs/POST_0.2.1_HANDOFF.md) / [原始需求规划](../Source/docs/POST_0.2.1_PLAN.md) / [本轮基线及回退说明](../Source/docs/POST_0.2.1_BASELINE.md)。规划原文的“尚未授权开发”是归档时状态；2026-10-21 用户已授权本轮准备及 WP-A，未授权其它工作包自动展开。
+ 
+--- a/ProjectDocs/AI_START.md
++++ b/ProjectDocs/AI_START.md
+@@ -2,7 +2,7 @@
+ 
+ ## 当前入口：Post-0.2.1 / WP-A（2026-10-21）
+ 
+-先读 [CURRENT 顶部](CURRENT.md)，再按需读 [本轮基线](../Source/docs/POST_0.2.1_BASELINE.md)、[需求规划](../Source/docs/POST_0.2.1_PLAN.md) 和 [开发手册](../Reference/AI开发手册_最新版.md)。当前分支 `dev/post-0.2.1`，当前只交付 W-02 / #9 的关闭重开缩放修复，暂停等待人工验收；W-01 未提交候选与 W-03 待复现状态见 [本轮记录](../Source/docs/WP_A_W02.md)。当前调度采用 [小任务计划](../Source/docs/POST_0.2.1_HANDOFF.md)；发布后的 main 文档改动保留。下方全部为历史交接记录，以 CURRENT 顶部为准。
++先读 [CURRENT 顶部](CURRENT.md)，再按需读 [本轮基线](../Source/docs/POST_0.2.1_BASELINE.md)、[需求规划](../Source/docs/POST_0.2.1_PLAN.md) 和 [开发手册](../Reference/AI开发手册_最新版.md)。当前分支 `dev/post-0.2.1`，W-02 / #9 已交付待验收；本轮继续 W-01，已缩小到纯 Win32 的 Acrylic/Region 漏底，尚未修复，[最小复现与阻碍](../Source/docs/WP_A_W01.md)；W-01 未提交候选与 W-03 待复现状态见 [本轮记录](../Source/docs/WP_A_W02.md)。当前调度采用 [小任务计划](../Source/docs/POST_0.2.1_HANDOFF.md)；发布后的 main 文档改动保留。下方全部为历史交接记录，以 CURRENT 顶部为准。
+ 
+ 
+ ## NekoriEmojy v0.2.1 已正式公开（2026-10-20）
+--- a/ProjectDocs/DECISIONS.md
++++ b/ProjectDocs/DECISIONS.md
+@@ -1,4 +1,8 @@
+ # NekoriEmojy — DECISIONS
++
++## W-01 合成层证据边界（2026-10-21）
++
++本机纯 Win32 对照证实 Region 外仍有 Accent Acrylic 绘制；Qt 绘制圆角、Region 输入裁剪与最终合成轮廓不能混为一谈。不得用 API 成功、再设置 Region 或不透明降级宣布修复；Win10 实机及保留材质的实现尚待验证。旧候选保留但不提交为产品修复。[记录](../Source/docs/WP_A_W01.md)。
+ 
+ ## W-02 原生窗口生命周期（2026-10-21）
+ 
