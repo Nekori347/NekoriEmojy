@@ -1,0 +1,46 @@
+--- a/ProjectDocs/CURRENT.md
++++ b/ProjectDocs/CURRENT.md
+@@ -6,14 +6,14 @@
+ 
+ - 已完成：发布基线/远端只读核对、干净工作树确认、独立开发分支建立、需求原文归档。文档准备提交见 Source 的 `docs: prepare post-0.2.1 development baseline`。
+ - 需求归档（2026-10-21，最终分组）：38 项需求已全部建成 GitHub Issues（W×6、G×24、T×7、E×1，编号 #8–#45），优先级 P0×14 / P1×22 / P2×1 / R×1；总索引为 [#37 Post-0.2.1 更新追踪](https://github.com/Nekori347/NekoriEmojy/issues/37)。W-03 复用社区 Issue #7 并补充开发追踪评论，未覆盖原描述；G-17～G-24 为同日补充项（#38–#45）。工作包最终归属：WP-B 含「图库与分类树导航（G-16/G-22/G-24，独立验收）」与「管理模式与批量操作（G-17/G-18/G-20/G-21）」两个小节，G-18/G-20 由 WP-D 移入 WP-B，仅改总索引分组、未改单项 Issue 正文。只做了 Issues 与评论：未改源码、未 Push、未 Release、未改 Tag、未关闭任何议题。
+-- 正在处理：WP-A（W-01/02/03，P0）窗口宿主实际复现和调用链确认；尚未修改业务代码。
++- 本轮交付：W-02 / #9 关闭后重新打开导致原生缩放标志丢失；共享宿主按原生句柄生命周期修复，待人工体验。[根因、验证、遗留状态](../Source/docs/WP_A_W02.md)。
+ - 待验收：主窗/附属窗生命周期、八向缩放、标题栏拖动、圆角/材质、DPI/尺寸/主题；机器结果与人工体验分别记录。
+ - 阻塞：当前无基线阻塞；Issue #7 的 Windows 10 LTSC 21H2 环境尚未实测，视频上传失败，无视频证据。
+-- 下一步：完成文档准备提交后实施 WP-A；WP-B 至 WP-I 未开始，保留原编号、优先级和依赖。
+-
+-[完整需求规划](../Source/docs/POST_0.2.1_PLAN.md) / [本轮基线及回退说明](../Source/docs/POST_0.2.1_BASELINE.md)。规划原文的“尚未授权开发”是归档时状态；2026-10-21 用户已授权本轮准备及 WP-A，未授权其它工作包自动展开。
+-
+-唯一工程仍为本目录；仅用 DevData/post-021-wpa 隔离验证。真实用户库、Suzu、Distribution、正式安装包不改；不 Push、不 Release、不改 Tag、不预定新版本号。
++- 下一步：暂停扩大范围，验收 W-02。W-01 仍有未提交材质候选、未人工验收；W-03 未有独立修复。WP-B 至 WP-I 未开始。
++
++[当前小任务计划](../Source/docs/POST_0.2.1_HANDOFF.md) / [原始需求规划](../Source/docs/POST_0.2.1_PLAN.md) / [本轮基线及回退说明](../Source/docs/POST_0.2.1_BASELINE.md)。规划原文的“尚未授权开发”是归档时状态；2026-10-21 用户已授权本轮准备及 WP-A，未授权其它工作包自动展开。
++
++唯一工程仍为本目录；仅用 DevData/post-021-wpa 隔离验证；Start-W02.cmd 固定加载已提交 W-02 窗口代码，排除工作树内未验收的 W-01 候选。真实用户库、Suzu、Distribution、正式安装包不改；不 Push、不 Release、不改 Tag、不预定新版本号。
+ 
+ 下方为原样保留的历史阶段记录，不代表当前状态。
+ 
+--- a/ProjectDocs/DECISIONS.md
++++ b/ProjectDocs/DECISIONS.md
+@@ -1,4 +1,9 @@
+ # NekoriEmojy — DECISIONS
++
++## W-02 原生窗口生命周期（2026-10-21）
++
++Qt close 会销毁 HWND，后续 show 创建新句柄，qframelesswindow 构造期的 WS_THICKFRAME 不会自动重做。共享 NekoriWindow 在 WinIdChange 建立缩放合同、WM_STYLECHANGING 保持该合同，避免再向各窗口 showEvent 叠补丁。实际安装实例已通过单变量标志 A/B 证实因果；用户触发步骤仍以关闭重开验收。材质/轮廓 W-01 与 Win10 拖动 W-03 尚未闭环，不据本条认定共因。[证据](../Source/docs/WP_A_W02.md)。
++
+ 
+ ## Post-0.2.1 工作边界（2026-10-21）
+ 
+--- a/ProjectDocs/AI_START.md
++++ b/ProjectDocs/AI_START.md
+@@ -2,7 +2,7 @@
+ 
+ ## 当前入口：Post-0.2.1 / WP-A（2026-10-21）
+ 
+-先读 [CURRENT 顶部](CURRENT.md)，再按需读 [本轮基线](../Source/docs/POST_0.2.1_BASELINE.md)、[需求规划](../Source/docs/POST_0.2.1_PLAN.md) 和 [开发手册](../Reference/AI开发手册_最新版.md)。当前分支 `dev/post-0.2.1`，仅推进窗口宿主 WP-A；发布后的 main 文档改动保留。下方全部为历史交接记录，以 CURRENT 顶部为准。
++先读 [CURRENT 顶部](CURRENT.md)，再按需读 [本轮基线](../Source/docs/POST_0.2.1_BASELINE.md)、[需求规划](../Source/docs/POST_0.2.1_PLAN.md) 和 [开发手册](../Reference/AI开发手册_最新版.md)。当前分支 `dev/post-0.2.1`，当前只交付 W-02 / #9 的关闭重开缩放修复，暂停等待人工验收；W-01 未提交候选与 W-03 待复现状态见 [本轮记录](../Source/docs/WP_A_W02.md)。当前调度采用 [小任务计划](../Source/docs/POST_0.2.1_HANDOFF.md)；发布后的 main 文档改动保留。下方全部为历史交接记录，以 CURRENT 顶部为准。
+ 
+ 
+ ## NekoriEmojy v0.2.1 已正式公开（2026-10-20）

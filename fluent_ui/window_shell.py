@@ -277,6 +277,21 @@ class NekoriWindow(FramelessWindow):
         if event.type() == QEvent.ActivationChange and not self.isActiveWindow():
             self.clear_transient_button_states()
 
+    def event(self, event):
+        result = super().event(event)
+        if event.type() == QEvent.WinIdChange:
+            # QWidget.close() destroys the HWND. A later show creates a new one
+            # without rerunning qframelesswindow's constructor-only frame setup.
+            hwnd = int(self.internalWinId())
+            if hwnd and getattr(self, '_isResizeEnabled', True) and not self.isFullScreen():
+                style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
+                if not style & win32con.WS_THICKFRAME:
+                    win32gui.SetWindowLong(hwnd, win32con.GWL_STYLE, style | win32con.WS_THICKFRAME)
+                    win32gui.SetWindowPos(hwnd, None, 0, 0, 0, 0,
+                        win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOZORDER |
+                        win32con.SWP_NOACTIVATE | win32con.SWP_FRAMECHANGED)
+        return result
+
     def nativeEvent(self, event_type, message):
         msg = self._native_message
         ctypes.memmove(ctypes.byref(msg), int(message), ctypes.sizeof(msg))
@@ -286,11 +301,18 @@ class NekoriWindow(FramelessWindow):
         if msg.message == win32con.WM_SETCURSOR and (msg.lParam & 0xffff) == win32con.HTCLIENT:
             win32gui.SetCursor(win32gui.LoadCursor(0, win32con.IDC_ARROW))
         event_code, hwnd = msg.message, msg.hWnd
+        if event_code == win32con.WM_STYLECHANGING and ctypes.c_ssize_t(msg.wParam).value == win32con.GWL_STYLE:
+            # Qt can rebuild GWL_STYLE without recreating the HWND. Preserve the
+            # host contract at that boundary, before Windows commits the style.
+            class StyleStruct(ctypes.Structure):
+                _fields_ = [('old', wintypes.DWORD), ('new', wintypes.DWORD)]
+            style = StyleStruct.from_address(msg.lParam)
+            if getattr(self, '_isResizeEnabled', True) and not self.isFullScreen():
+                style.new |= win32con.WS_THICKFRAME
         if (event_code == win32con.WM_NCHITTEST and self._isResizeEnabled
                 and not self.isMaximized() and not self.isFullScreen()):
-            # The 5px backend edge falls inside the rounded-away corner.
-            # Give diagonal resize its own reachable square, in native pixels;
-            # straight edges keep the backend's existing narrow hit band.
+            # One DPI-aware hit-test owns all eight directions. Use the event's
+            # screen point, not the cursor's newer position while messages queue.
             frame = win32gui.GetWindowRect(hwnd)
             x = ctypes.c_short(msg.lParam & 0xffff).value - frame[0]
             y = ctypes.c_short((msg.lParam >> 16) & 0xffff).value - frame[1]
@@ -302,8 +324,14 @@ class NekoriWindow(FramelessWindow):
                    win32con.HTTOPRIGHT if right and top else
                    win32con.HTBOTTOMLEFT if left and bottom else
                    win32con.HTBOTTOMRIGHT if right and bottom else None)
-            if hit is not None:
-                return True, hit
+            edge = max(1, round(self.BORDER_WIDTH * self.devicePixelRatioF()))
+            if hit is None:
+                hit = (win32con.HTLEFT if 0 <= x < edge else
+                       win32con.HTRIGHT if width-edge <= x < width else
+                       win32con.HTTOP if 0 <= y < edge else
+                       win32con.HTBOTTOM if height-edge <= y < height else
+                       win32con.HTCLIENT)
+            return True, hit
         result = super().nativeEvent(event_type, message)
         if (event_code == win32con.WM_NCCALCSIZE and msg.wParam
                 and not self.isMaximized() and not self.isFullScreen()
