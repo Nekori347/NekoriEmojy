@@ -48,6 +48,7 @@ def test_task_actions_paint_danger_only_for_live_cancel(surface):
     h.upsert_task('a','导入处理完成',state='success',content='新增 1 张')
     settle(surface.app)
     assert row.property('role')==''
+    assert header.property('role')==''
     # A replacement live job recalculates both shared action surfaces.
     h.upsert_task('a','等待导入表情',state='waiting',cancel=lambda:None)
     settle(surface.app)

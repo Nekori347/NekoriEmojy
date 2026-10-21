@@ -240,6 +240,7 @@ class CaptionFeedback(QObject):
         job=self.host.named_tasks.get(self.primary)
         if job:self.paint_header(self.primary,job)
         else:
+            self._sync_action_role(self.host.action_button,None)
             self.host.strip.hide();self.detail.hide()
             if self.overlay:self.layout_header(False)
         key=self.overlay or self.primary
@@ -329,7 +330,7 @@ class CaptionFeedback(QObject):
     @staticmethod
     def _sync_action_role(button,job):
         """Only a live job's cancel callback is a destructive task action."""
-        role='danger' if job['state'] in ACTIVE and job['cancel'] is not None else ''
+        role='danger' if job and job['state'] in ACTIVE and job['cancel'] is not None else ''
         if button.property('role')!=role:
             # ButtonPaint reads this dynamic property directly. It is not a QSS
             # role, so the property change needs an explicit repaint.
