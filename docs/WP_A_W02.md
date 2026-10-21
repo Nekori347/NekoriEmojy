@@ -33,9 +33,10 @@
 - close-reopen-baseline.log：旧源码 close/reopen 实际销毁并重建 HWND，缩放样式丢失。
 - native-baseline.log：原生回归旧实现失败；w02-only-tests.log：仅装载本次 W-02 代码、保留原材质的 3 项原生检查通过（标志重写、关闭重开、八向消息坐标）。
 - w02-close-main-corners.json / w02-close-main-edges.json：独立 W-02 完整主窗关闭重开后真实四角/四边鼠标缩放。
-- corners-w02-dpi150*.json：Qt 进程 150% 的实际鼠标检查；不等于 Windows 全局 150% 或混合 DPI 切屏验收。
+- w02-dpi150.log / w02-dpi150-edges.log：独立 W-02 的 Qt 150% 鼠标检查因窗口遮挡中止，未形成通过结果。较早 corners-final-dpi150*.json 含 W-01 候选，不作为本次独立交付的验收证据。150% 与混合 DPI 待人工验收。
 - 已有 test_window_resize 的旧图库夹具 3 项失败，原基线夹具复跑同样失败（legacy-baseline.log）；其 _current_columns/布局模型与现有图库不符。本次不扩大修理图库测试。W-01 的旧测试修改留在工作区。
 
 人工请重点：关闭主窗/设置窗后重新打开，四边四角缩放，最小尺寸限制，标题栏拖动与最小化/最大化/恢复，内容点击不被抢。真实 Win10、Windows 全局 150%/混合 DPI 未验证；W-01 和 W-03 不据本次缩放通过自动完成。
 
 DevData/post-021-wpa/Start-W02.cmd 提供隔离数据的验收入口。它从固定 W-02 Git 提交加载三个窗口相关模块，使用同一 Source 与 .venv，排除仍留在工作树的 W-01 候选；不是第二个正式工程、不覆盖安装版。独立托盘提供显示主窗/设置/退出；未注册全局快捷键，不影响运行中的正式实例。
+
