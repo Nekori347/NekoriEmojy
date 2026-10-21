@@ -26,6 +26,51 @@ def test_inline_single_and_long_title_keep_identical_bar_geometry(surface):
     assert h.progress.width()>=80
 
 
+def test_task_actions_paint_danger_only_for_live_cancel(surface):
+    from PySide6.QtGui import QColor
+    from fluent_ui import visual
+    h,u=dock(surface)
+    h.upsert_task('a','正在导入表情',current=1,total=10,cancel=lambda:None)
+    settle(surface.app)
+    header,row=h.action_button,h._named_widgets['a'][5]
+    assert header.property('role')=='danger' and row.property('role')=='danger'
+    # ButtonPaint reads the dynamic property itself; confirm the rendered text
+    # really uses the shared danger token instead of trusting the property.
+    c=visual.colors();danger=QColor(c['danger']);normal=QColor(c['text'])
+    image=header.grab().toImage()
+    pixels=[QColor(image.pixelColor(x,y)) for x in range(image.width()) for y in range(image.height())]
+    def close(color,target):
+        return all(abs(getattr(color,channel)()-getattr(target,channel)())<=8
+                   for channel in ('red','green','blue'))
+    assert any(p.alpha()>200 and close(p,danger) for p in pixels)
+    assert not any(p.alpha()>200 and close(p,normal) for p in pixels)
+    # A finished job offers no destructive action, including its row button.
+    h.upsert_task('a','导入处理完成',state='success',content='新增 1 张')
+    settle(surface.app)
+    assert row.property('role')==''
+    # A replacement live job recalculates both shared action surfaces.
+    h.upsert_task('a','等待导入表情',state='waiting',cancel=lambda:None)
+    settle(surface.app)
+    assert header.property('role')=='danger' and row.property('role')=='danger'
+    h.upsert_task('a','等待导入表情',state='waiting')
+    settle(surface.app)
+    assert header.property('role')=='' and row.property('role')==''
+    h.remove_task('a')
+
+
+def test_legacy_task_cancel_uses_same_danger_role(surface):
+    from PySide6.QtWidgets import QWidget
+    from fluent_ui.components.feedback import FeedbackHost
+    host=FeedbackHost(QWidget())
+    host.task('正在扫描…',cancel=lambda:None)
+    assert host.action_button.property('role')=='danger'
+    host.finish('扫描完成')
+    host.notice('扫描完成','已完成')
+    assert host.action_button.property('role')==''
+    host.task('正在扫描…')
+    assert host.action_button.property('role')==''
+
+
 def test_main_stable_internal_scroll_list_and_hover_bridge(surface):
     h,u=dock(surface);cancelled=[]
     for i in range(12):

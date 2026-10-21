@@ -244,8 +244,15 @@ class FeedbackHost(QObject):
             self.notices.append(item)
         if hasattr(self,'_caption_window') or not self.task_active:self._display_notice(item)
 
+    def _sync_action_role(self, danger):
+        role = 'danger' if danger else ''
+        if self.action_button.property('role') != role:
+            self.action_button.setProperty('role', role)
+            self.action_button.update()
+
     def _display_notice(self, item):
         title, content, error, action, action_text = item
+        self._sync_action_role(False)
         if hasattr(self,'_caption_window'):
             key='notice:'+str(hash((title,content)))
             self.upsert_task(key,title,state=self._notice_kinds.get((title,content),'info'),content=content,kind='notice',resume=action,action_text=action_text,details=self._notice_details.get((title,content),''))
@@ -293,6 +300,7 @@ class FeedbackHost(QObject):
         self._action = cancel
         self.action_button.setText(t('取消'))
         self.action_button.setVisible(cancel is not None)
+        self._sync_action_role(cancel is not None)
         self.close_button.hide()
         self.strip.show()
         self.reposition();self.strip.raise_()

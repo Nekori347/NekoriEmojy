@@ -326,6 +326,15 @@ class CaptionFeedback(QObject):
             right=row.mapFrom(self.window,self.host.strip.pos()).x()+self.host.strip.width()
             self._place_actions(row.operations,right,cy)
 
+    @staticmethod
+    def _sync_action_role(button,job):
+        """Only a live job's cancel callback is a destructive task action."""
+        role='danger' if job['state'] in ACTIVE and job['cancel'] is not None else ''
+        if button.property('role')!=role:
+            # ButtonPaint reads this dynamic property directly. It is not a QSS
+            # role, so the property change needs an explicit repaint.
+            button.setProperty('role',role);button.update()
+
     def paint_header(self,key,job):
         h=self.host;is_task=job['state'] in ACTIVE;glyph,tone=appearance(job)
         h.state_icon.setPixmap(glyph.icon(color=tone).pixmap(16,16))
@@ -340,6 +349,7 @@ class CaptionFeedback(QObject):
         h._action=callback
         h.action_button.setText(job['action_text'] or t('取消' if job['state']=='waiting' else '停止' if is_task else '继续'))
         h.action_button.setEnabled(True);h.action_button.setVisible(callback is not None)
+        self._sync_action_role(h.action_button,job)
         self.detail.setVisible(bool(job['details']))
         h.close_button.setVisible(not is_task and not job['details'])
         h.strip.setToolTip(h.title_label.toolTip());self.layout_header(is_task)
@@ -372,6 +382,7 @@ class CaptionFeedback(QObject):
         bar.setVisible(active);bar.setRange(0,job['total'] or 0);bar.setValue(job['current'])
         action.setVisible(bool(job['cancel'] if active else job['resume']))
         action.setText(job['action_text'] or t('取消' if job['state']=='waiting' else '停止' if active else '继续'))
+        self._sync_action_role(action,job)
         detail.setVisible(bool(job['details']));detail.setToolTip(t('查看详情'));close.setVisible(not active)
         row.setFixedHeight(34 if active else 56)
 
