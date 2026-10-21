@@ -124,7 +124,7 @@ def build_workbench(g):
     bind_text(g.btn_recent,'最近使用','setToolTip');g.btn_recent.setAccessibleName(t('最近使用'))
     g.btn_recent.clicked.connect(g.toggle_recent_view)
     size_row.insertWidget(0,g.btn_recent,0,Qt.AlignVCenter);size_row.insertSpacing(1,5)
-    tab_layout.addSpacing(8);tab_layout.addWidget(size_host,0,Qt.AlignBottom)
+    tab_layout.addSpacing(8);tab_layout.addWidget(size_host,0,Qt.AlignRight|Qt.AlignBottom)
 
     g.content_pane.corner_radius=10
     g.workspace=Surface('raised',g.content_pane,radius=9,edge=False)
