@@ -44,6 +44,9 @@ class ResourceImporter:
         return saved, duplicate
 
     def file(self, source, target=ImportTarget(), strict=False, *, library_added_seq=None):
+        # The first deduplication index build scans the existing library. It
+        # owns its own single-flight lock and need not block gallery ordering.
+        self.storage._get_sync_key_index()
         with self.storage.lock:
             self._validate_target(target)
             saved, duplicate = self.storage._save_file_source(source, strict=strict)
@@ -57,6 +60,7 @@ class ResourceImporter:
         return result
 
     def image(self, image, target=ImportTarget()):
+        self.storage._get_sync_key_index()
         with self.storage.lock:
             self._validate_target(target)
             saved, duplicate = self.storage._save_qimage_source(image)

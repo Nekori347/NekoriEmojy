@@ -373,7 +373,8 @@ class StorageService:
 
     def set_content_order(self, node_id, entries):
         """entries: [{'kind': 'resource'|'node', 'id': ...}] in the wanted order."""
-        self.index.set_order(node_id or ROOT, [(e["kind"], e["id"]) for e in entries])
+        with self.lock:
+            self.index.set_order(node_id or ROOT, [(e["kind"], e["id"]) for e in entries])
 
     def reorder_resources(self, node_id, resource_ids):
         self.index.reorder_resources(node_id or ROOT, resource_ids)
@@ -815,7 +816,10 @@ class StorageService:
             for filename in filenames:
                 if not filename.lower().endswith(self.SUPPORTED_FORMATS):
                     continue
-                abspath = self._to_abspath(filename)
+                # These names come from the selected library's images/ folder.
+                # _to_abspath() queries the catalog for each name; rebuilding
+                # this index must not issue one SQLite lookup per resource.
+                abspath = os.path.join(self.images_dir, filename)
                 try:
                     stat_res = os.stat(abspath)
                     cur_size = stat_res.st_size

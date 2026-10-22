@@ -2430,7 +2430,7 @@ class GalleryInterface(QWidget):
         if not ActionPolicy.enabled('set_icon', self._action_context([path], revalidate=True)):
             return
         self.storage.set_node_icon(node_id, path)
-        self.sidebar.refresh_list(self.current_node)
+        self.sidebar._refresh_node_icon(node_id)
         self.show_success(t("分类图标已更新"), quiet=True)
 
     def _remove_from_current(self, path):
@@ -2926,18 +2926,25 @@ class GalleryInterface(QWidget):
         if any(source != parent for source in sources.values()):
             self.request_resource_drop(paths, parent, position=target.index)
             return
-        stream = self.storage.entries_of(parent)
-        keys = set(paths)
-        moving = [e for e in stream if e['kind'] == 'resource' and e['path'] in keys]
-        if not moving:
-            self.assign_resources(paths, parent, position=target.index)
-            return
-        position = target.index if target.index is not None else len(stream)
-        before = stream[:position]
-        position = sum(not(e['kind'] == 'resource' and e['path'] in keys) for e in before)
-        remaining = [e for e in stream if not(e['kind'] == 'resource' and e['path'] in keys)]
-        from services.manual_order import insert_block
-        self.storage.set_content_order(parent, insert_block(remaining, moving, position))
+        with self.storage.lock:
+            stream = self.storage.entries_of(parent)
+            keys = set(paths)
+            moving = [e for e in stream if e['kind'] == 'resource' and e['path'] in keys]
+            if not moving:
+                self.assign_resources(paths, parent, position=target.index)
+                return
+            # The worker may prepend imports while the user drags over a
+            # still-visible card. Resolve against that card's stable ID, not
+            # the old numeric slot captured by the viewport.
+            anchor = next((i for i, e in enumerate(stream)
+                           if e['kind'] == 'resource' and e['id'] == target.target_id), None)
+            position = (anchor + (target.placement == INSERT_AFTER)) if anchor is not None else (
+                target.index if target.index is not None else len(stream))
+            before = stream[:position]
+            position = sum(not(e['kind'] == 'resource' and e['path'] in keys) for e in before)
+            remaining = [e for e in stream if not(e['kind'] == 'resource' and e['path'] in keys)]
+            from services.manual_order import insert_block
+            self.storage.set_content_order(parent, insert_block(remaining, moving, position))
         self.refresh_content_incremental(reason='drop_order', parents={parent})
 
     def _import_urls(self, mime, target):

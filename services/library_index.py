@@ -217,13 +217,40 @@ class LibraryIndex:
 
     @classmethod
     def _insert(cls, db, parent, kind, item, position=None):
-        entries = cls._entries(db, parent)
-        entry = (kind, item)
-        if entry in entries:
-            entries.remove(entry)
-        pos = len(entries) if position is None else max(0, min(position, len(entries)))
-        entries.insert(pos, entry)
-        cls._write_order(db, parent, entries)
+        column = 'resource_id' if kind == 'resource' else 'node_id'
+        exists = db.execute(f'SELECT 1 FROM content WHERE parent_id=? AND {column}=?',
+                            (parent, item)).fetchone()
+        if exists:
+            # Repositioning an existing entry still uses the canonical mixed
+            # stream, including child nodes and resources.
+            entries = cls._entries(db, parent)
+            entries.remove((kind, item))
+            slot = len(entries) if position is None else max(0, min(position, len(entries)))
+            entries.insert(slot, (kind, item))
+            cls._write_order(db, parent, entries)
+            return
+        if position is None:
+            slot = db.execute('SELECT COALESCE(MAX(position)+1,0) FROM content WHERE parent_id=?',
+                              (parent,)).fetchone()[0]
+        elif position <= 0:
+            slot = db.execute('SELECT COALESCE(MIN(position)-1,0) FROM content WHERE parent_id=?',
+                              (parent,)).fetchone()[0]
+        else:
+            next_row = db.execute('SELECT position FROM content WHERE parent_id=? '
+                                  'ORDER BY position LIMIT 1 OFFSET ?', (parent, position)).fetchone()
+            if next_row is None:
+                slot = db.execute('SELECT COALESCE(MAX(position)+1,0) FROM content WHERE parent_id=?',
+                                  (parent,)).fetchone()[0]
+            else:
+                previous = db.execute('SELECT position FROM content WHERE parent_id=? '
+                                      'ORDER BY position LIMIT 1 OFFSET ?', (parent, position-1)).fetchone()[0]
+                slot = previous + 1
+                if slot >= next_row[0]:
+                    db.execute('UPDATE content SET position=position+1 WHERE parent_id=? AND position>=?',
+                               (parent, next_row[0]))
+        db.execute('INSERT INTO content VALUES (?,?,?,?)',
+                   (parent, item if kind == 'resource' else None,
+                    item if kind == 'node' else None, slot))
 
     def register(self, path, display_name=None, *, library_added_seq=None):
         relative = self.relative_path(path)
