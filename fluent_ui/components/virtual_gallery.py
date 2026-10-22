@@ -96,8 +96,10 @@ class VirtualGallery:
         try:
             self.index.layout(g._entries, g.scroll_area.viewport().width(),
                               g.config.get('thumbnail_size', 120), first)
-            g.grid_container.setFixedSize(self.index.width,
-                                         max(self.index.height, g.scroll_area.viewport().height()))
+            # The viewport already owns the empty area. Making the scroll
+            # widget as tall as that moving viewport feeds panel animation
+            # back into the scroll range and can toggle the vertical bar.
+            g.grid_container.setFixedSize(self.index.width, self.index.height)
             if scroll is not None:
                 g.scroll_area.verticalScrollBar().setValue(scroll)
             elif anchor:

@@ -349,7 +349,12 @@ class TagPanelHost(QWidget):
         # Every real geometry boundary re-derives the axis and the extent from
         # the placement, so neither can lag behind it.
         self.apply_panel_axis()
-        handle_extent = visual.COMPACT_CONTROLS.splitter_extent if self.expanded else self.panel.collapsed_metrics.separator_extent
+        # Keep the expanded separator through a collapsing motion. Releasing
+        # its width before the panel moves briefly enlarges the gallery and
+        # can hide then re-show its vertical scrollbar.
+        collapsing = not self.expanded and (not resize or self._motion.state() == QAbstractAnimation.Running)
+        handle_extent = (visual.COMPACT_CONTROLS.splitter_extent if self.expanded or collapsing
+                         else self.panel.collapsed_metrics.separator_extent)
         self.splitter.setHandleWidth(handle_extent)
         handle = self.splitter.handle(1)
         if handle is not None:
