@@ -1,6 +1,6 @@
 """A movable panel and the shared thin-line / wide-hit-target splitter."""
 from enum import Enum
-from PySide6.QtCore import Qt, QEvent, QRect, QRectF, QPointF, QSize, QVariantAnimation
+from PySide6.QtCore import Qt, QEvent, QRect, QRectF, QPointF, QSize, QVariantAnimation, QAbstractAnimation
 from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath, QMouseEvent, QRegion
 from PySide6.QtWidgets import QAbstractButton, QApplication, QSplitter, QSplitterHandle, QVBoxLayout, QWidget, QSizePolicy
 from fluent_ui.icons import Icon as FIF
@@ -243,7 +243,7 @@ class TagPanelHost(QWidget):
         self._motion.setDuration(visual.MOTION.expand)
         self._motion.setEasingCurve(visual.MOTION.easing)
         self._motion.valueChanged.connect(self._animate_extent)
-        self._motion.finished.connect(self.apply_extent)
+        self._motion.finished.connect(self._finish_motion)
         self.splitter = PanelSplitter(Qt.Vertical, self)
         self.splitter.dock_host = self
         layout = QVBoxLayout(self)
@@ -294,22 +294,23 @@ class TagPanelHost(QWidget):
             return
         self._motion.stop()
         previous=self.splitter.sizes()
+        animate = self.isVisible() and QApplication.platformName() not in ('offscreen','minimal') and len(previous)==2
         self.expanded = expanded
-        self.panel.set_collapsed(not expanded, self.horizontal)
+        self.panel.set_collapsed(not expanded, self.horizontal, transitioning=animate)
         if persist:
             self.config.set('tag_panel_expanded', expanded)
-        self.apply_extent()
-        target=self.splitter.sizes()
-        if self.isVisible() and QApplication.platformName() not in ('offscreen','minimal') and len(previous)==2:
+        target=self.apply_extent(resize=not animate)
+        if animate and target is not None:
             index=0 if self.splitter.widget(0) is self.panel else 1
             self._motion_index=index
-            # The new semantic state is immediate; only the allocated extent
-            # interpolates. Resizing by hand never goes through this animation.
-            if self.horizontal:
-                self.panel.setMinimumHeight(min(previous[index],target[index]));self.panel.setMaximumHeight(max(previous[index],target[index]))
-            else:
-                self.panel.setMinimumWidth(min(previous[index],target[index]));self.panel.setMaximumWidth(max(previous[index],target[index]))
-            self._motion.setStartValue(previous[index]);self._motion.setEndValue(target[index]);self._motion.start()
+            self._motion.setStartValue(previous[index]);self._motion.setEndValue(target);self._motion.start()
+        elif animate:
+            self.panel.set_collapsed(not expanded, self.horizontal)
+            self.apply_extent()
+
+    def _finish_motion(self):
+        self.panel.set_collapsed(not self.expanded, self.horizontal)
+        self.apply_extent()
 
     def _animate_extent(self,value):
         length=self.splitter.height() if self.horizontal else self.splitter.width()
@@ -322,7 +323,7 @@ class TagPanelHost(QWidget):
     def toggle_expanded(self):
         self.set_expanded(not self.expanded)
 
-    def apply_extent(self):
+    def apply_extent(self, *, resize=True):
         if not self.isVisible():
             return
         # Every real geometry boundary re-derives the axis and the extent from
@@ -342,7 +343,7 @@ class TagPanelHost(QWidget):
         if self.expanded:
             reserve, minimum = (220, 84) if self.horizontal else (300, 110)
             if length < reserve+minimum+handle_extent:
-                return
+                return None
             default = self.config.get('tag_panel_height', 116) if self.horizontal else 220
             requested = int(self.config.get(self.extent_key, default))
             # Clamped to what is left after the content keeps its usable
@@ -352,6 +353,8 @@ class TagPanelHost(QWidget):
         else:
             # A collapsed panel is exactly its compact strip, so it always fits.
             extent = self.panel.collapsed_extent()
+        if not resize or self._motion.state() == QAbstractAnimation.Running:
+            return extent
         self._applying = True
         try:
             rest = max(0, length-extent-handle_extent)
@@ -359,6 +362,7 @@ class TagPanelHost(QWidget):
             self.splitter.setSizes([extent, rest] if panel_first else [rest, extent])
         finally:
             self._applying = False
+        return extent
 
     def _extent_changed(self, pos, index):
         if self._applying or not self.isVisible():
@@ -378,6 +382,9 @@ class TagPanelHost(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        if self._motion.state() == QAbstractAnimation.Running:
+            self._motion.stop()
+            self.panel.set_collapsed(not self.expanded, self.horizontal)
         self.layout().activate()
         self.apply_extent()
         r=QRectF(self.rect());radius=12

@@ -93,6 +93,30 @@ def test_collapse_hands_the_extent_to_the_content_and_restores_it(scene):
     assert window.geometry() == outer
 
 
+def test_bottom_expansion_does_not_jump_to_target_before_animation(scene, monkeypatch):
+    from PySide6.QtTest import QTest
+
+    app, window, host, panel, content, config, model = scene
+    host.set_placement('bottom')
+    host.set_expanded(False)
+    settle(app)
+    start = extent_of(host, panel)
+    observed = []
+    set_sizes = host.splitter.setSizes
+
+    def trace(sizes):
+        set_sizes(sizes)
+        observed.append(extent_of(host, panel))
+
+    monkeypatch.setattr(host.splitter, 'setSizes', trace)
+    monkeypatch.setattr(QApplication, 'platformName', staticmethod(lambda: 'windows'))
+    host.set_expanded(True)
+    QTest.qWait(visual.MOTION.expand + 70)
+    assert observed and observed[0] <= start + 1
+    assert observed == sorted(observed)
+    assert extent_of(host, panel) == config.get('tag_panel_horizontal_extent')
+
+
 @pytest.mark.parametrize('placement,horizontal', [
     ('top', True), ('bottom', True), ('left', False), ('right', False)])
 def test_each_placement_collapses_on_its_own_axis(scene, placement, horizontal):

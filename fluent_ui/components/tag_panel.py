@@ -524,17 +524,23 @@ class TagPanel(QWidget):
         """Theme chrome metrics determine thickness, independently of content."""
         return self.collapsed_metrics.extent
 
-    def set_collapsed(self, collapsed, horizontal=None):
+    def set_collapsed(self, collapsed, horizontal=None, *, transitioning=False):
         """Host-fed presentation only; all collapsed edges share one rail."""
         collapsed = bool(collapsed)
         horizontal = self._collapsed_horizontal if horizontal is None else bool(horizontal)
-        if self._collapsed_ready and (collapsed, horizontal) == (self.collapsed, self._collapsed_horizontal):
+        if self._collapsed_ready and (collapsed, horizontal, transitioning) == (self.collapsed, self._collapsed_horizontal, getattr(self, '_transitioning', False)):
             return
         self.collapsed, self._collapsed_horizontal = collapsed, horizontal
+        self._transitioning = transitioning
         self._collapsed_ready = True
         self.chrome.setVisible(collapsed)
         self.index_body.setVisible(not collapsed)
-        if collapsed:
+        if transitioning:
+            # Keep the current dock extent legal until the host animates it.
+            extent = self.collapsed_extent()
+            self.setMinimumSize(2*extent, extent) if horizontal else self.setMinimumSize(extent, 2*extent)
+            self.setMaximumSize(self.UNBOUNDED, self.UNBOUNDED)
+        elif collapsed:
             extent = self.collapsed_extent()
             # Fixed on the dock axis in both directions: neither the splitter's
             # remembered size nor any content minimum can thicken the strip.
