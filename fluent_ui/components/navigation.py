@@ -609,7 +609,7 @@ class TabStrip(QTabBar):
     def _style_scroll_buttons(self, *_):
         c = visual.colors()
         style = (f'QToolButton#NekoriTabScroll {{ color: {c["text_secondary"]}; background: transparent; '
-                 'border: none; border-radius: 5px; }} '
+                 'border: none; border-radius: 5px; margin: 9px 1px; }} '
                  f'QToolButton#NekoriTabScroll:hover {{ color: {c["text_primary"]}; background: {c["surface_hover"]}; }} '
                  f'QToolButton#NekoriTabScroll:pressed {{ color: {c["accent"]}; background: {c["surface_selected"]}; }} '
                  f'QToolButton#NekoriTabScroll:disabled {{ color: {c["text_muted"]}; background: transparent; }}')

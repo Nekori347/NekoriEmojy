@@ -158,3 +158,20 @@ def test_existing_scroll_buttons_show_hover_press_and_real_disabled_state(strip)
     assert normal != hover != pressed
     assert left.isEnabled() and left.cursor().shape() == Qt.PointingHandCursor
     check_paint(strip)
+
+
+def test_scroll_hover_is_inset_but_full_button_remains_clickable(strip):
+    right = next(b for b in strip.findChildren(QToolButton) if b.arrowType() == Qt.RightArrow)
+    size = right.size()
+    QTest.mouseMove(right, right.rect().center())
+    QApplication.processEvents()
+    hover = right.grab().toImage()
+    assert hover.pixelColor(2, 21).alpha() > 0
+    assert hover.pixelColor(2, 2).alpha() == 0
+    assert hover.pixelColor(2, size.height() - 3).alpha() == 0
+    for y in (2, size.height() - 3):
+        before = strip.tabRect(0).x()
+        QTest.mouseClick(right, Qt.LeftButton, pos=QPoint(size.width() // 2, y))
+        QApplication.processEvents()
+        assert strip.tabRect(0).x() < before
+    assert right.size() == size
