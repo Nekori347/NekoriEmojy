@@ -849,6 +849,7 @@ class GalleryInterface(QWidget):
         """
         self.tag_panel = TagPanel(self.tag_model, self.config, self.content_pane)
         self.tag_panel_host = TagPanelHost(self.workspace, self.tag_panel, self.config, self.content_pane)
+        self.tag_panel_host.extent_motion_changed.connect(self._tag_panel_extent_motion_changed)
         self.content_pane.content_layout.addWidget(self.tag_panel_host, 1)
         self.tag_panel.tags_changed.connect(self._on_tags_changed)
         self.tag_panel.filter_requested.connect(self._toggle_tag)
@@ -859,6 +860,15 @@ class GalleryInterface(QWidget):
             t('标签顺序')+'\n'+t('切换到手动顺序后可调整顺序'), self.tag_panel.btn_sort,
             owner=flow._drag_session))
         flow.drag_hint_cleared.connect(lambda owner: self.feedback_host.clear_hint(owner))
+
+    def _tag_panel_extent_motion_changed(self, running):
+        # During a top/bottom dock animation, Qt's AsNeeded scrollbar can
+        # repeatedly toggle around the content-height threshold. That changes
+        # the viewport width and makes centered resource rows jump sideways.
+        # Reserve the gutter only for the motion; restore normal policy after.
+        self.scroll_area.setVerticalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOn if running and self.tag_panel_host.horizontal
+            else Qt.ScrollBarAsNeeded)
 
     def show_content_menu(self, position, source=None):
         """Position-aware menu for the empty content area.
