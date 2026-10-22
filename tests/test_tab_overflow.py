@@ -2,8 +2,8 @@
 import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import pytest
-from PySide6.QtCore import Qt, QPoint
-from PySide6.QtGui import QImage, QPainter, QColor, QRegion
+from PySide6.QtCore import Qt, QPoint, QPointF
+from PySide6.QtGui import QImage, QPainter, QColor, QRegion, QCursor, QEnterEvent
 from PySide6.QtWidgets import QApplication, QToolButton, QWidget
 from PySide6.QtTest import QTest, QSignalSpy
 from fluent_ui.components.navigation import TabStrip
@@ -88,3 +88,24 @@ def test_selection_animation_retargets_after_scroll_resize_and_tab_changes(strip
     assert not any(b.isVisible() for b in strip.findChildren(QToolButton))
     QTest.mouseClick(strip, Qt.LeftButton, pos=strip.tabRect(0).center())
     assert strip.currentIndex() == 0
+
+
+def test_stationary_pointer_highlight_tracks_visible_tab_after_scroll(strip, monkeypatch):
+    pointer = QPoint(215, 21)
+    global_pointer = strip.mapToGlobal(pointer)
+    monkeypatch.setattr(QCursor, 'pos', staticmethod(lambda: global_pointer))
+    QApplication.sendEvent(strip, QEnterEvent(QPointF(pointer), QPointF(pointer), QPointF(global_pointer)))
+    right = next(b for b in strip.findChildren(QToolButton) if b.arrowType() == Qt.RightArrow)
+    hovered = []
+    for _ in range(5):
+        own_paint(strip)
+        hovered.append(strip._hovered_tab)
+        assert strip._hovered_tab == strip.tabAt(pointer)
+        QTest.mouseClick(right, Qt.LeftButton)
+        QApplication.processEvents()
+    assert len(set(hovered)) > 1
+    # The scroll button itself is outside the tab paint region.
+    button_pointer = right.geometry().center()
+    monkeypatch.setattr(QCursor, 'pos', staticmethod(lambda: strip.mapToGlobal(button_pointer)))
+    own_paint(strip)
+    assert strip._hovered_tab == -1

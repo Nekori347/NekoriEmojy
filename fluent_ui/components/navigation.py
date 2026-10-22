@@ -1,6 +1,6 @@
 """Shared primary navigation and engineering secondary tabs."""
 from PySide6.QtCore import Qt, QSize, QRectF, Signal, Property, QPropertyAnimation, QEasingCurve, QVariantAnimation, QTimer
-from PySide6.QtGui import QColor, QPainter, QPen, QPainterPath, QFontMetrics, QFont, QRegion
+from PySide6.QtGui import QColor, QPainter, QPen, QPainterPath, QFontMetrics, QFont, QRegion, QCursor
 from PySide6.QtWidgets import QStyledItemDelegate, QStyle, QTabBar, QWidget, QVBoxLayout, QToolButton, QApplication, QLabel, QSizePolicy
 from fluent_ui import visual
 from fluent_ui.components.section_index import SortProjection
@@ -588,6 +588,7 @@ class TabStrip(QTabBar):
         self.setCursor(Qt.PointingHandCursor)
         self.setMouseTracking(True)
         self._hovered_tab = -1
+        self._pointer_inside = False
         self._line_rect = QRectF()
         self._line_target = QRectF()
         self._line_motion = QVariantAnimation(self)
@@ -607,11 +608,11 @@ class TabStrip(QTabBar):
                 region -= QRegion(button.geometry())
         return region
 
-    def _target_line(self):
+    def _target_line(self, viewport=None):
         if self.currentIndex()<0:
             return QRectF()
         rect=self.content_tab_rect(self.currentIndex())
-        if not self._tab_viewport().intersects(rect):
+        if not (viewport or self._tab_viewport()).intersects(rect):
             return QRectF()
         width=min(38,max(18,rect.width()-32))
         return QRectF(rect.center().x()-width/2,9,width,3)
@@ -639,11 +640,20 @@ class TabStrip(QTabBar):
         self._line_target=self._line_rect
 
     def mouseMoveEvent(self, event):
-        self._hovered_tab = self.tabAt(event.position().toPoint())
-        self.update()
+        self._pointer_inside = True
+        hovered = self.tabAt(event.position().toPoint())
+        if hovered != self._hovered_tab:
+            self._hovered_tab = hovered
+            self.update()
         super().mouseMoveEvent(event)
 
+    def enterEvent(self, event):
+        self._pointer_inside = True
+        self.update()
+        super().enterEvent(event)
+
     def leaveEvent(self, event):
+        self._pointer_inside = False
         self._hovered_tab = -1
         self.update()
         super().leaveEvent(event)
@@ -680,13 +690,19 @@ class TabStrip(QTabBar):
     def paintEvent(self, event):
         # Pure scrolling does not emit currentChanged. Compare the actual Qt
         # geometry before drawing, cancelling only animation with a stale target.
-        target = self._target_line()
+        viewport = self._tab_viewport()
+        target = self._target_line(viewport)
         if target != self._line_target:
             self._line_motion.stop()
             self._line_rect = self._line_target = target
+        # Qt moves tabs beneath a stationary pointer when its scroll buttons
+        # are used. A cached mouseMove tab index then paints a moving ghost.
+        pointer = self.mapFromGlobal(QCursor.pos())
+        hovered = self.tabAt(pointer) if self._pointer_inside and viewport.contains(pointer) else -1
+        self._hovered_tab = hovered
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setClipRegion(self._tab_viewport())
+        painter.setClipRegion(viewport)
         c = visual.colors()
         y = self.height()-0.5
         selected = self.content_tab_rect(self.currentIndex()) if self.currentIndex() >= 0 else None
@@ -720,8 +736,10 @@ class TabStrip(QTabBar):
             painter.drawLine(x, 13, x, self.height()-9)
         for i in range(self.count()):
             rect = self.content_tab_rect(i)
+            if not viewport.intersects(rect):
+                continue
             active = i == self.currentIndex()
-            if not active and i == self._hovered_tab:
+            if not active and i == hovered:
                 painter.fillRect(rect.adjusted(3, 8, -3, -4), QColor(c['hover']))
             painter.setPen(QColor(c['text'] if active else c['muted']))
             font = self.font()
