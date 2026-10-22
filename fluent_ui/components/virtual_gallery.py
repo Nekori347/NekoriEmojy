@@ -175,7 +175,7 @@ class VirtualGallery:
         self.created += 1
         return card
 
-    def sync(self):
+    def sync(self, *, scroll_only=False):
         if self.updating:
             return
         self._batch_timer.stop()
@@ -192,9 +192,25 @@ class VirtualGallery:
             max(top-self.index.rects[wanted[key]].bottom(),
                 self.index.rects[wanted[key]].top()-(top+height), 0), wanted[key]))
         self._wanted = wanted
-        self.loader.wanted.clear()
-        self._pending = list(ordered)
+        if scroll_only:
+            # The short drain budget must go to newly exposed cards. If it
+            # starts with already-bound cards on every wheel event, a rapid
+            # reverse scroll repeatedly prepares the same front of the list
+            # while newly visible cards wait behind it.
+            self.loader.retain_bound_requests(self.active.values())
+            self._pending = [key for key in ordered if not self._scroll_card_bound(key, wanted[key])]
+        else:
+            self.loader.wanted.clear()
+            self._pending = list(ordered)
         self._drain()
+
+    def _scroll_card_bound(self, key, index):
+        card = self.active.get(key)
+        return (card is not None and card.content_entry is self.gallery._entries[index]
+                and card._renderer.isVisible() and card._renderer.geometry() == self.index.rects[index]
+                and (not isinstance(card, EmojiCard) or card.current_size == self.index.size)
+                and getattr(card, 'is_selected', False) ==
+                (self.gallery._entry_key(card.content_entry) in self.gallery.selected_keys))
 
     def _drain(self):
         """Prepare visible cards first, yielding between small GUI-thread batches."""

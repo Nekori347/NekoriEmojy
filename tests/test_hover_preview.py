@@ -121,6 +121,17 @@ class HoverPreviewTests(unittest.TestCase):
         self.show_preview()
         self.scroll.verticalScrollBar().setValue(5)
         self.assertFalse(self.popup.isVisible())
+
+    def test_card_rebind_move_does_not_restart_preview_timer(self):
+        self.show_preview()
+        self.card.move(11, 10)
+        self.app.processEvents()
+        self.assertTrue(self.popup.isVisible())
+        self.assertFalse(self.controller.settle_timer.isActive())
+        # A real scroll still invalidates the same preview.
+        self.scroll.verticalScrollBar().setValue(5)
+        self.assertFalse(self.popup.isVisible())
+        self.assertTrue(self.controller.settle_timer.isActive())
         self.assertTrue(self.controller.settle_timer.isActive())
         self.controller.settle_timer.stop()
         self.controller._resume_under_cursor()

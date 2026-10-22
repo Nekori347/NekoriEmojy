@@ -98,7 +98,11 @@ class HoverPreviewController(QObject):
             elif kind in (QEvent.Move, QEvent.Resize):
                 self.suspend()
         if obj is self.viewport or self.viewport.isAncestorOf(obj):
-            if kind in (QEvent.Wheel, QEvent.Move, QEvent.Resize):
+            # Scrollbar changes already suspend the preview. Moving/rebinding
+            # each pooled card emits Move/Resize for every card in the batch;
+            # those events must not repeatedly cancel the same preview timer.
+            if kind == QEvent.Wheel or (kind in (QEvent.Move, QEvent.Resize) and
+                                        (obj is self.viewport or obj.parentWidget() is self.viewport)):
                 self.suspend()
             elif kind in (QEvent.MouseButtonPress, QEvent.DragEnter, QEvent.ContextMenu):
                 self.cancel()

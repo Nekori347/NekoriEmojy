@@ -1851,7 +1851,7 @@ class GalleryInterface(QWidget):
                 and getattr(self, '_position_geometry', None) == self.scroll_area.viewport().size()
                 and not self._responsive_layout_timer.isActive()):
             self._live_anchor = self.renderer.anchor()
-        self.renderer.sync()
+        self.renderer.sync(scroll_only=True)
         self._update_back_top()
 
     def _update_back_top(self):
