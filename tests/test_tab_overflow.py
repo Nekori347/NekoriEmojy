@@ -138,3 +138,23 @@ def test_wheel_scrolls_visible_tabs_without_selecting_or_reloading(strip):
         send(angle=QPoint(0, 120))
     assert strip.tabRect(0).x() == initial
     assert strip.currentIndex() == 0 and changes.count() == 0
+
+
+def test_existing_scroll_buttons_show_hover_press_and_real_disabled_state(strip):
+    right = next(b for b in strip.findChildren(QToolButton) if b.arrowType() == Qt.RightArrow)
+    left = next(b for b in strip.findChildren(QToolButton) if b.arrowType() == Qt.LeftArrow)
+    assert not left.isEnabled() and left.cursor().shape() == Qt.ArrowCursor
+    assert right.isEnabled() and right.cursor().shape() == Qt.PointingHandCursor
+    QTest.mouseMove(strip, QPoint(220, 20))
+    QApplication.processEvents()
+    normal = right.grab().toImage().pixelColor(10, 21)
+    QTest.mouseMove(right, right.rect().center())
+    QApplication.processEvents()
+    hover = right.grab().toImage().pixelColor(10, 21)
+    QTest.mousePress(right, Qt.LeftButton, pos=right.rect().center())
+    QApplication.processEvents()
+    pressed = right.grab().toImage().pixelColor(10, 21)
+    QTest.mouseRelease(right, Qt.LeftButton, pos=right.rect().center())
+    assert normal != hover != pressed
+    assert left.isEnabled() and left.cursor().shape() == Qt.PointingHandCursor
+    check_paint(strip)

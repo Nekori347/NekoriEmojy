@@ -1,5 +1,5 @@
 """Shared primary navigation and engineering secondary tabs."""
-from PySide6.QtCore import Qt, QSize, QRectF, Signal, Property, QPropertyAnimation, QEasingCurve, QVariantAnimation, QTimer
+from PySide6.QtCore import Qt, QSize, QRectF, QEvent, Signal, Property, QPropertyAnimation, QEasingCurve, QVariantAnimation, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen, QPainterPath, QFontMetrics, QFont, QRegion, QCursor
 from PySide6.QtWidgets import QStyledItemDelegate, QStyle, QTabBar, QWidget, QVBoxLayout, QToolButton, QApplication, QLabel, QSizePolicy
 from fluent_ui import visual
@@ -583,6 +583,11 @@ class TabStrip(QTabBar):
         self.setExpanding(False)
         self.setDrawBase(False)
         self.setUsesScrollButtons(True)
+        self._scroll_buttons = tuple(self.findChildren(QToolButton, options=Qt.FindDirectChildrenOnly))
+        for button in self._scroll_buttons:
+            button.setObjectName('NekoriTabScroll')
+            button.installEventFilter(self)
+        self._style_scroll_buttons()
         self.setElideMode(Qt.ElideRight)
         self.setFixedHeight(43)
         self.setCursor(Qt.PointingHandCursor)
@@ -598,7 +603,24 @@ class TabStrip(QTabBar):
         self._line_motion.valueChanged.connect(self._move_line)
         self.currentChanged.connect(self._animate_line)
         visual.theme.changed.connect(self.update)
+        visual.theme.changed.connect(self._style_scroll_buttons)
         visual.theme.accent_changed.connect(self.update)
+
+    def _style_scroll_buttons(self, *_):
+        c = visual.colors()
+        style = (f'QToolButton#NekoriTabScroll {{ color: {c["text_secondary"]}; background: transparent; '
+                 'border: none; border-radius: 5px; }} '
+                 f'QToolButton#NekoriTabScroll:hover {{ color: {c["text_primary"]}; background: {c["surface_hover"]}; }} '
+                 f'QToolButton#NekoriTabScroll:pressed {{ color: {c["accent"]}; background: {c["surface_selected"]}; }} '
+                 f'QToolButton#NekoriTabScroll:disabled {{ color: {c["text_muted"]}; background: transparent; }}')
+        for button in self._scroll_buttons:
+            button.setStyleSheet(style)
+            button.setCursor(Qt.PointingHandCursor if button.isEnabled() else Qt.ArrowCursor)
+
+    def eventFilter(self, watched, event):
+        if watched in self._scroll_buttons and event.type() == QEvent.EnabledChange:
+            watched.setCursor(Qt.PointingHandCursor if watched.isEnabled() else Qt.ArrowCursor)
+        return super().eventFilter(watched, event)
 
     def _tab_viewport(self):
         # QTabBar owns scroll-button placement, including style/DPI changes.
