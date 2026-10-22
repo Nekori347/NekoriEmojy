@@ -1818,6 +1818,7 @@ class GalleryInterface(QWidget):
             anchor = self._initial_anchor or self._live_anchor or self.renderer.anchor()
             self.renderer.relayout(anchor=anchor)
             self._finish_position_layout(anchor)
+            self._update_back_top()
 
     def _schedule_responsive_layout(self):
         if not self._responsive_layout_timer.isActive():
@@ -1846,8 +1847,19 @@ class GalleryInterface(QWidget):
     def _update_back_top(self):
         if hasattr(self, 'btn_back_top'):
             bar = self.scroll_area.verticalScrollBar()
-            self.btn_back_top.setVisible(bar.maximum() > 0 and
-                                         bar.value() > max(120, self.scroll_area.viewport().height()))
+            viewport = self.scroll_area.viewport()
+            visible = bar.maximum() > 0 and bar.value() > max(120, viewport.height())
+            if visible:
+                # NodeCard's whole row is clickable, including its rightmost
+                # disclosure target. Use the existing flow index so a card
+                # awaiting lazy construction cannot briefly sit under the
+                # floating button.
+                origin = self.grid_container.mapTo(viewport, QPoint())
+                for index in self.renderer.index.between(bar.value(), bar.value()+viewport.height()):
+                    if self._entries[index]['kind'] == 'node' and self.renderer.index.rects[index].translated(origin).intersects(self.btn_back_top.geometry()):
+                        visible = False
+                        break
+            self.btn_back_top.setVisible(visible)
 
     def _refresh_visible_thumbnails(self):
         self.renderer.sync()
