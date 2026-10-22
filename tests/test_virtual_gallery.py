@@ -129,3 +129,37 @@ def test_real_mutation_paths_preserve_view_and_recycled_identity(tmp_path, monke
         from fluent_ui.components.emoji_card import _thumbnail_pool
         _thumbnail_pool.waitForDone(10000); app.processEvents()
         g.hide(); g.deleteLater(); QCoreApplication.sendPostedEvents(None,QEvent.DeferredDelete)
+
+
+def test_node_icon_change_refreshes_visible_gallery_card(tmp_path, monkeypatch):
+    from services.config import ConfigService
+    from services.storage import StorageService
+    from services.clipboard import ClipboardService
+    from services.i18n import i18n_engine
+    from fluent_ui.views.gallery_view import GalleryInterface
+    from fluent_ui import visual
+
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setenv('NEKORI_LIBRARY', str(tmp_path / 'library'))
+    monkeypatch.setenv('NEKORI_APP_DATA', str(tmp_path / 'app'))
+    config = ConfigService(); visual.theme.configure(config); i18n_engine.init(config)
+    storage = StorageService(config=config)
+    parent = storage.create_node('Parent')
+    node = storage.create_node('Icon target', parent)
+    view = GalleryInterface(storage, ClipboardService(config), config)
+    view.resize(1000, 740); view.show(); view.set_node(parent); QTest.qWait(80)
+    try:
+        storage.set_node_icon(node, '★')
+        view.sidebar._refresh_node_icon(node)
+        QTest.qWait(250)
+        card = next(card for card in view._all_card_widgets
+                    if card.content_entry['kind'] == 'node' and card.node_id == node)
+        assert card.entry['icon'] == '★'
+        assert card._node_signature[2] == '★'
+        storage.set_node_icon(node, '')
+        view.sidebar._refresh_node_icon(node)
+        QTest.qWait(250)
+        assert card._node_signature[2] == ''
+    finally:
+        view.focus_timer.stop(); view.preview_controller.cancel(); view.hide()
+        view.deleteLater(); app.processEvents()

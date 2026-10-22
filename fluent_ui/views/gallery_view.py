@@ -449,7 +449,7 @@ class CategorySidebar(Surface):
         text, ok = dialogs.prompt_text(self.window(), t("分类图标"), t("输入一个 Emoji"), current, code="NODE/ICON")
         if ok:
             self.storage.set_node_icon(node_id, text.strip())
-            self.refresh_list(self.tree.current_node_id)
+            self._refresh_node_icon(node_id)
 
     def _set_image_icon(self, node_id):
         path, _ = QFileDialog.getOpenFileName(
@@ -457,11 +457,17 @@ class CategorySidebar(Surface):
         if not path:
             return
         self.storage.set_node_icon(node_id, path)
-        self.refresh_list(self.tree.current_node_id)
+        self._refresh_node_icon(node_id)
 
     def _reset_icon(self, node_id):
         self.storage.set_node_icon(node_id, "")
+        self._refresh_node_icon(node_id)
+
+    def _refresh_node_icon(self, node_id):
         self.refresh_list(self.tree.current_node_id)
+        if self.gallery_view:
+            parent = (self.storage.node(node_id) or {}).get('parent_id') or ROOT
+            self.gallery_view.refresh_content_incremental(reason='node_icon', parents={parent})
 
     def _parent_of(self, node_id):
         node = self.storage.node(node_id)
@@ -2836,7 +2842,7 @@ class GalleryInterface(QWidget):
 
         parent = entry['_parent']
         placement = INSERT_AFTER if after else INSERT_BEFORE
-        return (DropTarget(placement, effect, None, parent,
+        return (DropTarget(placement, effect, entry['id'], parent,
                            entry['position']+bool(after)), rect, True)
 
     def _track_drop(self, event, position=None):
