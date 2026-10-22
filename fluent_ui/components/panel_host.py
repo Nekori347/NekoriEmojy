@@ -1,6 +1,6 @@
 """A movable panel and the shared thin-line / wide-hit-target splitter."""
 from enum import Enum
-from PySide6.QtCore import Qt, QEvent, QRect, QRectF, QPointF, QSize, QVariantAnimation, QAbstractAnimation, Signal
+from PySide6.QtCore import Qt, QEvent, QRect, QRectF, QPointF, QSize, QVariantAnimation, QAbstractAnimation
 from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath, QMouseEvent, QRegion, QCursor
 from PySide6.QtWidgets import QAbstractButton, QApplication, QSplitter, QSplitterHandle, QVBoxLayout, QWidget, QSizePolicy
 from fluent_ui.icons import Icon as FIF
@@ -253,8 +253,6 @@ class TagPanelHost(QWidget):
     Growing the outer window instead would fight the saved window geometry and
     would cover the gallery rather than making room for it.
     """
-    extent_motion_changed = Signal(bool)
-
     def __init__(self, content, panel, config, parent=None):
         super().__init__(parent)
         self.content, self.panel, self.config = content, panel, config
@@ -266,8 +264,6 @@ class TagPanelHost(QWidget):
         self._motion.setEasingCurve(visual.MOTION.easing)
         self._motion.valueChanged.connect(self._animate_extent)
         self._motion.finished.connect(self._finish_motion)
-        self._motion.stateChanged.connect(
-            lambda state, _: self.extent_motion_changed.emit(state == QAbstractAnimation.Running))
         self.splitter = PanelSplitter(Qt.Vertical, self)
         self.splitter.dock_host = self
         layout = QVBoxLayout(self)
