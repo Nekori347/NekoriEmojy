@@ -1,0 +1,47 @@
+--- a/ProjectDocs/CURRENT.md
++++ b/ProjectDocs/CURRENT.md
+@@ -1,7 +1,17 @@
+ # NekoriEmojy — CURRENT
+ 
+-
+-## 当前：Unreleased / Post-0.2.1（2026-10-21）
++## 当前：Unreleased / Post-0.2.1（2026-10-22）
++
++开发分支 `dev/post-0.2.1`；v0.2.1 的公开 Tag、正式安装包与 main 未修改。本次 Flash 集成 + WP-D 小批次已完成本地独立提交：T-04 / #32 `4592a1f` 与 `bc012b0`、T-01 / #29 `48e5834`、G-01 / #13 `1ed26a5`、G-12 / #24 `5f58fda`。完整改动与验证见 [本批次记录](../Source/docs/POST_0.2.1_FLASH_WPD.md)。
++
++- 已完成：Flash 两项选择性集成；全部表情工具栏右对齐；溢出标签绘制与选中线同步。七项定向测试通过，统一隔离 Demo 自动核验通过。
++- 待人工验收：在 [统一 Demo](../DevData/post-021-wpd/Start-Demo.cmd) 体验 T-04、T-01、G-01、G-12 的视觉和操作；W-02 本机八方向缩放此前已由用户确认，Win10 / 150% / 混合 DPI 仍待环境验证。
++- 未完成：G-13 / #25 本批次未复现共同根因，留待独立小任务；W-01 / #8 仍有 Acrylic/Region 漏底阻碍，W-03 / #7 未展开。原七处未提交文档/W-01 候选保持原样。
++- 数据与版本隔离：Demo 仅使用 `DevData/post-021-wpd/demo-data` 的配置、库和 Suzu 样本；未 Push、未 Release、未更改正式 Tag 或真实用户数据。
++
++以下为 2026-10-21 的上一阶段记录，不代表本批次进度。
++
++## 上一阶段：Unreleased / Post-0.2.1（2026-10-21）
+ 
+ v0.2.1 已发布。开发分支 `dev/post-0.2.1`，基点 `b6b07b5b20cb7c1fd4c2a60e3e046bf17f272cbf`，保留发布后下载指引；正式 Tag 为 `b1788f85f9a125596645a8a2c7caae4b8a048ef1`，二进制来源仍 `6657e89`。
+ 
+--- a/ProjectDocs/AI_START.md
++++ b/ProjectDocs/AI_START.md
+@@ -1,7 +1,10 @@
+ # NekoriEmojy — AI_START
+ 
++## 当前入口：Post-0.2.1 / Flash + WP-D（2026-10-22）
+ 
+-## 当前入口：Post-0.2.1 / WP-A（2026-10-21）
++先读 [CURRENT 顶部](CURRENT.md)、[本批次交付记录](../Source/docs/POST_0.2.1_FLASH_WPD.md)，再按需读 [开发手册](../Reference/AI开发手册_最新版.md)、[需求规划](../Source/docs/POST_0.2.1_PLAN.md) 与对应 GitHub Issue。当前分支 `dev/post-0.2.1`，本批次 T-04、T-01、G-01、G-12 已作独立本地提交，统一隔离 Demo 待人工验收；G-13、W-01、W-03 未完成。Source 工作树七处先存未提交改动属 W-01 实验及计划文档，接手时必须先核对，不能清理或混入提交。下方为历史入口，最新状态以 CURRENT 顶部为准。
++
++## 上一阶段入口：Post-0.2.1 / WP-A（2026-10-21）
+ 
+ 先读 [CURRENT 顶部](CURRENT.md)，再按需读 [本轮基线](../Source/docs/POST_0.2.1_BASELINE.md)、[需求规划](../Source/docs/POST_0.2.1_PLAN.md) 和 [开发手册](../Reference/AI开发手册_最新版.md)。当前分支 `dev/post-0.2.1`，W-02 / #9 已交付待验收；本轮继续 W-01，已缩小到纯 Win32 的 Acrylic/Region 漏底，尚未修复，[最小复现与阻碍](../Source/docs/WP_A_W01.md)；W-01 未提交候选与 W-03 待复现状态见 [本轮记录](../Source/docs/WP_A_W02.md)。当前调度采用 [小任务计划](../Source/docs/POST_0.2.1_HANDOFF.md)；发布后的 main 文档改动保留。下方全部为历史交接记录，以 CURRENT 顶部为准。
+ 
+--- a/ProjectDocs/CHANGELOG.md
++++ b/ProjectDocs/CHANGELOG.md
+@@ -1,4 +1,8 @@
+ # NekoriEmojy — CHANGELOG
++
++## Unreleased / Post-0.2.1 · 2026-10-22
++
++集成 T-04 可取消任务的危险色及空闲清除、T-01 Suzu 迁移提示；修复 G-01 全部表情页工具栏偏左和 G-12 标签翻页绘制重叠、选中线错位。均已本地提交并完成定向机器验证，等待统一 Demo 人工验收。详见 [本批次记录](../Source/docs/POST_0.2.1_FLASH_WPD.md)。W-01、W-03、G-13 未完成。
+ 
+ ## 2026-10-16 · 0.1.3 高亮、发送入口复用与居中长进度
+ 
