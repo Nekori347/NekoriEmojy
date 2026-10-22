@@ -59,6 +59,9 @@ def main():
     if not shared_memory.create(1):
         sys.exit(0)
 
+    from services.crash_evidence import install as install_crash_evidence
+    install_crash_evidence()
+
     try:
         AutostartService().repair_registration()
     except OSError as error:
