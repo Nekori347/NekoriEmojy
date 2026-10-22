@@ -192,20 +192,29 @@ class LibraryTree(QTreeWidget):
         counts = self.storage.node_counts()
         self.sidebar.sync_root(counts.get(ROOT, {}).get('resources', 0))
         self.header().resizeSection(1, max(32, max((self.fontMetrics().horizontalAdvance(str(c['resources'])) for c in counts.values()), default=0) + 14))
-        children = self._children(ALL_RESOURCES)
-        section_starts = {index: key for key, index in self.section_projection.positions.items()}
-        for index, node in enumerate(children):
-            if index in section_starts:
-                key = section_starts[index]
-                header = QTreeWidgetItem([key, ''])
-                header.setData(0, SectionHeader.ROLE, key)
-                header.setFlags(Qt.ItemIsEnabled)
-                self.addTopLevelItem(header)
-                header.setFirstColumnSpanned(True)
-                self.section_headers[key] = header
-            item = self._build(node, counts)
-            self.addTopLevelItem(item)
-            self._restore_expanded(item, expanded)
+        # A refresh owns one consistent node snapshot. Recursing through
+        # child_nodes() opened a new SQLite connection for every category.
+        children_by_parent = {}
+        for node in self.storage.index.nodes():
+            children_by_parent.setdefault(node['parent_id'] or ROOT, []).append(node)
+        self._refresh_children = children_by_parent
+        try:
+            children = self._children(ALL_RESOURCES)
+            section_starts = {index: key for key, index in self.section_projection.positions.items()}
+            for index, node in enumerate(children):
+                if index in section_starts:
+                    key = section_starts[index]
+                    header = QTreeWidgetItem([key, ''])
+                    header.setData(0, SectionHeader.ROLE, key)
+                    header.setFlags(Qt.ItemIsEnabled)
+                    self.addTopLevelItem(header)
+                    header.setFirstColumnSpanned(True)
+                    self.section_headers[key] = header
+                item = self._build(node, counts)
+                self.addTopLevelItem(item)
+                self._restore_expanded(item, expanded)
+        finally:
+            del self._refresh_children
         self._span_rows()
         self.blockSignals(False)
         self.select_node(target)
@@ -224,7 +233,8 @@ class LibraryTree(QTreeWidget):
 
     def _children(self, node_id):
         from fluent_ui.components.section_index import SortProjection
-        children = self.storage.child_nodes(node_id)
+        snapshot = getattr(self, '_refresh_children', None)
+        children = snapshot.get(node_id, []) if snapshot is not None else self.storage.child_nodes(node_id)
         self._node_records.update((node['id'], node) for node in children)
         # Only outer parents are projected. Every inner order stays manual.
         if node_id != ROOT:

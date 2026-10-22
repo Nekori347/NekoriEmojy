@@ -2,6 +2,8 @@
 from services.i18n import t, bind_text, translated
 import json
 import os
+from pathlib import Path
+from services.exchange_icons import IMAGE_SUFFIXES, resolve_icon_path
 
 from PySide6.QtCore import Qt, Signal, QMimeData, QPoint, QRect, QRectF, QVariantAnimation
 from PySide6.QtGui import (
@@ -20,13 +22,14 @@ __all__ = ['NodeCard', 'render_node_icon', 'NODE_MIME', 'RESOURCE_MIME']
 def render_node_icon(storage, record, size):
     """Return a QPixmap for a node icon; falls back to a neutral folder glyph."""
     size = max(16, int(size))
-    path = storage.node_icon_path(record["id"]) if storage else None
+    value = (record.get("icon") or "").strip()
+    path = (resolve_icon_path(storage.data_dir, value) if storage and
+            Path(value).suffix.lower() in IMAGE_SUFFIXES else None)
     if path and os.path.isfile(path):
         pixmap = QPixmap(path)
         if not pixmap.isNull():
             return pixmap.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
 
-    value = (record.get("icon") or "").strip()
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.transparent)
     painter = QPainter(pixmap)
