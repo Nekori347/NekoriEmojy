@@ -415,17 +415,10 @@ class StorageService:
 
     def move_resources_to(self, filepaths, target_node, copy=True, source_node=None, position=None):
         """Copy adds the target relation; Move also drops the source relation."""
-        added = 0
-        for offset, path in enumerate(filepaths):
-            record = self.index.resource(path)
-            if not record:
-                continue
-            slot = None if position is None else position + offset
-            if self.index.add_membership(record["id"], target_node or ROOT, slot):
-                added += 1
-            if not copy and source_node and source_node != ROOT:
-                self.index.remove_membership(record["id"], source_node)
-        return added
+        with self.lock:
+            ids = self.index.resource_ids(filepaths)
+            return self.index.assign_memberships(ids, target_node or ROOT, copy=copy,
+                                                 source=source_node, position=position)
 
     def resource_metadata(self, filepath):
         record = self.index.resource(filepath)

@@ -121,14 +121,23 @@ class LibraryIndex:
 
     def resource(self, value):
         with self.connect() as db:
-            row = db.execute("SELECT * FROM resources WHERE id=? OR filename=?", (str(value), str(value))).fetchone()
-            if row is None and Path(value).is_absolute():
-                try:
-                    relative = self.relative_path(value)
-                except ValueError:
-                    return None
-                row = db.execute("SELECT * FROM resources WHERE relative_path=? COLLATE NOCASE", (relative,)).fetchone()
+            row = self._resource_row(db, value)
             return dict(row) if row else None
+
+    def resource_ids(self, values):
+        """Resolve one batch through a single catalog connection."""
+        with self.connect() as db:
+            return [row['id'] if (row := self._resource_row(db, value)) else None for value in values]
+
+    def _resource_row(self, db, value):
+        row = db.execute("SELECT * FROM resources WHERE id=? OR filename=?", (str(value), str(value))).fetchone()
+        if row is None and Path(value).is_absolute():
+            try:
+                relative = self.relative_path(value)
+            except ValueError:
+                return None
+            row = db.execute("SELECT * FROM resources WHERE relative_path=? COLLATE NOCASE", (relative,)).fetchone()
+        return row
 
     def resource_by_id(self, resource_id):
         with self.connect() as db:
@@ -394,6 +403,36 @@ class LibraryIndex:
         with self.connect() as db:
             self._insert(db, target, "resource", resource_id, position)
             db.execute("DELETE FROM content WHERE parent_id=? AND resource_id=?", (source, resource_id))
+
+    def assign_memberships(self, resource_ids, target, *, copy=True, source=None, position=None):
+        """Apply a batch to the existing mixed content streams in one transaction."""
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            target_entries = self._entries(db, target)
+            source_entries = self._entries(db, source) if not copy and source not in (None, ROOT, target) else None
+            target_changed = source_changed = False
+            added = 0
+            for offset, resource_id in enumerate(resource_ids):
+                if resource_id is None:
+                    continue
+                entry = ('resource', resource_id)
+                exists = entry in target_entries
+                if not exists:
+                    added += 1
+                if not exists or position is not None:
+                    if exists:
+                        target_entries.remove(entry)
+                    slot = len(target_entries) if position is None else max(0, min(position + offset, len(target_entries)))
+                    target_entries.insert(slot, entry)
+                    target_changed = True
+                if source_entries is not None and entry in source_entries:
+                    source_entries.remove(entry)
+                    source_changed = True
+            if target_changed:
+                self._write_order(db, target, target_entries)
+            if source_changed:
+                self._write_order(db, source, source_entries)
+            return added
 
     def refresh_status(self):
         resources = self.resources()
