@@ -587,6 +587,7 @@ class TabStrip(QTabBar):
         self.setFixedHeight(43)
         self.setCursor(Qt.PointingHandCursor)
         self.setMouseTracking(True)
+        self._wheel_remainder = 0.0
         self._hovered_tab = -1
         self._pointer_inside = False
         self._line_rect = QRectF()
@@ -607,6 +608,34 @@ class TabStrip(QTabBar):
             if button.isVisible():
                 region -= QRegion(button.geometry())
         return region
+
+    def wheelEvent(self, event):
+        # Qt's default QTabBar wheel handler changes currentIndex(). Route
+        # both wheel notches and touchpad pixels through Qt's own scroll
+        # buttons, which already own the visible range and its boundaries.
+        pixels = event.pixelDelta()
+        angles = event.angleDelta()
+        delta = (pixels.x() if abs(pixels.x()) > abs(pixels.y()) else -pixels.y()) if not pixels.isNull() else (
+            angles.x() if abs(angles.x()) > abs(angles.y()) else -angles.y())
+        unit = 48 if not pixels.isNull() else 120
+        self._wheel_remainder += delta / unit
+        steps = int(abs(self._wheel_remainder))
+        direction = Qt.RightArrow if self._wheel_remainder > 0 else Qt.LeftArrow
+        self._wheel_remainder -= (1 if self._wheel_remainder > 0 else -1) * steps
+        button = next((child for child in self.findChildren(QToolButton, options=Qt.FindDirectChildrenOnly)
+                       if child.arrowType() == direction and child.isVisible()), None)
+        if button is None or not button.isEnabled():
+            self._wheel_remainder = 0.0
+            event.accept()
+            return
+        for _ in range(steps):
+            if not button.isEnabled():
+                self._wheel_remainder = 0.0
+                break
+            button.click()
+        if event.phase() == Qt.ScrollEnd:
+            self._wheel_remainder = 0.0
+        event.accept()
 
     def _target_line(self, viewport=None):
         if self.currentIndex()<0:
@@ -676,6 +705,7 @@ class TabStrip(QTabBar):
             self._animate_line()
             return
         self.blockSignals(True)
+        self._wheel_remainder = 0.0
         while self.count():
             self.removeTab(0)
         for label in labels:

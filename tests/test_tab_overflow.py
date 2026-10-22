@@ -3,7 +3,7 @@ import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import pytest
 from PySide6.QtCore import Qt, QPoint, QPointF
-from PySide6.QtGui import QImage, QPainter, QColor, QRegion, QCursor, QEnterEvent
+from PySide6.QtGui import QImage, QPainter, QColor, QRegion, QCursor, QEnterEvent, QWheelEvent
 from PySide6.QtWidgets import QApplication, QToolButton, QWidget
 from PySide6.QtTest import QTest, QSignalSpy
 from fluent_ui.components.navigation import TabStrip
@@ -109,3 +109,32 @@ def test_stationary_pointer_highlight_tracks_visible_tab_after_scroll(strip, mon
     monkeypatch.setattr(QCursor, 'pos', staticmethod(lambda: strip.mapToGlobal(button_pointer)))
     own_paint(strip)
     assert strip._hovered_tab == -1
+
+
+def test_wheel_scrolls_visible_tabs_without_selecting_or_reloading(strip):
+    changes = QSignalSpy(strip.currentChanged)
+    initial = strip.tabRect(0).x()
+    point = QPointF(215, 20)
+
+    def send(angle=QPoint(), pixels=QPoint()):
+        wheel = QWheelEvent(point, QPointF(strip.mapToGlobal(point.toPoint())), pixels, angle,
+                            Qt.NoButton, Qt.NoModifier, Qt.ScrollUpdate, False)
+        QApplication.sendEvent(strip, wheel)
+        QApplication.processEvents()
+        assert wheel.isAccepted()
+
+    send(angle=QPoint(0, -120))
+    assert strip.tabRect(0).x() < initial
+    after_notch = strip.tabRect(0).x()
+    for _ in range(4):
+        send(pixels=QPoint(0, -10))
+    assert strip.tabRect(0).x() == after_notch
+    send(pixels=QPoint(0, -10))
+    assert strip.tabRect(0).x() < after_notch
+    assert strip.currentIndex() == 0 and changes.count() == 0
+    check_paint(strip)
+
+    for _ in range(strip.count()+2):
+        send(angle=QPoint(0, 120))
+    assert strip.tabRect(0).x() == initial
+    assert strip.currentIndex() == 0 and changes.count() == 0
