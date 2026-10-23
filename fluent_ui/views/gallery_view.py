@@ -2980,13 +2980,35 @@ class GalleryInterface(QWidget):
     # Hover preview, focus tracking, inbox
     # ==================================================================
     def on_hover_started(self, card, image_path):
+        previous = getattr(self, '_hover_card', None)
+        self._hover_card = card
+        if previous is not None and previous is not card:
+            previous.set_hovered(False)
         if self.feedback_host.toasts or self.feedback_host.hint_label.isVisible():
             return
         self.preview_controller.set_delay(self.config.get("preview_delay", 500))
         self.preview_controller.enter(card, image_path)
 
     def on_hover_ended(self, card):
+        if getattr(self, '_hover_card', None) is card:
+            self._hover_card = None
         self.preview_controller.leave(card)
+
+    def _sync_hover_card(self):
+        """Scrolling moves cards under a stationary pointer without Qt Leave."""
+        previous = getattr(self, '_hover_card', None)
+        if previous is not None and previous._is_dragging:
+            return
+        viewport = self.scroll_area.viewport()
+        hit = QApplication.widgetAt(QCursor.pos())
+        while hit is not None and hit is not viewport and not isinstance(hit, EmojiCard):
+            hit = hit.parentWidget()
+        if not isinstance(hit, EmojiCard) or not viewport.isAncestorOf(hit):
+            hit = None
+        if previous is not None and previous is not hit:
+            previous.set_hovered(False)
+        if hit is not None:
+            hit.set_hovered(True)
 
     def get_preview_size(self):
         return self.config.get("preview_size", 320)

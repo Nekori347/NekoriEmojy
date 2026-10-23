@@ -623,10 +623,19 @@ class EmojiCard(QLabel):
         super().mouseReleaseEvent(event)
 
     def enterEvent(self, event):
-        self._hovered = True
-        self.update()
-        self.hover_started.emit(self.image_path)
+        self.set_hovered(True)
         super().enterEvent(event)
+
+    def set_hovered(self, hovered):
+        """Transient pointer hit, shared by Qt events and gallery geometry sync."""
+        if self._hovered == hovered:
+            return
+        self._hovered = hovered
+        self.update()
+        if hovered:
+            self.hover_started.emit(self.image_path)
+        else:
+            self.hover_ended.emit()
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -643,11 +652,9 @@ class EmojiCard(QLabel):
         super().keyPressEvent(event)
 
     def leaveEvent(self, event):
-        self._hovered = False
-        self.update()
-        self.hover_ended.emit()
+        self.set_hovered(False)
         super().leaveEvent(event)
 
     def hideEvent(self,event):
-        self._hovered=False
+        self.set_hovered(False)
         super().hideEvent(event)

@@ -119,6 +119,7 @@ class VirtualGallery:
         card.content_entry = entry
         if isinstance(card, EmojiCard):
             if card.image_path != entry['path']:
+                card.set_hovered(False)
                 card.clear_resources()
                 card.image_path = entry['path']
                 card._gallery_thumbnail_key = None
@@ -249,6 +250,7 @@ class VirtualGallery:
         # Preserve earlier pending decodes without re-keying every active card
         # on every batch. sync() discards obsolete viewport requests above.
         self.loader.request(batch,append=True)
+        g._sync_hover_card()
         if self._pending:
             self._batch_timer.start()
             return
