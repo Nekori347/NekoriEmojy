@@ -366,6 +366,9 @@ class NavigationItem(QStyledItemDelegate):
         self._selection_timer.timeout.connect(self._selection_changed)
         view.selectionModel().selectionChanged.connect(lambda *_:self._selection_timer.start(0))
         view.verticalScrollBar().valueChanged.connect(self._snap_indicator)
+        if hasattr(view, 'collapsed'):
+            view.collapsed.connect(self._snap_indicator)
+            view.expanded.connect(self._snap_indicator)
         visual.theme.changed.connect(view.viewport().update)
         visual.theme.accent_changed.connect(view.viewport().update)
 
@@ -373,12 +376,31 @@ class NavigationItem(QStyledItemDelegate):
         selected=[i for i in self.view.selectionModel().selectedIndexes() if i.column()==0]
         if len(selected)!=1:
             return QRectF()
-        index=selected[0]
+        return self._indicator_for_index(selected[0])
+
+    def _indicator_for_index(self,index):
         rect=self.view.visualRect(index)
+        if rect.isEmpty():return QRectF()
         depth,parent=0,index.parent()
         while parent.isValid():
             depth+=1;parent=parent.parent()
         return QRectF(10+min(depth*6,24),rect.top()+11,2,max(2,rect.height()-22))
+
+    def _collapsed_selection_rect(self):
+        """Map a hidden selection to its visible collapsed ancestor, not its identity."""
+        if not hasattr(self.view,'isExpanded'):return QRectF()
+        selected=[i for i in self.view.selectionModel().selectedIndexes() if i.column()==0]
+        if len(selected)!=1 or not self.view.visualRect(selected[0]).isEmpty():return QRectF()
+        ancestor=selected[0].parent()
+        target=None
+        # Only the selection's ancestry is inspected. An outer collapsed node
+        # hides inner ones, so the last collapsed ancestor is the visible one.
+        while ancestor.isValid():
+            if not self.view.isExpanded(ancestor):target=ancestor
+            ancestor=ancestor.parent()
+        if target is None:return QRectF()
+        indicator=self._indicator_for_index(target)
+        return self._selection_background(indicator) if not indicator.isEmpty() else QRectF()
 
     def _slide_indicator(self,value):
         self._indicator=value
@@ -416,7 +438,16 @@ class NavigationItem(QStyledItemDelegate):
 
     def paint_selection_layer(self,painter):
         """Paint once in viewport coordinates, below item icons and text."""
-        if self._indicator_target().isEmpty():return
+        if self._indicator_target().isEmpty():
+            hint=self._collapsed_selection_rect()
+            if not hint.isEmpty():
+                painter.save();painter.setClipRect(self.view.viewport().rect(),Qt.ReplaceClip)
+                painter.setRenderHint(QPainter.Antialiasing)
+                color=QColor(visual.accent());color.setAlpha(140)
+                painter.setPen(QPen(color,1,Qt.DashLine));painter.setBrush(Qt.NoBrush)
+                painter.drawRoundedRect(hint.adjusted(.5,.5,-.5,-.5),4,4)
+                painter.restore()
+            return
         moving=self._selection_motion.state()==QVariantAnimation.Running or self._selection_timer.isActive()
         indicator=self._indicator if moving else self._indicator_target()
         if indicator.isEmpty():return
