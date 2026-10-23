@@ -110,6 +110,7 @@ class ImportThread(QThread):
         self.cancel_event=threading.Event();self.job_id='';self.duplicate_resolver=None
         self.result_paths=[];self.errors=[];self.cancelled_count=0
         self.operation=None;self.result=None
+        self.duplicate_batch_resolver=None;self.kept_count=0
 
     def cancel(self):self.cancel_event.set()
 
@@ -139,7 +140,7 @@ class ImportThread(QThread):
 
     def run(self):
         from services.resource_import import ImportTarget
-        from services.resource_import import ImportSkipped
+        from services.resource_import import ImportSkipped,ImportDeferred
         from PySide6.QtGui import QImage
         saved_count = skipped_count = failed_count = 0
         total = len(self.sources)
@@ -149,9 +150,11 @@ class ImportThread(QThread):
         if self.operation is not None:
             self._run_operation(context)
             return
+        pending=[];temporaries=[]
+        context.deferred_duplicates=pending if self.duplicate_batch_resolver else None
         for i, source in enumerate(self.sources):
             if self.cancel_event.is_set():break
-            temporary=None
+            temporary=None;pending_before=len(pending)
             try:
                 target = ImportTarget(self.target_node, None if self.insert_position is None else self.insert_position+i)
                 if isinstance(source,str) and source.startswith(('https://','http://')):
@@ -170,7 +173,8 @@ class ImportThread(QThread):
                     saved_count += result.imported;skipped_count += result.duplicates;failed_count += len(result.errors)
                     self.errors.extend(result.errors.values())
                     if result.errors:self._handle_failed_import(source)
-                    elif self.delete_after and os.path.isfile(source):os.remove(source)
+                    elif self.delete_after and not result.cancelled and len(pending)==pending_before and os.path.isfile(source):os.remove(source)
+            except ImportDeferred:pass
             except ImportSkipped:self.cancelled_count+=1
             except InterruptedError:break
             except Exception as exc:
@@ -180,9 +184,42 @@ class ImportThread(QThread):
             finally:
                 if temporary:
                     from pathlib import Path
-                    Path(temporary).unlink(missing_ok=True)
-            self.progress.emit(i + 1, total)
-        context.job_id='';context.duplicate_resolver=None;context.cancelled=None;context.normalized=None
+                    temporaries.append(temporary)
+                context.normalized=None
+            self.progress.emit(i + 1, total+1)
+        context.deferred_duplicates=None
+        try:
+            if pending and not self.cancel_event.is_set():
+                self.staged_counts=(saved_count,skipped_count,failed_count)
+                decisions=self.duplicate_batch_resolver(pending)
+                for candidate,decision in zip(pending,decisions):
+                    if self.cancel_event.is_set():break
+                    if decision=='skip':self.cancelled_count+=1;continue
+                    context.duplicate_resolver=lambda old,new,choice=decision:choice
+                    try:
+                        destination=candidate.target
+                        if candidate.before is not None:
+                            position=next((i for i,e in enumerate(self.storage.index.content(destination.parent_node))
+                                           if (e['kind'],e['id'])==candidate.before),None)
+                            destination=ImportTarget(destination.parent_node,position)
+                        if decision=='reuse':
+                            with self.storage.lock:
+                                self.storage.importer._validate_target(destination)
+                                if not self.storage.index.resource(candidate.existing):raise FileNotFoundError(candidate.existing)
+                                saved,duplicate=self.storage.importer._accept(candidate.existing,True,os.path.basename(candidate.existing),destination)
+                            self.storage.importer._notify(saved,True)
+                        elif isinstance(candidate.source,QImage):saved,duplicate=self.storage.save_image(candidate.source,destination)
+                        else:saved,duplicate=self.storage.save_file(candidate.source,strict=True,target=destination)
+                        self.result_paths.append(saved);skipped_count+=int(duplicate);saved_count+=int(not duplicate)
+                        self.kept_count+=int(decision=='keep' and not duplicate)
+                        if self.delete_after and isinstance(candidate.source,str) and os.path.isfile(candidate.source):os.remove(candidate.source)
+                    except InterruptedError:break
+                    except Exception as exc:self.errors.append(str(exc));failed_count+=1
+        finally:
+            for temporary in temporaries:
+                from pathlib import Path
+                Path(temporary).unlink(missing_ok=True)
+            context.job_id='';context.duplicate_resolver=None;context.cancelled=None;context.normalized=None
         self.finished.emit(saved_count, skipped_count, failed_count)
 
     def _run_operation(self,context):
@@ -2558,6 +2595,9 @@ class GalleryInterface(QWidget):
             summary=t('新增 {saved} 张，已处理重复 {duplicates} 张，跳过 {skipped} 张，失败 {failed} 张').format(
                 saved=request.saved,duplicates=request.duplicates,skipped=request.skipped,failed=request.failed)
             if state=='waiting':title=t('等待导入表情');outcome='waiting';done=0;total=request.total
+            elif state=='decision':
+                title=t('等待处理重复表情（{count}）').format(count=request.conflicts)
+                outcome='waiting';done=0;total=0
             elif state=='running':title=t('正在导入表情');outcome='running';done=request.done;total=request.total
             elif state=='recognizing':
                 title=t('正在识别新表情文字');outcome='running'
@@ -2566,7 +2606,8 @@ class GalleryInterface(QWidget):
                 title=(t('导入部分完成') if request.failed else t('导入处理完成')) if state=='completed' else t('导入失败') if state=='failed' else t('导入处理已停止')
                 outcome='error' if state=='failed' else 'cancelled' if state=='cancelled' else 'partial' if request.failed else 'success'
                 done=request.done;total=request.total
-            if request.kind=='migration' and state!='recognizing':
+            if getattr(request,'kept',0):summary+=' · '+t('其中保留独立条目 {count} 张').format(count=request.kept)
+            if request.kind=='migration' and state not in {'recognizing','decision'}:
                 title=t('等待 Suzu 迁移') if state=='waiting' else t('正在 Suzu 迁移') if state=='running' else (t('Suzu 迁移部分完成') if request.failed else t('Suzu 迁移完成')) if state=='completed' else t('Suzu 迁移失败') if state=='failed' else t('Suzu 迁移已停止')
                 if state in {'waiting','running'}:
                     # The task title is the only persistent text bound to this

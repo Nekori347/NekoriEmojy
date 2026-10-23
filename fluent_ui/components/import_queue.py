@@ -21,6 +21,8 @@ class ImportRequest:
     total:int=0
     saved:int=0
     duplicates:int=0
+    kept:int=0
+    conflicts:int=0
     skipped:int=0
     failed:int=0
     paths:list=field(default_factory=list)
@@ -35,11 +37,13 @@ class ImportQueue(QObject):
     changed=Signal(str)
     files_finished=Signal(object)
     duplicate_requested=Signal(object)
+    batch_requested=Signal(object)
 
     def __init__(self,storage,parent):
         super().__init__(parent);self.storage=storage;self.requests={};self.waiting=deque();self.worker=None
         self.current=None;self._closing=False;self._decisions={};self._dialogs={}
         self.duplicate_requested.connect(self._show_duplicate)
+        self.batch_requested.connect(self._show_batch)
         self.ocr=ocr_service(storage);self.ocr.changed.connect(self._ocr_changed)
         parent.aboutToQuit.connect(self.shutdown)
 
@@ -68,6 +72,7 @@ class ImportQueue(QObject):
             worker=self.worker=ImportThread(request.sources,self.storage,request.target.parent_node,
                 delete_after=request.delete_after,insert_position=position,parent=self)
             worker.job_id=request.id;worker.duplicate_resolver=lambda old,new:self._ask_duplicate(request,old,new)
+            worker.duplicate_batch_resolver=lambda candidates:self._ask_batch(request,candidates)
             worker.operation=request.operation
             worker.progress.connect(lambda done,total,r=request:self._progress(r,done,total))
             worker.finished.connect(self._finished);self.changed.emit(request.id);worker.start(QThread.LowPriority);return
@@ -80,6 +85,7 @@ class ImportQueue(QObject):
         if worker is None:return
         worker.wait();request=self.requests[self.current]
         request.saved=saved;request.duplicates=duplicates;request.failed=failed
+        request.kept=worker.kept_count
         request.paths=list(dict.fromkeys(worker.result_paths));request.errors=list(worker.errors)
         request.result=worker.result
         request.skipped=worker.cancelled_count
@@ -128,6 +134,31 @@ class ImportQueue(QObject):
             if item:item[2][0]=choice;item[1].set()
             self._dialogs.pop(key,None)
         dialog=DuplicateDialog(request.owner.window(),old,new,decide)
+        self._dialogs[key]=dialog;dialog.show()
+
+    def _ask_batch(self,request,candidates):
+        event=threading.Event();choice=[None];key=uuid.uuid4().hex
+        self._decisions[key]=(request.id,event,choice)
+        self.batch_requested.emit((key,request,candidates))
+        while not event.wait(.05):
+            if self._closing or self.worker.cancel_event.is_set():break
+        self._decisions.pop(key,None)
+        return choice[0] if isinstance(choice[0],list) else ['skip']*len(candidates)
+
+    def _show_batch(self,payload):
+        key,request,candidates=payload
+        if key not in self._decisions or request.state=='cancelled':return
+        from fluent_ui.components.duplicate_dialog import DuplicateBatchDialog
+        request.state='decision';request.conflicts=len(candidates);self.changed.emit(request.id)
+        request.saved,request.duplicates,request.failed=self.worker.staged_counts
+        request.paths=list(dict.fromkeys(self.worker.result_paths))
+        self.files_finished.emit(request)
+        def decide(choices):
+            item=self._decisions.get(key)
+            if item:item[2][0]=choices;item[1].set()
+            if request.state!='cancelled':request.state='running';self.changed.emit(request.id)
+            self._dialogs.pop(key,None)
+        dialog=DuplicateBatchDialog(request.owner.window(),candidates,self.storage,decide)
         self._dialogs[key]=dialog;dialog.show()
 
     def shutdown(self):

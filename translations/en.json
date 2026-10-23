@@ -1591,5 +1591,17 @@
   "使用前": "Before",
   "使用中": "Current",
   "HEX 颜色代码": "HEX color code",
-  "如: {proxy}": "Example: {proxy}"
+  "如: {proxy}": "Example: {proxy}",
+  "处理重复表情": "Resolve duplicate emotes",
+  "重复项 {current} / {total}": "Duplicate {current} / {total}",
+  "全部应用（{count}）": "Apply to all ({count})",
+  "已存在的表情": "Existing emote",
+  "准备导入的新文件": "Incoming file",
+  "所属分类：{categories}": "Categories: {categories}",
+  "跳过此项": "Skip this item",
+  "保留两者": "Keep both",
+  "使用已存在文件导入": "Use existing file",
+  "跳过剩余重复项": "Skip remaining duplicates",
+  "等待处理重复表情（{count}）": "Waiting for duplicate decisions ({count})",
+  "其中保留独立条目 {count} 张": "Including {count} kept as separate entries"
 }

@@ -23,6 +23,18 @@ class ImportSkipped(Exception):
     """The user skipped only this item; not an import failure."""
 
 
+@dataclass
+class DuplicateCandidate:
+    existing: str
+    source: object
+    target: ImportTarget
+    before: tuple | None = None
+
+
+class ImportDeferred(Exception):
+    """Collected for this desktop batch; no relation has been accepted yet."""
+
+
 class ResourceImporter:
     def __init__(self, storage):
         self.storage = storage
@@ -53,7 +65,9 @@ class ResourceImporter:
             if not saved:
                 return None, False
             normalized=getattr(self.storage.import_context,'normalized',None)
-        if duplicate:saved,duplicate=self._resolve_duplicate(saved,source,normalized)
+        if duplicate:
+            self._defer_duplicate(saved,source,target)
+            saved,duplicate=self._resolve_duplicate(saved,source,normalized)
         with self.storage.lock:
             result = self._accept(saved, duplicate, Path(source).name, target, library_added_seq)
         self._notify(saved,duplicate)
@@ -67,7 +81,9 @@ class ResourceImporter:
             if not saved:
                 return None, False
             normalized=getattr(self.storage.import_context,'normalized',None)
-        if duplicate:saved,duplicate=self._resolve_duplicate(saved,image,normalized)
+        if duplicate:
+            self._defer_duplicate(saved,image,target)
+            saved,duplicate=self._resolve_duplicate(saved,image,normalized)
         with self.storage.lock:
             result = self._accept(saved, duplicate, Path(saved).name, target)
         self._notify(saved,duplicate)
@@ -78,6 +94,7 @@ class ResourceImporter:
         if not resolver:return saved,True
         # No storage/database lock is held while the GUI waits for a choice.
         decision=resolver(saved,source)
+        if decision=='reuse':return saved,True
         if decision=='skip':
             context=self.storage.import_context
             context.skipped=getattr(context,'skipped',0)+1
@@ -87,6 +104,17 @@ class ResourceImporter:
                 return self.storage._standardize_and_save(normalized[0],normalized[1],strict=True,force_new=True)
         if decision=='replace':return self.storage.replace_normalized(saved,normalized),True
         raise ValueError('Unknown duplicate decision')
+
+    def _defer_duplicate(self,saved,source,target):
+        pending=getattr(self.storage.import_context,'deferred_duplicates',None)
+        if pending is None:return
+        before=None
+        if target.insert_position is not None:
+            entries=self.storage.index.content(target.parent_node)
+            if 0<=target.insert_position<len(entries):
+                entry=entries[target.insert_position];before=(entry['kind'],entry['id'])
+        pending.append(DuplicateCandidate(saved,source,target,before))
+        raise ImportDeferred()
 
     def _notify(self,saved,duplicate=False):
         accepted=getattr(self.storage.import_context,'accepted',None)
@@ -138,6 +166,8 @@ class ResourceImporter:
                     result.imported += 1
                 if progress:
                     progress(result.imported + result.duplicates + len(result.errors), str(path))
+            except ImportDeferred:
+                pass
             except ImportSkipped:
                 result.cancelled+=1
             except InterruptedError:
