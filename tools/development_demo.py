@@ -100,6 +100,12 @@ def duplicates():
 tray=QSystemTrayIcon(window.windowIcon(),app);tray.setToolTip('Nekori · 项目开发 Demo')
 menu=QMenu();menu.addAction('显示开发 Demo',show)
 menu.addAction('回到混排与移动源',lambda:(show(),gallery.set_node(parent)))
+if (DATA/'sticky-sample.json').is_file():
+    def sticky_sample():
+        sample=json.loads((DATA/'sticky-sample.json').read_text(encoding='utf-8'))
+        show();gallery.set_node(sample['scope'])
+        gallery._expanded_nodes.update(sample['expanded']);gallery.refresh_content()
+    menu.addAction('分类吸附样本',sticky_sample)
 menu.addAction('导入120张样本',batch);menu.addAction('重复项集中决策',duplicates)
 menu.addAction('打开QQ提取样本',window.show_qq_scan);menu.addAction('退出开发 Demo',app.quit)
 tray.setContextMenu(menu);tray.activated.connect(lambda reason:show() if reason==QSystemTrayIcon.Trigger else None);tray.show()
