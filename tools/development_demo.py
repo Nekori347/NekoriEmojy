@@ -101,7 +101,7 @@ tray.setContextMenu(menu);tray.activated.connect(lambda reason:show() if reason=
 def cleanup():
     gallery.imports.shutdown();gallery.ocr.close();window.settings_window.center.discard();tray.hide()
 app.aboutToQuit.connect(cleanup)
-window.resize(1150,800);window.show()
+window.resize(1150,800);show()
 if parent:gallery.set_node(parent)
 (HERE/'runtime.json').write_text(json.dumps(dict(pid=os.getpid(),hwnd=int(window.winId()),branch=branch,head=head,data=str(DATA)),indent=2),encoding='utf-8')
 exit_code=app.exec()
