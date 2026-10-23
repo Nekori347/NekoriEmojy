@@ -99,6 +99,8 @@ class NekoriPackageService:
         with staged_export_path(target_path, cancel_check) as temporary, zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as archive:
             for entry in manifest["resources"]:
                 check_export_cancelled(cancel_check)
+                if progress:
+                    progress(step, total, '写入资源（工作单元）: ' + entry["display_name"])
                 source = root / entry["relative_path"]
                 try:
                     if source.is_file():
@@ -111,6 +113,8 @@ class NekoriPackageService:
 
             for node in manifest["nodes"]:
                 check_export_cancelled(cancel_check)
+                if progress:
+                    progress(step, total, '处理分类图标（工作单元）: ' + node["name"])
                 icon = node.get("icon") or ""
                 if icon and Path(icon).suffix.lower() in IMAGE_SUFFIXES:
                     source = Path(resolve_icon_path(self.index.root, icon))
@@ -122,6 +126,8 @@ class NekoriPackageService:
                     progress(step, total, '处理分类图标（工作单元）: ' + node["name"])
 
             check_export_cancelled(cancel_check)
+            if progress:
+                progress(step, total, '写入清单（工作单元）')
             archive.writestr(MANIFEST_NAME, json.dumps(manifest, ensure_ascii=False, indent=2))
         if progress:
             progress(total, total, "完成")
