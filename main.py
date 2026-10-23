@@ -53,11 +53,10 @@ def main():
     app.setApplicationName("NekoriEmojy")
     app.setOrganizationName("Nekori")
     
-    from PySide6.QtCore import QSharedMemory
-    instance_key = "NekoriEmojy_App_Instance" if "--smoke-test" not in sys.argv else f"NekoriEmojy_Smoke_{os.getpid()}"
-    shared_memory = QSharedMemory(instance_key)
-    if not shared_memory.create(1):
-        sys.exit(0)
+    from services.single_instance import SingleInstance
+    instance = SingleInstance(app)
+    if not instance.start():
+        return
 
     from services.crash_evidence import install as install_crash_evidence
     install_crash_evidence()
@@ -223,6 +222,7 @@ def main():
     from services.autostart import should_start_hidden
     if not should_start_hidden(sys.argv, QSystemTrayIcon.isSystemTrayAvailable()):
         window.show()
+    instance.set_window(window)
     
     
     if "--smoke-test" in sys.argv:

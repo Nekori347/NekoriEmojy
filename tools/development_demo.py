@@ -24,6 +24,9 @@ sys.path.insert(0,str(SOURCE))
 sys.stdout=sys.stderr=(HERE/'demo.log').open('a',encoding='utf-8',buffering=1)
 from PySide6.QtWidgets import QApplication,QSystemTrayIcon,QMenu
 app=QApplication([]);app.setQuitOnLastWindowClosed(False)
+from services.single_instance import SingleInstance
+instance=SingleInstance(app)
+if not instance.start():sys.exit(0)
 server=QLocalServer()
 if not server.listen(SERVER):raise RuntimeError('A development Demo already exists; use Start-Demo.cmd to restart')
 clients=[]
@@ -102,6 +105,7 @@ def cleanup():
     gallery.imports.shutdown();gallery.ocr.close();window.settings_window.center.discard();tray.hide()
 app.aboutToQuit.connect(cleanup)
 window.resize(1150,800);show()
+instance.set_window(window)
 if parent:gallery.set_node(parent)
 (HERE/'runtime.json').write_text(json.dumps(dict(pid=os.getpid(),hwnd=int(window.winId()),branch=branch,head=head,data=str(DATA)),indent=2),encoding='utf-8')
 exit_code=app.exec()
