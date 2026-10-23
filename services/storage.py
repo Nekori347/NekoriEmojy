@@ -183,7 +183,32 @@ class StorageService:
         return [resources[e['id']] for e in self.index.content(node) if e['kind'] == 'resource']
 
     def get_categories_by_image(self, filepath):
-        return self.get_image_to_categories_map().get(self._to_abspath(filepath), [])
+        """Read one image's memberships without projecting every library image.
+
+        Hover preview calls this on the GUI thread. The old reverse-map path
+        traversed the entire category tree and opened connections for every
+        category twice, even when this image belonged to no category.
+        """
+        record = self.index.resource(filepath)
+        if not record:
+            return []
+        with self.index.connect() as db:
+            parents = [row[0] for row in db.execute(
+                'SELECT parent_id FROM content WHERE resource_id=? AND parent_id!=?',
+                (record['id'], ROOT))]
+        if not parents:
+            return []
+        nodes = {node['id']: node for node in self.index.nodes()}
+        result = []
+        for parent in parents:
+            trail, positions = [], []
+            while parent != ROOT:
+                node = nodes[parent]
+                trail.append(node['name'].replace('%', '%25').replace('/', '%2F'))
+                positions.append(node['position'])
+                parent = node['parent_id'] or ROOT
+            result.append((tuple(reversed(positions)), ' / '.join(reversed(trail))))
+        return [label for _, label in sorted(result)]
 
     def get_image_to_categories_map(self):
         result = {}
