@@ -57,6 +57,14 @@ def test_selected_account_directory_and_reopen(qq,monkeypatch):
     assert view.emojiFolderComboBox.isEnabled() and view.scanButton.isEnabled()
 
 
+def test_first_discovered_items_show_their_labels(qq):
+    view,root,app=qq
+    wait(lambda:not view._discovery_workers)
+    for combo in (view.userComboBox,view.emojiFolderComboBox):
+        assert combo.currentIndex()==0
+        assert combo.text()==combo.itemText(0)
+
+
 def test_scan_cancel_reaches_real_file_loop(tmp_path,monkeypatch):
     from services.qq_extractor import QQExtractor
     from fluent_ui.views.qq_scan_view import QQScanWorker
@@ -137,3 +145,33 @@ def test_scan_stop_action_and_close_do_not_apply_old_results(qq,monkeypatch):
     assert time.monotonic()-start<.1
     wait(lambda:not view._background_workers)
     assert not view.emoji_file_paths and view.previewListWidget.count()==0
+
+
+def test_preview_marketface_and_apng_keep_animation(qq,tmp_path,monkeypatch):
+    from PIL import Image
+    from services.qq_extractor import QQExtractor
+    from services import marketface_handler
+    view,root,app=qq
+    cache=tmp_path/'gif-cache';cache.mkdir()
+    monkeypatch.setattr(marketface_handler,'get_cache_dir',lambda:str(cache))
+    monkeypatch.setattr(QQExtractor,'get_temp_gif_cache_dir',staticmethod(lambda:str(cache)))
+    first=Image.new('RGBA',(24,24),'red');second=Image.new('RGBA',(24,24),'blue')
+    gif=tmp_path/'animated.gif';first.save(gif,save_all=True,append_images=[second],duration=80,loop=0)
+    encrypted=tmp_path/'marketface.dat'
+    data=marketface_handler.restore_marketface(gif.read_bytes());encrypted.write_bytes(data)
+    view.emojiFolderComboBox.addItem('Marketface',userData='marketface')
+    view.emojiFolderComboBox.setCurrentIndex(view.emojiFolderComboBox.count()-1)
+    view.emoji_file_paths=[str(encrypted)];view.loadMoreEmojis()
+    wait(lambda:view.previewListWidget.count()==1)
+    item=view.previewListWidget.item(0)
+    assert item.data(Qt.UserRole+1) and not item.icon().isNull()
+    assert encrypted.read_bytes()==data
+    view._clear_results()
+    index=view.emojiFolderComboBox.findData('personal_emoji');view.emojiFolderComboBox.setCurrentIndex(index)
+    apng=tmp_path/'animated.png';first.save(apng,save_all=True,append_images=[second],duration=80,loop=0)
+    view.emoji_file_paths=[str(apng)];view.loadMoreEmojis()
+    wait(lambda:view.previewListWidget.count()==1)
+    item=view.previewListWidget.item(0)
+    assert item.data(Qt.UserRole+1) and 'APNG' in item.toolTip()
+    view.previewListWidget.setCurrentRow(0)
+    assert view.detail_movie is not None and view.detail_movie.isValid()

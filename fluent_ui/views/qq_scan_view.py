@@ -1,8 +1,8 @@
 from fluent_ui.presentation.tools import WrapCommands, build_import_tool
 from fluent_ui.components import dialogs
 from PySide6.QtCore import (
-    Qt, QSize, Signal, QCoreApplication, QRect, QStandardPaths,
-    QEasingCurve, QPropertyAnimation, QTimer, QEventLoop, QThread,Slot
+    Qt, QSize, Signal, QRect, QStandardPaths,
+    QEasingCurve, QPropertyAnimation, QTimer, QThread,Slot
 )
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLayout,
@@ -1010,6 +1010,9 @@ class QQScanInterface(QWidget):
         else:self._categories_loading=False
         combo=self.userComboBox if kind=='users' else self.emojiFolderComboBox
         previous=combo.currentData();combo.blockSignals(True);combo.clear()
+        # Fluent ComboBox's placeholder setter also replaces the label at
+        # index 0. Set it while empty, then let actual items own the text.
+        combo.setPlaceholderText(t('未选择账号' if kind=='users' else '未选择分类'))
         if kind=='users':
             root=data['root'];self.userdata_save_path_cache=root or None;self.readPathEdit.setText(root)
             if root and self.config:self.config.set('qq_data_path',root)
@@ -1019,7 +1022,6 @@ class QQScanInterface(QWidget):
         index=combo.findData(data.get('preferred',previous))
         if index>=0:combo.setCurrentIndex(index)
         combo.blockSignals(False);combo.setEnabled(not getattr(self,'_busy',False))
-        combo.setPlaceholderText(t('未选择账号' if kind=='users' else '未选择分类'))
         if data.get('error'):self.log(t('无法读取 QQ 数据，请重新选择目录。'))
         if kind=='users':
             if not data['root']:self.readPathEdit.setPlaceholderText(t('未找到 QQ 数据目录，请手动选择。'))
