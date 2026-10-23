@@ -24,7 +24,7 @@ something can never move it.
 """
 import json
 
-from PySide6.QtCore import QPoint, QRect, Qt, QTimer, QEvent, Signal
+from PySide6.QtCore import QPoint, QRect, QRectF, Qt, QTimer, QEvent, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
@@ -357,10 +357,22 @@ class DropCancelZone(QWidget):
         c = visual.colors()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setBrush(QColor(c['surface_alt'] if self._hovered else c['surface']))
-        painter.setPen(QPen(QColor(visual.accent() if self._hovered else c['border']), 2 if self._hovered else 1))
-        painter.drawRoundedRect(self.rect().adjusted(1,1,-1,-1), visual.CONTROL_RADIUS, visual.CONTROL_RADIUS)
-        Icon.CANCEL.render(painter, QRect(14,12,18,18), fill=c['text_primary'])
+        background = QColor(c['danger'] if self._hovered else c['surface'])
+        background.setAlpha(52 if self._hovered else 235)
+        border = QColor(c['danger'] if self._hovered else c['border'])
+        border.setAlpha(175 if self._hovered else 140)
+        painter.setBrush(background)
+        painter.setPen(QPen(border, 1))
+        outline = self.rect().adjusted(1,1,-1,-1)
+        painter.drawRoundedRect(outline, outline.height()/2, outline.height()/2)
+        painter.save()
+        painter.setOpacity(.35)
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(QColor(c['text_secondary']), 1, Qt.DashLine))
+        painter.drawEllipse(QRectF(9,7,28,28))
+        painter.setOpacity(.42)
+        Icon.CANCEL.render(painter, QRect(14,12,18,18), fill=c['text_secondary'])
+        painter.restore()
         painter.setFont(visual.font())
         painter.setPen(QColor(c['text_primary']))
         painter.drawText(self.rect().adjusted(38,0,-10,0), Qt.AlignCenter, t('拖到此处取消'))
