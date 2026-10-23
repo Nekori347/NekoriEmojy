@@ -129,6 +129,11 @@ class LibraryIndex:
         with self.connect() as db:
             return [row['id'] if (row := self._resource_row(db, value)) else None for value in values]
 
+    def resource_records(self, values):
+        """Read a changed batch using the existing identity rules, one connection."""
+        with self.connect() as db:
+            return [dict(row) for value in values if (row := self._resource_row(db, value)) is not None]
+
     def _resource_row(self, db, value):
         row = db.execute("SELECT * FROM resources WHERE id=? OR filename=?", (str(value), str(value))).fetchone()
         if row is None and Path(value).is_absolute():

@@ -32,11 +32,7 @@ class GalleryEntryModel:
         supplies its paths and doesn't query membership at all.
         """
         self.snapshots.clear()
-        changed = {}
-        for path in paths:
-            record = self.storage.resource_of(path)
-            if record:
-                changed[record['id']] = record
+        changed = {record['id']: record for record in self.storage.index.resource_records(paths)} if paths else {}
         counts = self.storage.node_counts()
         for parent in list(self.direct):
             old = self.direct[parent]
@@ -48,7 +44,7 @@ class GalleryEntryModel:
                 previous = records.get(entry_id(item))
                 if item['kind'] == 'resource':
                     record = changed.get(item['id'])
-                    if previous is None:
+                    if previous is None and record is None:
                         record = self.storage.index.resource_by_id(item['id'])
                     if record is not None:
                         value = dict(kind='resource', id=record['id'], name=record['display_name'],
