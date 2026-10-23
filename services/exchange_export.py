@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple, Callable
 
 from PIL import Image
 from services.exchange_icons import load_icons, pack_icon
+from services.export_control import check_export_cancelled, staged_export_path
 
 
 @dataclass(frozen=True)
@@ -77,7 +78,9 @@ class ExchangeExportService:
         progress_callback: Optional[Callable[[int, int, str], None]] = None,
         export_scope: Optional[str] = None,
         package_id: Optional[str] = None,
+        cancel_check: Optional[Callable[[], bool]] = None,
     ) -> Dict[str, Any]:
+        check_export_cancelled(cancel_check)
         if package_id is not None and (not isinstance(package_id, str) or not package_id.strip()):
             raise ValueError("表情合集 ID 不能为空")
         export_scope = export_scope or ("all" if selected_categories is None else "categories")
@@ -93,7 +96,7 @@ class ExchangeExportService:
         if progress_callback:
             progress_callback(0, 0, "正在读取导出范围")
         if self.storage is not None:
-            categories, source_records, icons = self._storage_scope(selected_categories)
+            categories, source_records, icons = self._storage_scope(selected_categories, cancel_check)
             warnings = []
             source_files = list(source_records)
             metadata = {row['filename']: row['tags'] for row in source_records.values()} if include_keywords else {}
@@ -120,10 +123,12 @@ class ExchangeExportService:
 
         total_files = len(source_files)
         for idx, name in enumerate(source_files):
+            check_export_cancelled(cancel_check)
             if progress_callback:
                 progress_callback(idx, total_files, f"正在解析资源: {os.path.basename(name)}")
             source_path = name if os.path.isabs(name) else os.path.join(self.images_dir, name)
             result = self._inspect_and_pack_asset(source_path)
+            check_export_cancelled(cancel_check)
             if isinstance(result, ExportSkip):
                 skipped.append(result)
                 continue
@@ -167,6 +172,7 @@ class ExchangeExportService:
         resources: List[Dict[str, Any]] = []
         total_asset_bytes = 0
         for item in resource_map.values():
+            check_export_cancelled(cancel_check)
             category_refs = sorted(item["category_refs"])
             total_asset_bytes += int(item["asset_size"])
             raw_dict = {
@@ -197,6 +203,7 @@ class ExchangeExportService:
         icon_assets: Dict[str, bytes] = {}
         icons = {self._normalize_name(name): value for name, value in icons.items()}
         for category in categories_json:
+            check_export_cancelled(cancel_check)
             try:
                 icon = pack_icon(self.data_dir, icons.get(category["name"]), icon_assets)
                 if icon:
@@ -235,8 +242,8 @@ class ExchangeExportService:
             "resources": resources,
         }
 
-        with zipfile.ZipFile(
-            zip_path,
+        with staged_export_path(zip_path, cancel_check) as temporary, zipfile.ZipFile(
+            temporary,
             mode="w",
             compression=zipfile.ZIP_DEFLATED,
             allowZip64=True,
@@ -246,9 +253,11 @@ class ExchangeExportService:
             zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
             zf.writestr("catalog.json", json.dumps(catalog, ensure_ascii=False, indent=2))
             for path, payload in icon_assets.items():
+                check_export_cancelled(cancel_check)
                 zf.writestr(path, payload)
             total_resources = len(resources)
             for idx, item in enumerate(resources):
+                check_export_cancelled(cancel_check)
                 if progress_callback:
                     progress_callback(idx, total_resources, f"正在写入资源: {item['display_name']}")
                 zf.writestr(item["asset_path"], resource_map[item["sync_key"]]["_payload"])
@@ -256,7 +265,7 @@ class ExchangeExportService:
             progress_callback(len(resources), len(resources), "导出完成")
         return manifest
 
-    def _storage_scope(self, selected_categories):
+    def _storage_scope(self, selected_categories, cancel_check=None):
         """One node metadata snapshot; read resource rows only for this export.
 
         Version-1 Suzu exchange selects exact escaped category paths, not an
@@ -271,6 +280,7 @@ class ExchangeExportService:
         categories, node_labels, icons = {}, {}, {}
         def visit(parent, prefix):
             for node in children.get(parent, []):
+                check_export_cancelled(cancel_check)
                 name = node['name'].replace('%', '%25').replace('/', '%2F')
                 label = prefix + name
                 if selected is None or self._normalize_name(label) in selected:
@@ -287,6 +297,7 @@ class ExchangeExportService:
                 rows = db.execute('SELECT c.parent_id, r.* FROM content c JOIN resources r ON r.id=c.resource_id '
                                   f'WHERE c.parent_id IN ({marks}) ORDER BY c.parent_id,c.position', tuple(node_labels))
                 for row in rows:
+                    check_export_cancelled(cancel_check)
                     record = dict(row)
                     categories[node_labels[record.pop('parent_id')]].append(record['filename'])
                     records.setdefault(self.storage.index.absolute_path(record), record)

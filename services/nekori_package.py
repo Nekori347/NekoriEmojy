@@ -14,6 +14,7 @@ from pathlib import Path
 
 from services.exchange_icons import IMAGE_SUFFIXES, resolve_icon_path
 from services.library_index import ROOT
+from services.export_control import check_export_cancelled, staged_export_path
 
 FORMAT = "nekori-package"
 FORMAT_VERSION = 1
@@ -32,15 +33,17 @@ class NekoriPackageService:
     # ------------------------------------------------------------------
     # Export
     # ------------------------------------------------------------------
-    def build_manifest(self):
+    def build_manifest(self, *, cancel_check=None):
         node_positions = {}
         for node in self.index.nodes():
+            check_export_cancelled(cancel_check)
             for entry in self.index.content(node["id"]):
                 if entry["kind"] == "node":
                     node_positions[entry["id"]] = entry["position"]
 
         memberships = {}
         for row in self.index.memberships():
+            check_export_cancelled(cancel_check)
             memberships.setdefault(row["resource_id"], []).append(row)
 
         manifest = {
@@ -54,6 +57,7 @@ class NekoriPackageService:
         }
 
         for node in self.index.nodes():
+            check_export_cancelled(cancel_check)
             manifest["nodes"].append({
                 "id": node["id"],
                 "parent_id": node["parent_id"] or ROOT,
@@ -65,6 +69,7 @@ class NekoriPackageService:
             })
 
         for record in self.index.resources():
+            check_export_cancelled(cancel_check)
             manifest["resources"].append({
                 "id": record["id"],
                 "filename": record["filename"],
@@ -82,14 +87,18 @@ class NekoriPackageService:
             })
         return manifest
 
-    def export(self, target_path, progress=None):
-        manifest = self.build_manifest()
+    def export(self, target_path, progress=None, *, cancel_check=None):
+        check_export_cancelled(cancel_check)
+        if progress:
+            progress(0, 0, '正在读取合集结构')
+        manifest = self.build_manifest(cancel_check=cancel_check)
         root = Path(self.index.root)
         total = len(manifest["resources"]) + len(manifest["nodes"]) + 1
         step = 0
 
-        with zipfile.ZipFile(target_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        with staged_export_path(target_path, cancel_check) as temporary, zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as archive:
             for entry in manifest["resources"]:
+                check_export_cancelled(cancel_check)
                 source = root / entry["relative_path"]
                 try:
                     if source.is_file():
@@ -98,9 +107,10 @@ class NekoriPackageService:
                     print(f"[WARNING] 打包资源失败: {source}: {exc}")
                 step += 1
                 if progress:
-                    progress(step, total, entry["display_name"])
+                    progress(step, total, '写入资源（工作单元）: ' + entry["display_name"])
 
             for node in manifest["nodes"]:
+                check_export_cancelled(cancel_check)
                 icon = node.get("icon") or ""
                 if icon and Path(icon).suffix.lower() in IMAGE_SUFFIXES:
                     source = Path(resolve_icon_path(self.index.root, icon))
@@ -109,8 +119,9 @@ class NekoriPackageService:
                         node["icon_asset"] = f"icons/{source.name}"
                 step += 1
                 if progress:
-                    progress(step, total, node["name"])
+                    progress(step, total, '处理分类图标（工作单元）: ' + node["name"])
 
+            check_export_cancelled(cancel_check)
             archive.writestr(MANIFEST_NAME, json.dumps(manifest, ensure_ascii=False, indent=2))
         if progress:
             progress(total, total, "完成")

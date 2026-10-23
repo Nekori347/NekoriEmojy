@@ -547,11 +547,16 @@ class SettingsCenter(QWidget):
             return
         if not path.lower().endswith(".zip"):
             path += ".zip"
+        from services.export_control import ExportCancelled
         service = NekoriPackageService(self.storage)
         try:
             manifest = run_exchange_task(
                 self.window(), "正在导出 Nekori 表情合集",
-                lambda progress: service.export(path, progress))
+                lambda progress, cancel: service.export(path, progress, cancel_check=cancel), cancellable=True)
+        except ExportCancelled:
+            from fluent_ui.components.feedback import feedback_for
+            feedback_for(self.window()).notice(t('导出已停止'), t('未完成的临时文件已清理，原有目标文件保持不变。'))
+            return
         except Exception as exc:
             self.show_error(t("导出失败"), str(exc))
             return

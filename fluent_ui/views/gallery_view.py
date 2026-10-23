@@ -571,6 +571,7 @@ class CategorySidebar(Surface):
 
     def export_node(self, node_id):
         from services.exchange_export import ExchangeExportService
+        from services.export_control import ExportCancelled
         from fluent_ui.components.exchange_task_dialog import run_exchange_task
         node = self.storage.node(node_id)
         directory = QFileDialog.getExistingDirectory(self.window(), t('导出“{value_0}”到').format(value_0=node['name']), "")
@@ -581,9 +582,13 @@ class CategorySidebar(Surface):
         try:
             labels = {v: k for k, v in self.storage.category_labels().items()}
             run_exchange_task(self.window(), "正在导出分类",
-                              lambda progress: service.export_zip(target, [labels.get(node_id, node["name"])], progress))
+                              lambda progress, cancel: service.export_zip(target, [labels.get(node_id, node["name"])], progress,
+                                                                        cancel_check=cancel), cancellable=True)
             if self.gallery_view:
                 self.gallery_view.show_success(t("导出完成"), target)
+        except ExportCancelled:
+            from fluent_ui.components.feedback import feedback_for
+            feedback_for(self.window()).notice(t('导出已停止'), t('未完成的临时文件已清理，原有目标文件保持不变。'))
         except Exception as exc:
             self._error("导出失败", str(exc))
 
@@ -2865,6 +2870,7 @@ class GalleryInterface(QWidget):
         owner = owner or self.window()
         from fluent_ui.components.feedback import feedback_for
         from services.exchange_export import ExchangeExportService
+        from services.export_control import ExportCancelled
         from fluent_ui.components.exchange_task_dialog import run_exchange_task
         path, _ = QFileDialog.getSaveFileName(
             owner, t("导出表情合集"), "SuzuEmojy.zip", t("表情合集 (*.zip)"))
@@ -2874,12 +2880,14 @@ class GalleryInterface(QWidget):
             path += ".zip"
         try:
             service = ExchangeExportService(storage=self.storage)
-            manifest = run_exchange_task(owner, "正在导出表情合集", lambda progress:
-                service.export_zip(path, selected_categories, progress))
+            manifest = run_exchange_task(owner, "正在导出表情合集", lambda progress, cancel:
+                service.export_zip(path, selected_categories, progress, cancel_check=cancel), cancellable=True)
             message = t('表情合集已保存到\n{value_0}').format(value_0=path)
             if manifest.get("skipped"):
                 message += "\n" + t("跳过 {count} 个不支持的文件").format(count=len(manifest['skipped']))
             feedback_for(owner).notice(t("导出完成"), message) if manifest.get("skipped") else feedback_for(owner).toast(t("导出完成"), message)
+        except ExportCancelled:
+            feedback_for(owner).notice(t('导出已停止'), t('未完成的临时文件已清理，原有目标文件保持不变。'))
         except Exception as exc:
             feedback_for(owner).notice(t("导出失败"), str(exc), error=True)
 
