@@ -1618,5 +1618,6 @@
   "准备外部拖放文件失败，图库原件未改动。": "Could not prepare files for the external drop. Library originals were not changed.",
   "分类操作未完成": "Category operation incomplete",
   "进入管理模式": "Enter manage mode",
-  "退出管理": "Exit manage"
+  "退出管理": "Exit manage",
+  "拖到此处取消": "Drop here to cancel"
 }

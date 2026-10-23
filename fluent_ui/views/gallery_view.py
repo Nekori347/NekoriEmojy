@@ -30,7 +30,7 @@ from fluent_ui.components.hover_preview_controller import HoverPreviewController
 from fluent_ui.components.keycap_label import KeycapLabel
 from fluent_ui.components import dialogs
 from fluent_ui.components.drop_contract import (
-    APPLY_TAG, APPLY_TAG_TO_SUBTREE, APPEND, COPY, EdgeAutoScroller, DropFeedback, DropTarget, IMPORT,
+    APPLY_TAG, APPLY_TAG_TO_SUBTREE, APPEND, COPY, EdgeAutoScroller, DropFeedback, DropCancelZone, DropTarget, IMPORT,
     INSERT_AFTER, INSERT_BEFORE, INTO, INVALID, INVALID_TARGET, MOVE, TAG_MIME,
     axis_ratio, edge_placement, parse_list_payload, parse_node_payload,
     viewport_rect, tag_drop_target,
@@ -889,6 +889,8 @@ class GalleryInterface(QWidget):
         # One indicator for the whole content area, owned here and only ever
         # moved: drawing the drop target never touches the real layout.
         self.drop_feedback = DropFeedback(self.grid_container)
+        self.drop_cancel_zone = DropCancelZone(self.scroll_area.viewport())
+        self.drop_cancel_zone.entered.connect(self._clear_drop)
         self.drop_scroller = EdgeAutoScroller(self.scroll_area)
         self._drop_target = INVALID_TARGET
 
@@ -1870,6 +1872,8 @@ class GalleryInterface(QWidget):
             card.customContextMenuRequested.connect(lambda pos, w=card: self.show_context_menu(w, pos))
             card.clicked.connect(lambda key, mods, w=card: self._entry_clicked(w.content_entry, mods))
             card.activated.connect(self.use_resource)
+            card.drag_started.connect(self._show_drag_cancel)
+            card.drag_finished.connect(self._hide_drag_cancel)
             card.hover_started.connect(lambda path, w=card: self.on_hover_started(w, path))
             card.hover_ended.connect(lambda w=card: self.on_hover_ended(w))
         card.content_entry = entry
@@ -2972,6 +2976,14 @@ class GalleryInterface(QWidget):
         # Accept the receive surface even over a gap: Qt will otherwise never
         # deliver the subsequent move onto the first resource card.
         event.acceptProposedAction()
+
+    def _show_drag_cancel(self):
+        self.preview_controller.cancel()
+        self.drop_cancel_zone.begin()
+
+    def _hide_drag_cancel(self):
+        self.drop_cancel_zone.end()
+        self._clear_drop()
 
     def dragEnterEvent(self, event):
         self._begin_drop(event)

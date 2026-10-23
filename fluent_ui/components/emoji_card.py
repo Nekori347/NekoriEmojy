@@ -240,6 +240,8 @@ class EmojiCard(QLabel):
 
     hover_started = Signal(str) # 悬停进入
     hover_ended = Signal()      # 悬停离开
+    drag_started = Signal()
+    drag_finished = Signal()
 
     def __init__(self, image_path, size=120, parent=None, load_image=True, frame=0, availability=None, status=None):
         super().__init__(parent)
@@ -594,6 +596,7 @@ class EmojiCard(QLabel):
 
         self.setCursor(QCursor(Qt.ClosedHandCursor))
         try:
+            self.drag_started.emit()
             # MOVE remains available to our internal placement contract. Shell
             # receives disposable files, regardless of the reported action.
             drag.exec(Qt.CopyAction | Qt.MoveAction, Qt.CopyAction)
@@ -601,6 +604,7 @@ class EmojiCard(QLabel):
             self._is_dragging = False
             self.setCursor(QCursor(Qt.PointingHandCursor))
             self._drag_start_pos = None
+            self.drag_finished.emit()
         if mime_data.error:
             from fluent_ui.components import dialogs
             from services.i18n import t

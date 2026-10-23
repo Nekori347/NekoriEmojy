@@ -124,3 +124,41 @@ def test_management_controls_describe_the_current_action(management):
     assert view.btn_select_all.toolTip()=='取消全选'
     QTest.mouseClick(view.btn_exit_mode,Qt.LeftButton)
     assert view.btn_manage.accessibleName()=='进入管理模式'
+
+
+@pytest.mark.parametrize('batch,escape',[(False,False),(True,False),(True,True)])
+def test_resource_drag_cancel_surface_consumes_without_writes(management,monkeypatch,batch,escape):
+    from pathlib import Path
+    from PySide6.QtCore import QEvent,QPoint,QPointF
+    from PySide6.QtGui import QDrag,QDragEnterEvent,QDropEvent,QMouseEvent
+    view,storage,parent,dest,paths,sent=management
+    if batch:
+        view.set_mode('manage')
+        for path in paths[:2]:click_resource(view,path)
+    selected=set(view.selected_keys)
+    before=storage.entries_of(parent);records=storage.index.resources()
+    contents={p:Path(p).read_bytes() for p in paths}
+    card=next(c for c in view._all_card_widgets if getattr(c,'image_path',None)==paths[0])
+    observed=[]
+    def drag_loop(drag,*args):
+        zone=view.drop_cancel_zone
+        assert zone.isVisible() and view.scroll_area.viewport().rect().contains(zone.geometry())
+        if not escape:
+            enter=QDragEnterEvent(QPoint(20,20),Qt.CopyAction|Qt.MoveAction,drag.mimeData(),Qt.LeftButton,Qt.NoModifier)
+            QApplication.sendEvent(zone,enter)
+            assert enter.isAccepted() and zone._hovered
+            if batch:view.grab().save(str(Path(__file__).resolve().parents[2]/'DevData/management-check/G21-cancel.png'))
+            drop=QDropEvent(QPointF(20,20),Qt.CopyAction|Qt.MoveAction,drag.mimeData(),Qt.LeftButton,Qt.NoModifier)
+            QApplication.sendEvent(zone,drop);assert drop.isAccepted()
+        assert drag.mimeData()._exports is None
+        observed.append(True)
+        return Qt.IgnoreAction
+    monkeypatch.setattr(QDrag,'exec',drag_loop)
+    QTest.mousePress(card,Qt.LeftButton)
+    move=QMouseEvent(QEvent.MouseMove,QPointF(10,10),QPointF(card.mapToGlobal(QPoint(10,10))),Qt.NoButton,Qt.LeftButton,Qt.NoModifier)
+    QApplication.sendEvent(card,move)
+    QTest.mouseRelease(view,Qt.LeftButton)
+    assert observed and not view.drop_cancel_zone.isVisible()
+    assert set(view.selected_keys)==selected and not sent
+    assert storage.entries_of(parent)==before and storage.index.resources()==records
+    assert all(Path(p).read_bytes()==data for p,data in contents.items())

@@ -24,7 +24,7 @@ something can never move it.
 """
 import json
 
-from PySide6.QtCore import QPoint, QRect, Qt, QTimer
+from PySide6.QtCore import QPoint, QRect, Qt, QTimer, QEvent, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
@@ -41,6 +41,7 @@ INSERT_AFTER = 'insert_after'
 INTO = 'into'
 APPEND = 'append'
 INVALID = 'invalid'
+CANCEL = 'cancel'
 
 # -- effect -----------------------------------------------------------------
 MOVE = 'move'
@@ -280,6 +281,89 @@ class DropFeedback(QWidget):
                                     visual.CONTROL_RADIUS, visual.CONTROL_RADIUS)
         else:
             painter.fillRect(self.rect(), signal)
+        painter.end()
+
+
+class DropCancelZone(QWidget):
+    """A temporary receive surface; CANCEL consumes the drag without domain writes."""
+    entered = Signal()
+
+    def __init__(self, host):
+        super().__init__(host)
+        self.setAcceptDrops(True)
+        self.setFocusPolicy(Qt.NoFocus)
+        self._session = None
+        self._hovered = False
+        host.installEventFilter(self)
+        self.hide()
+
+    def begin(self):
+        self._session = None
+        self._hovered = False
+        self._place()
+        self.show()
+        self.raise_()
+
+    def end(self):
+        self._session = None
+        self._hovered = False
+        self.hide()
+
+    def _place(self):
+        host = self.parentWidget()
+        width = max(1, min(260, host.width()-24))
+        self.setGeometry((host.width()-width)//2, max(0, host.height()-54), width, 42)
+
+    def eventFilter(self, obj, event):
+        if obj is self.parentWidget() and event.type() == QEvent.Resize and self.isVisible():
+            self._place()
+        return super().eventFilter(obj, event)
+
+    def dragEnterEvent(self, event):
+        session = DragSession(event.mimeData())
+        if session.kind != RESOURCE_MIME or not session.supported:
+            event.ignore()
+            return
+        self._session = session
+        self._hovered = True
+        self.entered.emit()
+        self.update()
+        event.acceptProposedAction()
+
+    def dragMoveEvent(self, event):
+        if self._session is not None:
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event):
+        self._session = None
+        self._hovered = False
+        self.update()
+        event.accept()
+
+    def dropEvent(self, event):
+        if self._session and self._session.commit(DropTarget(CANCEL, CANCEL), lambda target, block: None):
+            # Consume here so the parent cannot interpret the same release as
+            # an insertion into a card underneath this overlay.
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+        self.end()
+
+    def paintEvent(self, event):
+        from fluent_ui.icons import Icon
+        from services.i18n import t
+        c = visual.colors()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setBrush(QColor(c['surface_alt'] if self._hovered else c['surface']))
+        painter.setPen(QPen(QColor(visual.accent() if self._hovered else c['border']), 2 if self._hovered else 1))
+        painter.drawRoundedRect(self.rect().adjusted(1,1,-1,-1), visual.CONTROL_RADIUS, visual.CONTROL_RADIUS)
+        Icon.CANCEL.render(painter, QRect(14,12,18,18), fill=c['text_primary'])
+        painter.setFont(visual.font())
+        painter.setPen(QColor(c['text_primary']))
+        painter.drawText(self.rect().adjusted(38,0,-10,0), Qt.AlignCenter, t('拖到此处取消'))
         painter.end()
 
 
