@@ -276,6 +276,10 @@ class QQDiscovery(QThread):
             root=QQExtractor.get_userdata_save_path(self.ini,self.root) if self.kind=='users' else self.root
             data={'root':str(root or ''),'items':[]}
             if self.kind=='users' and root and os.path.isdir(root):
+                path=Path(root)
+                if path.name.isdigit() and (path/'nt_qq').is_dir():
+                    data['preferred']=path.name
+                    root=str(path.parent);data['root']=root
                 cache=QQExtractor.load_nickname_cache()
                 for account in QQExtractor.get_numeric_subdirectories(root):
                     if self.isInterruptionRequested():return
@@ -336,6 +340,7 @@ class QQScanInterface(QWidget):
         self._current_worker = None
         self._discovery_workers=[];self._users_generation=0;self._categories_generation=0
         self._discovery_closed=False
+        self._users_loading=False;self._categories_loading=False
 
         self._init_ui()
         i18n_engine.language_changed.connect(self.update_texts)
@@ -641,6 +646,12 @@ class QQScanInterface(QWidget):
         super().resizeEvent(event)
         self.tooltip.reposition()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._discovery_closed:
+            self._discovery_closed=False
+            self.populateUserComboBox()
+
     def show_log_dialog(self):
         """弹出日志查看窗口"""
         dialog = LogDialog(self.log_history, self.window())
@@ -650,11 +661,11 @@ class QQScanInterface(QWidget):
         """设置操作中的繁忙状态，禁用/启用操作按钮以防重入"""
         self._busy=busy
         self._sync_result_actions()
-        self.scanButton.setEnabled(not busy)
+        self.scanButton.setEnabled(not busy and not self._categories_loading and bool(self.emojiFolderComboBox.count()))
         self.selectReadDirButton.setEnabled(not busy)
         self.selectDirButton.setEnabled(not busy)
-        self.userComboBox.setEnabled(not busy)
-        self.emojiFolderComboBox.setEnabled(not busy)
+        self.userComboBox.setEnabled(not busy and not self._users_loading)
+        self.emojiFolderComboBox.setEnabled(not busy and not self._categories_loading and bool(self.emojiFolderComboBox.count()))
 
     def _sync_result_actions(self):
         ready=bool(self.emoji_file_paths) and not getattr(self,'_busy',False)
@@ -844,9 +855,8 @@ class QQScanInterface(QWidget):
 
     def selectReadPath(self):
         directory = QFileDialog.getExistingDirectory(
-            self, 
-            t("选择QQ聊天记录所在目录（即包含QQ号数字文件夹的 Tencent Files 目录）")
-        )
+            self,
+            t("选择QQ聊天记录所在目录（即包含QQ号数字文件夹的 Tencent Files 目录）"))
         if directory:
             self.log(_tf("✅ 已选择数据目录: {path}", path=directory))
             self.userdata_save_path_cache = directory
@@ -903,6 +913,10 @@ class QQScanInterface(QWidget):
     def populateUserComboBox(self):
         if self._discovery_closed:return
         self._categories_generation+=1
+        self._users_loading=True;self._categories_loading=False
+        for worker in self._discovery_workers:
+            if worker.kind=='categories':worker.requestInterruption()
+        self.readPathEdit.setText(str(self.userdata_save_path_cache or ''))
         self.userComboBox.setEnabled(False);self.emojiFolderComboBox.setEnabled(False);self.scanButton.setEnabled(False)
         self.userComboBox.setPlaceholderText(t('正在读取 QQ 账号…'))
         self._start_discovery('users')
@@ -912,6 +926,8 @@ class QQScanInterface(QWidget):
         if self._discovery_closed:return
         attr='_users_generation' if kind=='users' else '_categories_generation'
         if generation!=getattr(self,attr):return
+        if kind=='users':self._users_loading=False
+        else:self._categories_loading=False
         combo=self.userComboBox if kind=='users' else self.emojiFolderComboBox
         previous=combo.currentData();combo.blockSignals(True);combo.clear()
         if kind=='users':
@@ -920,12 +936,15 @@ class QQScanInterface(QWidget):
             for account,name in data['items']:combo.addItem(f'{name}（{account}）' if name else account,userData=account)
         else:
             for category in data['items']:combo.addItem(self._category_display_name(category),userData=category)
-        index=combo.findData(previous)
+        index=combo.findData(data.get('preferred',previous))
         if index>=0:combo.setCurrentIndex(index)
         combo.blockSignals(False);combo.setEnabled(not getattr(self,'_busy',False))
         combo.setPlaceholderText(t('未选择账号' if kind=='users' else '未选择分类'))
         if data.get('error'):self.log(t('无法读取 QQ 数据，请重新选择目录。'))
-        if kind=='users':self.onUserChanged()
+        if kind=='users':
+            if not data['root']:self.readPathEdit.setPlaceholderText(t('未找到 QQ 数据目录，请手动选择。'))
+            if not data['items']:self.log(t('未发现 QQ 账号，请选择包含数字账号文件夹的 Tencent Files 目录。'))
+            self.onUserChanged()
         else:
             self.scanButton.setEnabled(bool(data['items']) and not getattr(self,'_busy',False))
             self._update_summary_label()
@@ -953,7 +972,10 @@ class QQScanInterface(QWidget):
         self.emojiFolderComboBox.blockSignals(True);self.emojiFolderComboBox.clear();self.emojiFolderComboBox.blockSignals(False)
         selected=self.get_selected_qq()
         if not selected:
-            self._categories_generation+=1;self.emojiFolderComboBox.setEnabled(False);self.scanButton.setEnabled(False);return
+            self._categories_generation+=1;self._categories_loading=False
+            self.emojiFolderComboBox.setPlaceholderText(t('未选择分类'))
+            self.emojiFolderComboBox.setEnabled(False);self.scanButton.setEnabled(False);return
+        self._categories_loading=True
         self.emojiFolderComboBox.setEnabled(False);self.scanButton.setEnabled(False)
         self.emojiFolderComboBox.setPlaceholderText(t('正在读取分类…'))
         self._start_discovery('categories',selected)
