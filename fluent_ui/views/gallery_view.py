@@ -994,37 +994,37 @@ class GalleryInterface(QWidget):
         self.command_bar.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.command_bar.setStyleSheet(visual.command_bar_style())
         layout = QHBoxLayout(self.command_bar)
-        layout.setContentsMargins(8, 0, 8, 0)
-        layout.setSpacing(visual.COMPACT_CONTROLS.spacing)
+        layout.setContentsMargins(12, 0, 12, 0)
+        layout.setSpacing(4)
 
         self.selected_count_label = BodyLabel(self.command_bar)
         self.selected_count_label.setObjectName("CommandCount")
         layout.addWidget(self.selected_count_label)
 
-        layout.addStretch()
-
-        self.btn_select_all = TransparentToolButton(FIF.ACCEPT, self.command_bar)
-        bind_text(self.btn_select_all, t("全选"), 'setToolTip')
+        self.btn_select_all = translated(PushButton, "全选当前结果", self.command_bar)
+        bind_text(self.btn_select_all, "全选当前结果", 'setToolTip')
         self.btn_select_all.clicked.connect(self.select_all_cards)
         layout.addWidget(self.btn_select_all)
+        layout.addSpacing(12)
 
-        self.btn_add_to = translated(PushButton, "加入分类…", self.command_bar)
-        bind_text(self.btn_add_to, "加入分类…", 'setToolTip')
+        self.btn_add_to = translated(PushButton, "加入分类", self.command_bar)
+        bind_text(self.btn_add_to, "复用已有资源加入目标分类，保留原分类关系和文件。", 'setToolTip')
         self.btn_add_to.clicked.connect(lambda: self._batch_assign(copy=True))
         layout.addWidget(self.btn_add_to)
 
-        self.btn_move_to = translated(PushButton, "移动到…", self.command_bar)
-        bind_text(self.btn_move_to, "移动到…", 'setToolTip')
+        self.btn_move_to = translated(PushButton, "移动到分类", self.command_bar)
+        bind_text(self.btn_move_to, "移动所选来源的分类关系；其它分类关系保留。", 'setToolTip')
         self.btn_move_to.clicked.connect(lambda: self._batch_assign(copy=False))
         layout.addWidget(self.btn_move_to)
 
-        self.btn_tags = translated(PushButton, "标签…", self.command_bar)
-        bind_text(self.btn_tags, "标签…", 'setToolTip')
+        self.btn_tags = translated(PushButton, "编辑标签", self.command_bar)
+        bind_text(self.btn_tags, "编辑所选资源的标签归属", 'setToolTip')
         self.btn_tags.clicked.connect(self._batch_tags)
         layout.addWidget(self.btn_tags)
 
         self.btn_arrange = DropDownButton(self.command_bar)
-        bind_text(self.btn_arrange, '顺序', 'setText')
+        bind_text(self.btn_arrange, '调整位置', 'setText')
+        bind_text(self.btn_arrange, '调整来源分类中的持久位置；搜索或显示排序时不可用。', 'setToolTip')
         self.arrange_menu = RoundMenu(parent=self.btn_arrange)
         for label, front in (('移到最前', True), ('移到最后', False)):
             action = translated(Action, label, parent=self.arrange_menu)
@@ -1032,13 +1032,14 @@ class GalleryInterface(QWidget):
             self.arrange_menu.addAction(action)
         self.btn_arrange.setMenu(self.arrange_menu)
         layout.addWidget(self.btn_arrange)
+        layout.addStretch()
 
-        self.btn_more = TransparentToolButton(FIF.MORE, self.command_bar)
-        bind_text(self.btn_more, t("更多"), 'setToolTip')
+        self.btn_more = translated(PushButton, "更多", self.command_bar)
+        bind_text(self.btn_more, "更多资源操作", 'setToolTip')
         self.btn_more.clicked.connect(self._show_more_menu)
         layout.addWidget(self.btn_more)
 
-        self.btn_delete = translated(PushButton, FIF.DELETE, "删除", self.command_bar)
+        self.btn_delete = translated(PushButton, FIF.DELETE, "删除资源", self.command_bar)
         self.btn_delete.clicked.connect(self._batch_delete)
         layout.addWidget(self.btn_delete)
 
@@ -1048,11 +1049,16 @@ class GalleryInterface(QWidget):
         layout.addWidget(self.btn_exit_mode)
 
         self._organization_buttons = (self.btn_add_to, self.btn_move_to, self.btn_tags, self.btn_arrange)
-        for button in (*self._organization_buttons, self.btn_delete, self.btn_exit_mode):
+        for button in (self.btn_select_all, *self._organization_buttons, self.btn_more, self.btn_delete, self.btn_exit_mode):
+            # Reuse the existing Softframe input/focus/hover painter, with a
+            # flat surface rather than an independent capsule for each action.
+            button.ghost = True
             button.setFixedHeight(visual.COMPACT_CONTROLS.action_extent)
+            button.setIconSize(QSize(16, 16))
+            button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._selection_overflow = False
+        self._overflow_buttons = ()
         self.btn_delete.setProperty('role', 'danger')
-        self.btn_delete.setStyleSheet(dialogs._button_style())
         self.content_pane.content_layout.addWidget(self.command_bar)
         self.command_bar.installEventFilter(self)
         self.command_bar.hide()
@@ -1063,10 +1069,19 @@ class GalleryInterface(QWidget):
                     + sum(w.sizeHint().width() for w in
                           (self.selected_count_label, self.btn_select_all, *self._organization_buttons,
                            self.btn_more, self.btn_delete, self.btn_exit_mode))
-                    + layout.spacing() * 8)
-        self._selection_overflow = self.command_bar.width() < required
+                    + layout.spacing() * 8 + 12)
+        overflow = []
+        # Lower frequency actions overflow first, keeping the remaining primary
+        # operations in their original order. One menu owns all overflow.
+        for button in reversed(self._organization_buttons):
+            if required <= self.command_bar.width():
+                break
+            overflow.append(button)
+            required -= button.sizeHint().width() + layout.spacing()
+        self._overflow_buttons = tuple(overflow)
+        self._selection_overflow = bool(overflow)
         for button in self._organization_buttons:
-            button.setVisible(not self._selection_overflow)
+            button.setVisible(button not in overflow)
 
     # ==================================================================
     # Library selection
@@ -1663,7 +1678,7 @@ class GalleryInterface(QWidget):
             self._drop_selection_only()
         elif hasattr(self, 'preview_controller'):
             self.preview_controller.cancel()
-        self._sync_command_bar()
+        self._commit_selection_visuals()
 
     def toggle_manage_mode(self):
         self.set_mode("normal" if self.mode == "manage" else "manage")
@@ -1738,7 +1753,7 @@ class GalleryInterface(QWidget):
         self.btn_delete.setEnabled(ActionPolicy.enabled('delete', context))
         bind_text(self.btn_delete, ActionPolicy.delete_label(context), 'setToolTip')
         missing_only = bool(resources) and not context.existing
-        bind_text(self.btn_delete, '移除记录' if missing_only else '删除', 'setText')
+        bind_text(self.btn_delete, '移除记录' if missing_only else '删除资源', 'setText')
         if getattr(self, '_delete_missing_icon', None) != missing_only:
             self._delete_missing_icon = missing_only
             self.btn_delete.setIcon(FIF.REMOVE if missing_only else FIF.DELETE)
@@ -1748,12 +1763,10 @@ class GalleryInterface(QWidget):
         self.btn_arrange.setEnabled(bool(resources) and self._exact_placement_available())
         visible = self._visible_resource_keys()
         self.btn_select_all.setEnabled(bool(visible))
-        bind_text(self.btn_select_all, '取消全选' if visible and visible <= self.selected_keys else '全选', 'setToolTip')
+        select_label = '取消全选' if visible and visible <= self.selected_keys else '全选当前结果'
+        bind_text(self.btn_select_all, select_label, 'setText')
+        bind_text(self.btn_select_all, select_label, 'setToolTip')
         self.btn_select_all.setAccessibleName(self.btn_select_all.toolTip())
-        all_selected = bool(visible) and visible <= self.selected_keys
-        if getattr(self, '_all_selected_icon', None) != all_selected:
-            self._all_selected_icon = all_selected
-            self.btn_select_all.setIcon(FIF.CANCEL if all_selected else FIF.ACCEPT)
         exit_label = '退出管理' if self.mode == 'manage' else '清除选择'
         bind_text(self.btn_exit_mode, exit_label, 'setText')
         bind_text(self.btn_exit_mode, exit_label, 'setToolTip')
@@ -1766,7 +1779,7 @@ class GalleryInterface(QWidget):
         return {self._entry_key(e) for e in self._entries if e['kind'] == 'resource'}
 
     def _reconcile_selection(self, *, resources_only=False):
-        visible = self._visible_resource_keys() if resources_only else {self._entry_key(e) for e in self._entries}
+        visible = self._visible_resource_keys() if resources_only or self.mode == 'manage' else {self._entry_key(e) for e in self._entries}
         self.selected_keys.intersection_update(visible)
         sources = {}
         for entry in self._entries:
@@ -2029,7 +2042,9 @@ class GalleryInterface(QWidget):
     # Activation
     # ==================================================================
     def on_node_clicked(self, node_id, modifiers=Qt.NoModifier):
-        if self.mode == 'manage' or modifiers & (Qt.ControlModifier | Qt.ShiftModifier):
+        if self.mode == 'manage':
+            return
+        if modifiers & (Qt.ControlModifier | Qt.ShiftModifier):
             self._toggle_selection(node_id)
         else:
             self._select_single(node_id)
@@ -2197,9 +2212,19 @@ class GalleryInterface(QWidget):
         items = [(row["id"], "    " * row["depth"] + row["name"]) for row in rows]
         paths = {row["id"]: row["path"] for row in rows}
         node_id, ok = dialogs.choose_item(
-            self.window(), title, t("选择目标分类"), items, code="MOVE/COPY",
+            self.window(), title, t("选择目标分类") + '\n' + self._assignment_hint(copy), items, code="CATEGORY",
             searchable=len(rows) > 8, paths=paths)
         return node_id if ok else None
+
+    def _assignment_hint(self, copy):
+        if copy:
+            return t('复用已有资源加入目标分类；不复制文件，保留原分类关系。')
+        entries = [e for e in self._selected_entries() if e['kind'] == 'resource']
+        root_count = sum(e['_parent'] == ROOT for e in entries)
+        hint = t('移动所选来源的分类关系；资源的其它分类关系保留。')
+        if root_count:
+            hint += '\n' + t('其中 {value_0} 项来自全部表情，仅加入目标分类，不移除其它关系。').format(value_0=root_count)
+        return hint
 
     def _assign_to_chosen(self, paths, title, copy, source_parent):
         node_id = self.choose_target_node(t(title), copy, exclude=source_parent)
@@ -2213,7 +2238,7 @@ class GalleryInterface(QWidget):
             self.show_error(t("无法执行"), t("请先选择表情"))
             return
         node_id = self.choose_target_node(
-            t("复制到分类") if copy else t("移动到分类"), copy,
+            t("加入分类") if copy else t("移动到分类"), copy,
             exclude=self.content_scope_node() if not copy else None)
         if node_id is None:
             return
@@ -2257,10 +2282,11 @@ class GalleryInterface(QWidget):
         hint = ('只删除索引记录，磁盘文件不会被改动。' if missing_only else
                 '文件会进入 Windows 系统回收站，索引记录同时移除。' if len(context.existing) == len(paths) else
                 '现有文件进入 Windows 回收站；失效表情只移除索引记录。')
+        hint = t(hint) + '\n' + t('此操作影响资源及其所有分类关系，不只是从当前分类移除。')
         if not dialogs.confirm(self.window(), t(ActionPolicy.delete_label(context)),
                                t('删除选中的 {value_0} 个表情？').format(value_0=len(paths)),
                                ok_text=t('移除记录' if missing_only else '删除'), danger=True, code="DELETE",
-                               hint=t(hint)):
+                               hint=hint):
             return
         result = self.storage.delete_images_batch(paths)
         self.sidebar.refresh_list(self.current_node)
@@ -2276,8 +2302,6 @@ class GalleryInterface(QWidget):
     def _build_selection_more_menu(self):
         menu = RoundMenu(parent=self)
         paths = self.get_selected_paths()
-        self._add_ocr_actions(menu,paths)
-        menu.addSeparator()
         context = self._action_context(paths, revalidate=True)
         def action(icon, label, callback, enabled):
             item = translated(Action, icon, label, parent=menu)
@@ -2286,21 +2310,20 @@ class GalleryInterface(QWidget):
             menu.addAction(item)
             return item
         if self._selection_overflow:
-            action(FIF.COPY, '加入分类…', lambda: self._batch_assign(copy=True), self.btn_add_to.isEnabled())
-            action(FIF.MOVE, '移动到…', lambda: self._batch_assign(copy=False), self.btn_move_to.isEnabled())
-            action(FIF.TAG, '标签…', self._batch_tags, self.btn_tags.isEnabled())
-            order_menu = RoundMenu(title=t('顺序'), parent=menu)
-            for label, front in (('移到最前', True), ('移到最后', False)):
-                item = translated(Action, label, parent=order_menu)
-                item.setEnabled(self.btn_arrange.isEnabled())
-                item.triggered.connect(lambda checked=False, front=front: self._move_selection_extreme(front))
-                order_menu.addAction(item)
-            menu.addMenu(order_menu)
+            for button, icon, label, callback in (
+                (self.btn_add_to, FIF.COPY, '加入分类', lambda: self._batch_assign(copy=True)),
+                (self.btn_move_to, FIF.MOVE, '移动到分类', lambda: self._batch_assign(copy=False)),
+                (self.btn_tags, FIF.TAG, '编辑标签', self._batch_tags),
+            ):
+                if button in self._overflow_buttons:
+                    action(icon, label, callback, button.isEnabled())
+            if self.btn_arrange in self._overflow_buttons:
+                for label, front in (('移到最前', True), ('移到最后', False)):
+                    action(FIF.SORT, label, lambda checked=False, front=front: self._move_selection_extreme(front), self.btn_arrange.isEnabled())
             menu.addSeparator()
-        if context.active_view != ROOT:
-            action(FIF.REMOVE, '移出当前分类', self._batch_remove_membership,
-                   ActionPolicy.enabled('remove_from_category', context))
-        export = translated(Action, FIF.SHARE, '导出选中项到文件夹…', parent=menu)
+        self._add_ocr_actions(menu,paths)
+        menu.addSeparator()
+        export = translated(Action, FIF.SHARE, '导出所选表情', parent=menu)
         export.setEnabled(ActionPolicy.enabled('export', context))
         export.triggered.connect(self._execute_batch_export)
         menu.addAction(export)
@@ -2310,6 +2333,10 @@ class GalleryInterface(QWidget):
         menu.addAction(copy)
         if ActionPolicy.enabled('show_in_explorer', context):
             action(FIF.FOLDER, '在资源管理器中显示', lambda: self.reveal_in_explorer(paths[0]), True)
+        if context.active_view != ROOT:
+            menu.addSeparator()
+            action(FIF.REMOVE, '从当前分类移除', self._batch_remove_membership,
+                   ActionPolicy.enabled('remove_from_category', context))
         return menu
 
     def _move_selection_extreme(self, front):
@@ -2458,14 +2485,14 @@ class GalleryInterface(QWidget):
             action(FIF.SEND, '发送表情', lambda: self.use_resource(path))
             menu.addSeparator()
         from fluent_ui.components.category_menu import CategoryTargetMenu
-        for copy, title, icon in ((True, '添加到分类', FIF.COPY), (False, '移动到分类', FIF.MOVE)):
+        for copy, title, icon in ((True, '加入分类', FIF.COPY), (False, '移动到分类', FIF.MOVE)):
             can_move = any(self._selection_parents.get(p, parent) != ROOT for p in paths)
             branch=CategoryTargetMenu(title,self.storage,lambda target,c=copy:self.assign_resources(paths,target,copy=c),menu)
             branch.setIcon(icon);menu.addMenu(branch)
             if not (ActionPolicy.enabled('category_membership', context) and (copy or can_move)):
                 branch.menuItem.setFlags(branch.menuItem.flags()&~Qt.ItemIsEnabled)
         if context.active_view != ROOT:
-            action(FIF.REMOVE, '移出当前分类', self._batch_remove_membership,
+            action(FIF.REMOVE, '从当前分类移除', self._batch_remove_membership,
                    ActionPolicy.enabled('remove_from_category', context))
         action(FIF.TAG, '编辑标签', lambda: self._open_tag_editor(paths), ActionPolicy.enabled('tag_edit', context))
         self._add_ocr_actions(menu,paths)
@@ -3303,6 +3330,8 @@ class GalleryInterface(QWidget):
         self._save_view_state()
 
     def _entry_clicked(self, entry, modifiers):
+        if entry['kind'] == 'node' and self.mode == 'manage':
+            return
         key = self._entry_key(entry)
         self._selection_parents[key] = entry['_parent']
         if entry['kind'] == 'node':
@@ -3447,9 +3476,11 @@ class GalleryInterface(QWidget):
                     move = Action(t('移动到「{name}」').format(name=title), parent=menu)
                     move.triggered.connect(lambda: self._apply_drop_action(paths, target, False, sources, position))
                     menu.addAction(move)
-                    label = t('复制到「{name}」').format(name=title)
-                else:
-                    label = t('加入「{name}」').format(name=title)
+                    if any(parent == ROOT for parent in sources.values()):
+                        hint = Action(t('全部表情来源项仅加入目标分类，其它分类关系保留'), parent=menu)
+                        hint.setEnabled(False)
+                        menu.addAction(hint)
+                label = t('加入分类「{name}」').format(name=title)
                 add = Action(label, parent=menu)
                 add.triggered.connect(lambda: self._apply_drop_action(paths, target, True, sources, position))
                 menu.addAction(add)
