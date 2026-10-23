@@ -151,13 +151,13 @@ class ImportThread(QThread):
         if self.operation is not None:
             self._run_operation(context)
             return
-        pending=[];temporaries=[]
+        pending=[];temporaries=[];awaiting_anchor=[];deferred_slots=0
         context.deferred_duplicates=pending if self.duplicate_batch_resolver else None
         for i, source in enumerate(self.sources):
             if self.cancel_event.is_set():break
-            temporary=None;pending_before=len(pending)
+            temporary=None;pending_before=len(pending);paths_before=len(self.result_paths)
             try:
-                target = ImportTarget(self.target_node, None if self.insert_position is None else self.insert_position+i)
+                target = ImportTarget(self.target_node, None if self.insert_position is None else self.insert_position+i-deferred_slots)
                 if isinstance(source,str) and source.startswith(('https://','http://')):
                     response=[];download=DownloadThread(source)
                     download.finished.connect(lambda *args:response.append(args));download.run()
@@ -187,6 +187,16 @@ class ImportThread(QThread):
                     from pathlib import Path
                     temporaries.append(temporary)
                 context.normalized=None
+            # Deferred items have not occupied insertion slots. Anchor them to
+            # the next accepted file so their later decision preserves batch
+            # order without replaying stale numeric positions after a sort.
+            if len(self.result_paths)>paths_before and not (isinstance(source,str) and os.path.isdir(source)):
+                record=self.storage.index.resource(self.result_paths[paths_before])
+                if record:
+                    for candidate in awaiting_anchor:candidate.before=('resource',record['id'])
+                    awaiting_anchor.clear()
+            new_anchors=[c for c in pending[pending_before:] if c.target.parent_node==self.target_node and c.target.insert_position is not None]
+            awaiting_anchor.extend(new_anchors);deferred_slots+=len(new_anchors)
             self.progress.emit(i + 1, total+1)
         context.deferred_duplicates=None
         try:

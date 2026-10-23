@@ -2,6 +2,7 @@ import os
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 from pathlib import Path
 from PIL import Image
+import pytest
 from PySide6.QtWidgets import QApplication,QWidget
 from PySide6.QtTest import QTest
 from services.config import ConfigService
@@ -92,18 +93,23 @@ def test_queue_one_waiting_batch_then_cancel_keeps_completed_imports(tmp_path,mo
     queue.shutdown();owner.deleteLater();queue.deleteLater();app.processEvents()
 
 
-def test_task_identity_survives_decision_refresh_and_completion(tmp_path,monkeypatch):
+@pytest.mark.parametrize('automatic',[False,True])
+def test_task_identity_survives_decision_refresh_and_completion(tmp_path,monkeypatch,automatic):
     from fluent_ui.components.import_queue import ImportQueue
     from fluent_ui.components.feedback import FeedbackHost
     from fluent_ui.components.duplicate_dialog import DuplicateBatchDialog
     from fluent_ui.views.gallery_view import GalleryInterface
     from types import SimpleNamespace
     app=QApplication.instance() or QApplication([])
-    config=ConfigService(tmp_path/'app');config.config['ocr_auto']=False
+    config=ConfigService(tmp_path/'app');config.config['ocr_auto']=automatic
     storage=StorageService(tmp_path/'library',config=config)
     source=image(tmp_path/'old.png','red');storage.save_file(source)
     owner=QWidget();owner.resize(1100,700)
     host=FeedbackHost(owner);queue=ImportQueue(storage,app)
+    if automatic:
+        queue.ocr=SimpleNamespace(available=True,jobs={})
+        queue.ocr.enqueue=lambda ids,job_id,**kwargs:queue.ocr.jobs.update({job_id:dict(state='running',total=len(ids),done=0)})
+        queue.ocr.cancel=lambda **kwargs:None
     view=SimpleNamespace(imports=queue,ocr=queue.ocr,feedback_host=host)
     states=[];refresh_states=[]
     def sync(key):
@@ -116,9 +122,37 @@ def test_task_identity_survives_decision_refresh_and_completion(tmp_path,monkeyp
     rid=queue.submit([source],ImportTarget(),owner)
     for _ in range(500):
         QTest.qWait(10)
-        if queue.requests[rid].state=='completed':break
+        if queue.requests[rid].state in {'completed','recognizing'}:break
+    if automatic:
+        assert states[-1]=='running' and 'success' not in states
+        queue.ocr.jobs[rid]['state']='completed';queue._ocr_changed()
     assert refresh_states==['decision','finalizing']
     assert states.count('success')==1 and states[-1]=='success'
     assert queue.requests[rid].done==queue.requests[rid].total
     assert set(host.named_tasks)=={rid}
     queue.shutdown();queue.deleteLater();owner.deleteLater();app.processEvents()
+
+
+def test_ordinary_batch_has_no_decision_step(tmp_path):
+    app=QApplication.instance() or QApplication([])
+    storage=StorageService(tmp_path/'library',config=ConfigService(tmp_path/'app'))
+    worker=ImportThread([image(tmp_path/'one.png','red'),image(tmp_path/'two.png','blue')],storage,None)
+    worker.duplicate_batch_resolver=lambda _:pytest.fail('ordinary import requested a decision')
+    result=[];worker.finished.connect(lambda *values:result.append(values))
+    worker.run();app.processEvents()
+    assert result==[(2,0,0)] and len(storage.index.resources())==2
+
+
+def test_deferred_item_keeps_batch_order_at_an_insertion_anchor(tmp_path):
+    app=QApplication.instance() or QApplication([])
+    storage=StorageService(tmp_path/'library',config=ConfigService(tmp_path/'app'))
+    node=storage.create_node('Target')
+    anchor=storage.save_file(image(tmp_path/'anchor.png','blue'),target=ImportTarget(node))[0]
+    duplicate=storage.save_file(image(tmp_path/'duplicate.png','red'))[0]
+    incoming=image(tmp_path/'normal.png','green')
+    worker=ImportThread([str(tmp_path/'duplicate.png'),incoming],storage,node,insert_position=0)
+    worker.duplicate_batch_resolver=lambda candidates:['reuse']
+    worker.run();app.processEvents()
+    entries=storage.entries_of(node)
+    assert [e['path'] for e in entries][:1]==[duplicate]
+    assert entries[1]['name']=='normal.png' and entries[2]['path']==anchor

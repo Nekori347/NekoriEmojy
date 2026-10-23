@@ -96,14 +96,20 @@ class DuplicateBatchDialog(NekoriDialog):
         self.apply_all.setChecked(False)
         for title,source in [('已存在的表情',candidate.existing),('准备导入的新文件',candidate.source)]:
             column=QWidget(self);layout=QVBoxLayout(column)
+            layout.setAlignment(Qt.AlignTop)
             label=QLabel(t(title),column);layout.addWidget(label)
             preview=CandidatePreview(source,column);self.previews.append(preview);layout.addWidget(preview,1)
+            preview.setFixedHeight(240)
+            if title=='已存在的表情':
+                record=self.storage.index.resource(candidate.existing)
+                if record and record['display_name']!=Path(candidate.existing).name:
+                    preview.description=record['display_name']+'\n'+preview.description
             info=QLabel(preview.description,column);info.setWordWrap(True);layout.addWidget(info)
             if title=='已存在的表情':
                 categories=self.storage.get_categories_by_image(candidate.existing)
                 category=QLabel(t('所属分类：{categories}').format(categories='、'.join(categories) or t('未分类')),column)
                 category.setWordWrap(True);layout.addWidget(category)
-            self.comparison.addWidget(column,1)
+            self.comparison.addWidget(column,1,Qt.AlignTop)
 
     def select(self,choice):
         self.choices.extend([choice]*(len(self.candidates)-len(self.choices)) if self.apply_all.isChecked() else [choice])
