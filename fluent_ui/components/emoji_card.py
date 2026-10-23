@@ -3,7 +3,7 @@ import os
 from PySide6.QtWidgets import QLabel, QApplication, QMenu
 from PySide6.QtGui import QCursor, QDrag, QPixmap, QImageReader, QPixmapCache
 from PySide6.QtCore import (
-    Qt, Signal, QMimeData, QPoint, QSize, QTimer, QEasingCurve, QUrl,
+    Qt, Signal, QPoint, QSize, QTimer, QEasingCurve,
     QPropertyAnimation, QObject, QRunnable, QThreadPool
 )
 from PySide6.QtWidgets import QGraphicsOpacityEffect
@@ -583,19 +583,9 @@ class EmojiCard(QLabel):
             if resolved:
                 payload = list(resolved)
 
-        from fluent_ui.components.node_card import RESOURCE_MIME
-        import json
-        import os
-
+        from services.external_drag import ResourceDragMimeData
         drag = QDrag(self)
-        mime_data = QMimeData()
-        mime_data.setData(RESOURCE_MIME, json.dumps(payload).encode('utf-8'))
-        # File URLs make the same drag usable by Explorer (copy out) and by chat
-        # clients that accept dropped files (send).
-        urls = [QUrl.fromLocalFile(path) for path in payload if os.path.isfile(path)]
-        if urls:
-            mime_data.setUrls(urls)
-            mime_data.setText(os.pathsep.join(payload))
+        mime_data = ResourceDragMimeData(payload)
         drag.setMimeData(mime_data)
 
         pixmap = self.grab()
@@ -603,11 +593,19 @@ class EmojiCard(QLabel):
         drag.setHotSpot(QPoint(30, 30))
 
         self.setCursor(QCursor(Qt.ClosedHandCursor))
-        drag.exec(Qt.CopyAction | Qt.MoveAction, Qt.CopyAction if urls else Qt.MoveAction)
-        self._is_dragging = False
-        self.setCursor(QCursor(Qt.PointingHandCursor))
-
-        self._drag_start_pos = None
+        try:
+            # MOVE remains available to our internal placement contract. Shell
+            # receives disposable files, regardless of the reported action.
+            drag.exec(Qt.CopyAction | Qt.MoveAction, Qt.CopyAction)
+        finally:
+            self._is_dragging = False
+            self.setCursor(QCursor(Qt.PointingHandCursor))
+            self._drag_start_pos = None
+        if mime_data.error:
+            from fluent_ui.components import dialogs
+            from services.i18n import t
+            dialogs.message(self.window(), t('无法拖出表情'),
+                            t('准备外部拖放文件失败，图库原件未改动。'), code='DROP')
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
