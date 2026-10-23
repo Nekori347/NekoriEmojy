@@ -107,3 +107,22 @@ def test_membership_refresh_preserves_tree_and_surviving_gallery_anchor(gallery)
     new_i=next(i for i,e in enumerate(view._entries) if occurrence_id(e)==key)
     assert view.renderer.index.rects[new_i].top()-bar.value()==old_y
     assert all(storage._resource_id(p) in {e['id'] for e in storage.entries_of(children[0])} for p in moving)
+    # Metadata refresh preserves expansion; explicit navigation still reveals.
+    item=tree._find_item(parent);item.setExpanded(True)
+    view.sidebar.refresh_list(parent);QTest.qWait(30)
+    assert tree._find_item(parent).isExpanded()
+    last=storage.create_node('Last visible target')
+    view.sidebar.refresh_list(parent)
+    tree.select_node(last,reveal=True);QTest.qWait(30)
+    assert tree.visualItemRect(tree._find_item(last)).intersects(tree.viewport().rect())
+    # Nearby top/bottom edits retain the existing scroll rules and data.
+    for scroll in (0,bar.maximum()):
+        bar.setValue(scroll);QTest.qWait(20)
+        anchor=view.renderer.anchor()
+        candidates=[e for e in view._entries if e['kind']=='resource']
+        view.assign_resources([candidates[-1]['path']],children[1],copy=True,source_node=parent)
+        QTest.qWait(20)
+        assert view.renderer.anchor()==anchor
+    before=bar.value()
+    view.drop_scroller.track(QPoint(50,1));QTest.qWait(40);view.drop_scroller.stop()
+    assert bar.value()<before
