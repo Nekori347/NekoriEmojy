@@ -1346,9 +1346,7 @@ class QQScanInterface(QWidget):
             self.log(_tf("❌ 无法打开资源管理器: {error}", error=e))
 
     def selectAllLoaded(self):
-        for i in range(self.previewListWidget.count()):
-            item = self.previewListWidget.item(i)
-            item.setSelected(True)
+        self.previewListWidget.selectAll()
         self.log(_tf(
             "✅ 已全选当前加载的 {count} 个表情",
             count=self.previewListWidget.count()

@@ -175,3 +175,20 @@ def test_preview_marketface_and_apng_keep_animation(qq,tmp_path,monkeypatch):
     assert item.data(Qt.UserRole+1) and 'APNG' in item.toolTip()
     view.previewListWidget.setCurrentRow(0)
     assert view.detail_movie is not None and view.detail_movie.isValid()
+
+
+def test_select_all_is_one_real_selection_update(qq,tmp_path):
+    from PySide6.QtWidgets import QListWidgetItem
+    view,root,app=qq
+    image=QImage(512,512,QImage.Format_RGB32);image.fill(QColor('red'))
+    paths=[]
+    for i in range(30):
+        source=tmp_path/f'face{i:03d}.png';image.save(str(source));paths.append(str(source))
+        item=QListWidgetItem('');item.setData(Qt.UserRole,str(source));view.previewListWidget.addItem(item)
+    view.emoji_file_paths=paths
+    view.previewListWidget.setCurrentRow(0)
+    updates=[];view.previewListWidget.itemSelectionChanged.connect(lambda:updates.append(1))
+    view.selectAllLoaded()
+    assert len(view.previewListWidget.selectedItems())==30
+    assert len(updates)==1
+    assert not view.detailPreviewLabel.pixmap().isNull()
