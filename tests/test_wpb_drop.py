@@ -57,3 +57,32 @@ def test_gallery_drop_forwards_actual_global_position(gallery, monkeypatch):
     assert drop.isAccepted()
     assert calls[0][0][1] == children[0]
     assert calls[0][1]['global_pos'] == view.mapToGlobal(point)
+
+
+def test_resource_between_nodes_persists_without_membership_change(gallery):
+    from fluent_ui.components.drop_contract import INSERT_AFTER, INTO, APPEND
+    from services.storage import StorageService
+    view, storage, parent, children, paths = gallery
+    entries=storage.entries_of(parent)
+    nodes=[e for e in entries if e['kind']=='node']
+    resources=[e for e in entries if e['kind']=='resource']
+    storage.set_content_order(parent,nodes+resources)
+    view.refresh_content_incremental(reason='fixture',parents={parent}); QTest.qWait(30)
+    i=next(i for i,e in enumerate(view._entries) if e['id']==children[0])
+    rect=view.renderer.index.rects[i]
+    point=view.grid_container.mapTo(view,QPoint(rect.center().x(),rect.bottom()-1))
+    target,_,vertical=view._resolve_drop(point,resource_mime(paths[:1]))
+    assert target.placement==INSERT_AFTER and target.container_id==parent and not vertical
+    view._reorder_by_drop(paths[:1],target)
+    order=storage.entries_of(parent)
+    assert [e['id'] for e in order[:3]]==[children[0],storage._resource_id(paths[0]),children[1]]
+    assert not storage.entries_of(children[0])
+    reopened=StorageService(config=view.config)
+    assert [e['id'] for e in reopened.entries_of(parent)]==[e['id'] for e in order]
+    view.set_node(parent); QTest.qWait(30)
+    i=next(i for i,e in enumerate(view._entries) if e['id']==children[1])
+    centre=view.grid_container.mapTo(view,view.renderer.index.rects[i].center())
+    assert view._resolve_drop(centre,resource_mime(paths[:1]))[0].placement==INTO
+    bottom=view.grid_container.mapTo(view,QPoint(5,view.renderer.index.height+20))
+    assert view._resolve_drop(bottom,resource_mime(paths[:1]))[0].placement==APPEND
+

@@ -2884,14 +2884,10 @@ class GalleryInterface(QWidget):
                                len(self.storage.entries_of(self.content_scope_node()))), last, False)
 
         if entry['kind'] == 'node':
-            if kind != NODE_MIME:
-                # A resource can only ever go *into* a category, never between
-                # two of them; there is no slot "next to" a category row.
-                return DropTarget(INTO, effect, entry['id'], entry['id']), rect, False
             point = self.grid_container.mapFrom(self, position)
             placement = edge_placement(axis_ratio(rect, point, horizontal=False))
             if placement == INTO:
-                if entry['id'] in moving_nodes or self._subtree_ids(entry['id']) & moving_nodes:
+                if kind == NODE_MIME and (entry['id'] in moving_nodes or self._subtree_ids(entry['id']) & moving_nodes):
                     # Dropping a category into itself or its own subtree would
                     # make a cycle.
                     return INVALID_TARGET, None, False
@@ -3004,7 +3000,7 @@ class GalleryInterface(QWidget):
             # still-visible card. Resolve against that card's stable ID, not
             # the old numeric slot captured by the viewport.
             anchor = next((i for i, e in enumerate(stream)
-                           if e['kind'] == 'resource' and e['id'] == target.target_id), None)
+                           if e['id'] == target.target_id), None)
             position = (anchor + (target.placement == INSERT_AFTER)) if anchor is not None else (
                 target.index if target.index is not None else len(stream))
             before = stream[:position]
