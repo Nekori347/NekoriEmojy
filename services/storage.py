@@ -411,16 +411,37 @@ class StorageService:
     def resource_of(self, filepath):
         return self.index.resource(filepath)
 
-    def set_node_icon(self, node_id, value):
+    def set_node_icon(self, node_id, value, *, frame=None):
         """value is either an emoji/text or a local image path (copied into the library)."""
         if value and Path(value).suffix.lower() in IMAGE_SUFFIXES and Path(value).is_file():
-            value = self._store_node_icon_file(value)
+            if frame is None:
+                frame = self.resource_metadata(value).get('thumb_frame', 0)
+            value = self._store_node_icon_file(value, frame=frame)
         self.index.update_node(node_id, icon=value or "")
 
-    def _store_node_icon_file(self, source):
+    def _store_node_icon_file(self, source, *, frame=0):
         import shutil
         target_dir = Path(self.data_dir) / "category_icons"
         target_dir.mkdir(parents=True, exist_ok=True)
+        from services.image_frames import is_animated, frame_at
+        if is_animated(source):
+            # Category icons are static representations. Freeze the chosen
+            # resource frame once, rather than losing it when copying a GIF or
+            # decoding animation again on every tree/menu paint.
+            from PySide6.QtCore import QByteArray, QBuffer, QIODevice
+            image = frame_at(source, frame)
+            if image is None:
+                raise ValueError('Cannot decode category icon frame')
+            payload = QByteArray();buffer = QBuffer(payload)
+            buffer.open(QIODevice.WriteOnly)
+            if not image.save(buffer, 'PNG'):
+                raise ValueError('Cannot encode category icon frame')
+            data = bytes(payload)
+            filename = hashlib.md5(data).hexdigest() + '.png'
+            target = target_dir / filename
+            if not target.exists():
+                target.write_bytes(data)
+            return 'category_icons/' + filename
         suffix = Path(source).suffix.lower()
         filename = hashlib.md5(Path(source).read_bytes()).hexdigest() + suffix
         target = target_dir / filename

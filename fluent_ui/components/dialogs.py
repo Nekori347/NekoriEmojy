@@ -270,7 +270,7 @@ def message(parent, title, text, code=""):
 
 
 def choose_item(parent, title, label, items, ok_text="确定", code="", *,
-                searchable=False, paths=None):
+                searchable=False, paths=None, icons=None):
     """items: list of (value, display). Returns (value, accepted).
 
     With searchable=True a filter box is added and every row carries its full
@@ -278,7 +278,7 @@ def choose_item(parent, title, label, items, ok_text="确定", code="", *,
     into a very long flat list.
     """
     if paths:
-        dialog=CategoryPickerDialog(parent,title,label,items,paths,ok_text)
+        dialog=CategoryPickerDialog(parent,title,label,items,paths,ok_text,icons=icons)
         accepted=dialog.exec()==QDialog.Accepted
         return dialog.selected_value,accepted and dialog.selected_value is not None
     dialog = NekoriDialog(parent, title, code=code)
@@ -347,7 +347,7 @@ def choose_item(parent, title, label, items, ok_text="确定", code="", *,
 
 class CategoryPickerDialog(NekoriDialog):
     """Compact real hierarchy instead of indentation spaces in a tiny list."""
-    def __init__(self,parent,title,label,items,paths,ok_text='确定'):
+    def __init__(self,parent,title,label,items,paths,ok_text='确定',*,icons=None):
         super().__init__(parent,title)
         from fluent_ui import visual
         from fluent_ui.icons import Icon
@@ -366,7 +366,7 @@ class CategoryPickerDialog(NekoriDialog):
             depth=(len(display)-len(display.lstrip()))//4
             while len(stack)>depth:stack.pop()
             item=QTreeWidgetItem([display.strip()]);item.setData(0,Qt.UserRole,value)
-            item.setIcon(0,Icon.FOLDER.icon());item.setToolTip(0,paths.get(value,display.strip()))
+            item.setIcon(0,(icons or {}).get(value,Icon.FOLDER.icon()));item.setToolTip(0,paths.get(value,display.strip()))
             if stack:stack[-1].addChild(item)
             else:self.tree.addTopLevelItem(item)
             stack.append(item);self.items.append(item)
@@ -480,13 +480,14 @@ class TagEditorDialog(NekoriDialog):
 class FramePickerDialog(NekoriDialog):
     """Choose which frame of a GIF / animated WebP represents it in the grid."""
 
-    def __init__(self, parent, storage, path):
-        super().__init__(parent, "选择缩略图帧", code="FRAME")
+    def __init__(self, parent, storage, path, *, on_apply=None, title="选择缩略图帧"):
+        super().__init__(parent, title, code="FRAME")
         # Needed by _apply / _reset: without it the confirm button raised
         # AttributeError, so the frame was never saved, the dialog never closed
         # and Windows played its invalid-operation sound.
         self.storage = storage
         self.path = path
+        self.on_apply = on_apply
         self.metadata = storage.resource_metadata(path)
 
         self.preview = QLabel(self)
@@ -548,7 +549,10 @@ class FramePickerDialog(NekoriDialog):
 
     def _apply(self):
         self.metadata["thumb_frame"] = int(self.slider.value())
-        self.storage.set_resource_metadata(self.path, self.metadata)
+        if self.on_apply is not None:
+            self.on_apply(int(self.slider.value()))
+        else:
+            self.storage.set_resource_metadata(self.path, self.metadata)
         # The grid card re-attaches by itself: the thumbnail cache key carries
         # the frame, so the new frame is a cache miss and the old entry ages out.
         self.saved = True
@@ -556,6 +560,9 @@ class FramePickerDialog(NekoriDialog):
 
     def _reset(self):
         self.metadata.pop("thumb_frame", None)
-        self.storage.set_resource_metadata(self.path, self.metadata)
+        if self.on_apply is not None:
+            self.on_apply(0)
+        else:
+            self.storage.set_resource_metadata(self.path, self.metadata)
         self.saved = True
         self.accept()

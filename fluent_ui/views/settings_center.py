@@ -30,7 +30,7 @@ from services.autostart import AutostartService
 from services.i18n import SUPPORTED_LANGUAGES, i18n_engine, t, bind_text, translated
 
 PREVIEW_KEYS = {"appearance_mode", "light_theme_key", "dark_theme_key",
-                "thumbnail_size", "sidebar_icon_size", "accent_color", "sidebar_mode", "sidebar_show_labels",
+                "thumbnail_size", "sidebar_icon_size", "gallery_node_icon_size", "accent_color", "sidebar_mode", "sidebar_show_labels",
                 "quick_panel_thumbnail_size", "tag_panel_placement"}
 APPEARANCE_KEYS = ("appearance_mode", "accent_color")
 
@@ -382,6 +382,10 @@ class SettingsCenter(QWidget):
             RangeRow("分类树图标大小", "调整分类树中的图标尺寸。",
                      "sidebar_icon_size", self.config.get("sidebar_icon_size", 20), 14, 48, 1, self),
             "sidebar_icon_size", 20))
+        section.add_row(self._track(
+            RangeRow("图库节点图标大小", "独立调整右侧图库分类节点的图标尺寸。",
+                     "gallery_node_icon_size", self.config.get("gallery_node_icon_size", 22), 14, 48, 1, self),
+            "gallery_node_icon_size", 22))
         section = self._section('标签面板')
         section.add_row(self._track(SpatialRow(
             "标签面板位置", "选择标签面板在表情库中的停靠位置。\n点击示意窗口的对应边缘进行调整。", 'tag_panel_placement',

@@ -16,13 +16,15 @@ class FlowIndex:
         self.bottoms = []
         self.height = 36
         self.width = self.size = 0
+        self.node_icon_size = 22
 
-    def layout(self, entries, width, size, first=0):
+    def layout(self, entries, width, size, first=0, *, node_icon_size=22):
         """Only numeric geometry. Resume at the row before an affected range."""
         width = max(60, width)
-        if self.width != width or self.size != size:
+        if self.width != width or self.size != size or self.node_icon_size != node_icon_size:
             first = 0
         self.width, self.size = width, size
+        self.node_icon_size = node_icon_size
         first = min(first, len(entries), len(self.rects))
         if first and first < len(self.rects):
             first = bisect_left(self.tops, self.tops[first])
@@ -39,9 +41,10 @@ class FlowIndex:
             indent = min(entry.get('_depth', 0), 6)*14
             available = max(1, width-24-indent)
             if entry['kind'] == 'node':
-                rects.append(QRect(12+indent, y, available, 40))
+                height = max(40, node_icon_size + 12)
+                rects.append(QRect(12+indent, y, available, height))
                 index += 1
-                y += 44
+                y += height + 4
                 continue
             capacity = max(1, (available+4)//(size+4))
             left = 12+indent
@@ -95,7 +98,8 @@ class VirtualGallery:
         self.updating = True
         try:
             self.index.layout(g._entries, g.scroll_area.viewport().width(),
-                              g.config.get('thumbnail_size', 120), first)
+                              g.config.get('thumbnail_size', 120), first,
+                              node_icon_size=max(14, min(48, int(g.config.get('gallery_node_icon_size', 22)))))
             # The viewport already owns the empty area. Making the scroll
             # widget as tall as that moving viewport feeds panel animation
             # back into the scroll range and can toggle the vertical bar.
@@ -140,7 +144,8 @@ class VirtualGallery:
                 label.setToolTip(source)
         else:
             signature = (entry['id'], entry['name'], entry.get('icon'), entry.get('total'),
-                         entry.get('children'), entry['id'] in self.gallery._expanded_nodes)
+                         entry.get('children'), entry['id'] in self.gallery._expanded_nodes,
+                         self.index.node_icon_size)
             if getattr(card, '_node_signature', None) != signature:
                 card.entry = entry
                 card.node_id = entry['id']

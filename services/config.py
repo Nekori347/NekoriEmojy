@@ -41,6 +41,7 @@ class ConfigService:
             "quick_panel_height": 480,
             "quick_panel_thumbnail_size": 72,
             "sidebar_icon_size": 20,
+            "gallery_node_icon_size": 22,
             "sidebar_width_list": 220,
             "sidebar_mode": "tree",
             "sidebar_show_labels": True,

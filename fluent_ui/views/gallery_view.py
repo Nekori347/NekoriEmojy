@@ -350,8 +350,10 @@ class CategorySidebar(Surface):
         target = '分类树' if mode == SidebarPresentationMode.TREE else '分类图标'
         bind_text(self.btn_view_mode, target, 'setToolTip')
         bind_text(self.btn_view_mode, target, 'setAccessibleName')
-        self.tree.set_icon_size(self.config.get('sidebar_icon_size', 20))
-        self.icons.canvas.relayout()
+        if self.tree.set_icon_size(self.config.get('sidebar_icon_size', 20)):
+            self.icons.refresh()
+        else:
+            self.icons.canvas.relayout()
         self.tree.setVisible(mode == SidebarPresentationMode.TREE)
         self.icons.setVisible(mode == SidebarPresentationMode.CATEGORIZED_ICONS)
         self._update_section_index()
@@ -506,7 +508,15 @@ class CategorySidebar(Surface):
             self.window(), t("选择分类图标"), "", t("表情 (*.png *.jpg *.jpeg *.gif *.webp *.bmp)"))
         if not path:
             return
-        self.storage.set_node_icon(node_id, path)
+        from services.image_frames import is_animated
+        if is_animated(path):
+            dialog = dialogs.FramePickerDialog(self.window(), self.storage, path,
+                on_apply=lambda frame: self.storage.set_node_icon(node_id, path, frame=frame),
+                title='选择分类图标帧')
+            if not dialog.exec():
+                return
+        else:
+            self.storage.set_node_icon(node_id, path)
         self._refresh_node_icon(node_id)
 
     def _reset_icon(self, node_id):
@@ -2211,9 +2221,12 @@ class GalleryInterface(QWidget):
             return None
         items = [(row["id"], "    " * row["depth"] + row["name"]) for row in rows]
         paths = {row["id"]: row["path"] for row in rows}
+        from fluent_ui.components.node_card import render_node_icon
+        icons = {node['id']: QIcon(render_node_icon(self.storage, node, 16))
+                 for node in self.storage.index.nodes() if node.get('icon')}
         node_id, ok = dialogs.choose_item(
             self.window(), title, t("选择目标分类") + '\n' + self._assignment_hint(copy), items, code="CATEGORY",
-            searchable=len(rows) > 8, paths=paths)
+            searchable=len(rows) > 8, paths=paths, icons=icons)
         return node_id if ok else None
 
     def _assignment_hint(self, copy):
@@ -3265,6 +3278,13 @@ class GalleryInterface(QWidget):
     def on_settings_changed(self, key=""):
         if key in ('sidebar_icon_size', 'sidebar_show_labels', 'sidebar_mode'):
             self.sidebar.apply_presentation()
+        elif key == 'gallery_node_icon_size':
+            anchor = self.renderer.anchor()
+            for card in self._all_card_widgets:
+                if isinstance(card, NodeCard):
+                    card.refresh_icon()
+            self.renderer.relayout(anchor=anchor)
+            self.renderer.sync()
         elif key in ("appearance_mode", "light_theme_key", "dark_theme_key"):
             self.sidebar.update_theme()
             self.context_strip.setStyleSheet(visual.strip_style())

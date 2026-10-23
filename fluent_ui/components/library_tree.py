@@ -91,10 +91,26 @@ class LibraryTree(QTreeWidget):
 
     # -- construction --------------------------------------------------
     def set_icon_size(self, size):
-        self._icon_size = max(14, int(size))
+        size = max(14, int(size))
+        if size == self._icon_size:
+            return False
+        self._icon_size = size
         self.setIconSize(QSize(self._icon_size, self._icon_size))
+        # QIcon does not enlarge a small source pixmap to fill a larger slot.
+        # Re-render existing rows at the requested size; do not rebuild the tree.
+        from PySide6.QtWidgets import QTreeWidgetItemIterator
+        rows = QTreeWidgetItemIterator(self)
+        while rows.value():
+            item = rows.value()
+            record = self._node_records.get(item.data(0, Qt.UserRole))
+            if record:
+                item.setSizeHint(0, QSize(0, self._row_height()))
+                if not item.data(0, Qt.UserRole + 1):
+                    item.setIcon(0, self._node_icon(record))
+            rows += 1
         self.doItemsLayout()
         self.viewport().update()
+        return True
 
     def drawBranches(self, painter, rect, index):
         # Indentation carries ancestry; the row owns its only selected stripe.

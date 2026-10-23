@@ -21,7 +21,7 @@ __all__ = ['NodeCard', 'render_node_icon', 'NODE_MIME', 'RESOURCE_MIME']
 
 def render_node_icon(storage, record, size):
     """Return a QPixmap for a node icon; falls back to a neutral folder glyph."""
-    size = max(16, int(size))
+    size = max(14, int(size))
     value = (record.get("icon") or "").strip()
     path = (resolve_icon_path(storage.data_dir, value) if storage and
             Path(value).suffix.lower() in IMAGE_SUFFIXES else None)
@@ -105,8 +105,11 @@ class NodeCard(QLabel):
 
     # -- appearance ---------------------------------------------------
     def refresh_icon(self):
+        extent = max(14, min(48, int(self.storage.config.get('gallery_node_icon_size', 22))))
         self._icon = render_node_icon(self.storage, self.entry.get("node", {"id": self.node_id}),
-                                      22)
+                                      extent)
+        self._icon_extent = extent
+        self.setFixedHeight(max(40, extent + 12))
         self.update()
 
     def update_size(self, new_size, load_image=True):
@@ -147,8 +150,10 @@ class NodeCard(QLabel):
         count_width=p.fontMetrics().horizontalAdvance(summary)+12
         count_x=self.width()-count_width-40
         p.setPen(QColor(c['text']))
-        p.drawText(QRect(56,0,max(0,count_x-66),self.height()),Qt.AlignVCenter,p.fontMetrics().elidedText(self.entry['name'],Qt.ElideRight,max(0,count_x-66)))
-        line_start=min(count_x-12,60+p.fontMetrics().horizontalAdvance(self.entry['name'])+12)
+        text_left = 24 + self._icon_extent + 10
+        text_width = max(0, count_x-text_left-10)
+        p.drawText(QRect(text_left,0,text_width,self.height()),Qt.AlignVCenter,p.fontMetrics().elidedText(self.entry['name'],Qt.ElideRight,text_width))
+        line_start=min(count_x-12,text_left+p.fontMetrics().horizontalAdvance(self.entry['name'])+12)
         p.setPen(QPen(QColor(c['border_soft']),1));p.drawLine(line_start,self.height()//2,count_x-8,self.height()//2)
         p.setPen(QColor(c['muted']))
         font.setFamily(DATA_FONT.split(',')[0]);font.setPixelSize(11);font.setBold(False);p.setFont(font)
