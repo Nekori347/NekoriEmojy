@@ -23,6 +23,7 @@ from fluent_ui.icons import Icon as FIF
 from fluent_ui.components.safe_round_menu import SafeRoundMenu as RoundMenu
 from fluent_ui.components.emoji_card import EmojiCard
 from fluent_ui.components.node_card import NodeCard, NODE_MIME, RESOURCE_MIME
+from fluent_ui.components.gallery_model import occurrence_id
 from fluent_ui.components.library_tree import LibraryTree, ALL_RESOURCES
 from fluent_ui.components.hover_preview import HoverPreviewPopup
 from fluent_ui.components.hover_preview_controller import HoverPreviewController
@@ -1312,7 +1313,7 @@ class GalleryInterface(QWidget):
             self.entry_model.invalidate()
             self.refresh_content(reason=reason)
             return
-        anchor = self.renderer.anchor()
+        anchors = tuple(self.renderer.visible_anchors())
         old_scroll = self.scroll_area.verticalScrollBar().value()
         self.entry_model.sync(parents=parents, paths=paths)
         plain = not getattr(self,'_recent_view',False) and not self.search_keyword.strip() and not self.filter_state.is_active() and not self.active_tags and self.content_sort == 'manual'
@@ -1320,6 +1321,8 @@ class GalleryInterface(QWidget):
             first = self.entry_model.patch_normal(self._entries, self.content_scope_node(), self._expanded_nodes)
         else:
             first = self.entry_model.patch(self._entries, self._collect_entries())
+        surviving = {occurrence_id(entry) for entry in self._entries}
+        anchor = next((candidate for candidate in anchors if candidate[0] in surviving), None)
         self._reconcile_selection()
         if first < max(len(self._entries), len(self.renderer.index.rects)):
             self.renderer.relayout(first, anchor=anchor if old_scroll else None)

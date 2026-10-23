@@ -86,3 +86,24 @@ def test_resource_between_nodes_persists_without_membership_change(gallery):
     bottom=view.grid_container.mapTo(view,QPoint(5,view.renderer.index.height+20))
     assert view._resolve_drop(bottom,resource_mime(paths[:1]))[0].placement==APPEND
 
+
+def test_membership_refresh_preserves_tree_and_surviving_gallery_anchor(gallery):
+    from fluent_ui.components.gallery_model import occurrence_id
+    view,storage,parent,children,paths=gallery
+    for i in range(40):storage.create_node(f'Neighbour {i}')
+    tree=view.sidebar.tree
+    view.sidebar.refresh_list(parent); QTest.qWait(40)
+    tree.verticalScrollBar().setValue(260); QTest.qWait(20)
+    old_tree=tree.verticalScrollBar().value()
+    bar=view.scroll_area.verticalScrollBar();bar.setValue(400);QTest.qWait(20)
+    visible=list(view.renderer.index.between(bar.value(),bar.value()+view.scroll_area.viewport().height()))
+    first_y=view.renderer.index.rects[visible[0]].top()
+    moving=[view._entries[i]['path'] for i in visible if view.renderer.index.rects[i].top()==first_y]
+    survivor=next(i for i in visible if view.renderer.index.rects[i].top()>first_y)
+    key=occurrence_id(view._entries[survivor])
+    old_y=view.renderer.index.rects[survivor].top()-bar.value()
+    view.assign_resources(moving,children[0],copy=False,source_node=parent);QTest.qWait(100)
+    assert tree.verticalScrollBar().value()==old_tree
+    new_i=next(i for i,e in enumerate(view._entries) if occurrence_id(e)==key)
+    assert view.renderer.index.rects[new_i].top()-bar.value()==old_y
+    assert all(storage._resource_id(p) in {e['id'] for e in storage.entries_of(children[0])} for p in moving)

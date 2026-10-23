@@ -181,6 +181,7 @@ class LibraryTree(QTreeWidget):
         return (item.data(0, Qt.UserRole) if item else None) or ALL_RESOURCES
 
     def refresh(self, select=None):
+        scroll = self.verticalScrollBar().value()
         self._hovered_index = None
         target = select or self._pending_select or ALL_RESOURCES
         expanded = self._expanded_ids() if self.topLevelItemCount() else set(self.sidebar.gallery_view._saved_view_state.get('sidebar_expanded', []))
@@ -218,6 +219,8 @@ class LibraryTree(QTreeWidget):
         self._span_rows()
         self.blockSignals(False)
         self.select_node(target)
+        self.doItemsLayout()
+        self.verticalScrollBar().setValue(scroll)
 
     def _index_of(self, parent_item, node_id):
         for i in range(parent_item.childCount()):
@@ -300,6 +303,7 @@ class LibraryTree(QTreeWidget):
 
     # -- selection -----------------------------------------------------
     def select_node(self, node_id, reveal=False):
+        scroll = self.verticalScrollBar().value()
         self._pending_select = node_id or ALL_RESOURCES
         item = self._find_item(self._pending_select)
         if item is None:
@@ -325,6 +329,10 @@ class LibraryTree(QTreeWidget):
             else:
                 for ancestor, expanded in ancestors:
                     ancestor.setExpanded(expanded)
+                # Qt's setCurrentItem scrolls even when the caller only wants
+                # to restore selection after a data refresh.
+                self.doItemsLayout()
+                self.verticalScrollBar().setValue(scroll)
             self.blockSignals(False)
 
     def _find_item(self, node_id, parent=None):

@@ -265,13 +265,15 @@ class VirtualGallery:
                 pool.pop()._renderer.deleteLater()
 
     def anchor(self):
+        return next(self.visible_anchors(), None)
+
+    def visible_anchors(self):
+        """Existing viewport anchors, in reading order, before a data edit."""
         g = self.gallery
         top = g.scroll_area.verticalScrollBar().value()
         candidates = self.index.between(top, top+g.scroll_area.viewport().height())
-        if not candidates:
-            return None
-        i = candidates.start
-        return occurrence_id(g._entries[i]), top-self.index.rects[i].top()
+        for i in candidates:
+            yield occurrence_id(g._entries[i]), top-self.index.rects[i].top()
 
     def restore(self, anchor):
         if anchor:
