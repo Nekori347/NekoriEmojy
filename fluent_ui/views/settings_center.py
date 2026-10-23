@@ -649,6 +649,10 @@ class SettingsCenter(QWidget):
         self.btn_update=UpdateCheckButton(self.version_row)
         self.btn_update.clicked.connect(self._open_updates);self.version_row.add_control(self.btn_update)
         section.add_row(self.version_row)
+        section.add_row(self._track(SwitchRow(
+            '启动时自动检查更新', '后台检查，每24小时最多一次；不会自动下载或安装。',
+            'auto_check_updates', self.config.get('auto_check_updates', True), self),
+            'auto_check_updates', True))
         self.update_badge=QLabel(self.version_row)
         self.version_row.layout().itemAt(0).layout().addWidget(self.update_badge)
         self.update_badge.hide()

@@ -11,6 +11,7 @@ class ConfigService:
         self.load_error=None
         
         self.default_config = {
+            "auto_check_updates": True,
             "light_theme_key": "nekori",
             "dark_theme_key": "nekori",
             "appearance_mode": "system",

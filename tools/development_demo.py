@@ -106,6 +106,9 @@ def cleanup():
 app.aboutToQuit.connect(cleanup)
 window.resize(1150,800);show()
 instance.set_window(window)
+from PySide6.QtCore import QTimer
+from fluent_ui.components.update_center import update_center
+QTimer.singleShot(0,lambda:update_center().check_on_startup(config))
 if parent:gallery.set_node(parent)
 (HERE/'runtime.json').write_text(json.dumps(dict(pid=os.getpid(),hwnd=int(window.winId()),branch=branch,head=head,data=str(DATA)),indent=2),encoding='utf-8')
 exit_code=app.exec()

@@ -1619,5 +1619,7 @@
   "分类操作未完成": "Category operation incomplete",
   "进入管理模式": "Enter manage mode",
   "退出管理": "Exit manage",
-  "拖到此处取消": "Drop here to cancel"
+  "拖到此处取消": "Drop here to cancel",
+  "启动时自动检查更新": "Check for updates at startup",
+  "后台检查，每24小时最多一次；不会自动下载或安装。": "Check in the background at most once every 24 hours; never download or install automatically."
 }

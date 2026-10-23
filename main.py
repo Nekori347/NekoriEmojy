@@ -223,6 +223,8 @@ def main():
     if not should_start_hidden(sys.argv, QSystemTrayIcon.isSystemTrayAvailable()):
         window.show()
     instance.set_window(window)
+    from fluent_ui.components.update_center import update_center
+    QTimer.singleShot(0, lambda: update_center().check_on_startup(config_service))
     
     
     if "--smoke-test" in sys.argv:
