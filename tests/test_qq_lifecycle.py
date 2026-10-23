@@ -6,6 +6,7 @@ from PySide6.QtCore import QEventLoop,QTimer,Qt
 from PySide6.QtGui import QImage,QColor
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
+from fluent_ui.views.qq_scan_view import QQScanInterface
 
 
 @pytest.fixture
@@ -14,11 +15,11 @@ def qq(tmp_path,monkeypatch):
     from services.i18n import i18n_engine
     from services.qq_extractor import QQExtractor
     from fluent_ui import visual
-    from fluent_ui.views.qq_scan_view import QQScanInterface
     root=tmp_path/'Tencent Files'
     for account in ('800001','800002'):
         (root/account/'nt_qq/nt_data/Emoji/personal_emoji/Ori').mkdir(parents=True)
     monkeypatch.setattr(QQExtractor,'get_nickname_cache_path',staticmethod(lambda:str(tmp_path/'nicknames.json')))
+    monkeypatch.setattr(QQExtractor,'detect_tencent_files_path',staticmethod(lambda:None))
     app=QApplication.instance() or QApplication([])
     config=ConfigService(tmp_path/'app');config.config.update(qq_data_path=str(root))
     visual.theme.configure(config);i18n_engine.init(config)
@@ -103,6 +104,11 @@ def test_discovery_new_path_wins_and_empty_path_finishes(qq,monkeypatch,tmp_path
     wait(lambda:not view._discovery_workers)
     assert view.userComboBox.count()==0 and view.userComboBox.isEnabled()
     assert not view.scanButton.isEnabled() and '读取' not in view.userComboBox.text()
+    ini=tmp_path/'UserDataInfo.ini'
+    ini.write_text('[UserDataSet]\nUserDataSavePath='+str(root)+'\n',encoding='utf-8')
+    view.default_ini_path=str(ini);view.userdata_save_path_cache=None;view.populateUserComboBox()
+    wait(lambda:not view._discovery_workers)
+    assert view.userdata_save_path_cache==str(root) and view.userComboBox.count()==2
 
 
 def test_preview_close_discards_work_and_reopen_loads(qq,tmp_path):

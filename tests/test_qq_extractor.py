@@ -65,6 +65,15 @@ class TestQQExtractor(unittest.TestCase):
         cat_pic_upper = QQExtractor.get_category_path(self.userdata, self.qq_number, "Pic")
         self.assertEqual(cat_pic_upper, pic_root)
 
+    def test_ini_path_encodings(self):
+        for encoding, folder in (("ascii", "QQData"), ("utf-8-sig", "表情目录"), ("utf-16", "表情目录"), ("gb18030", "表情目录")):
+            with self.subTest(encoding=encoding):
+                root = Path(self.temp_dir) / folder
+                root.mkdir(exist_ok=True)
+                ini = Path(self.temp_dir) / "UserDataInfo.ini"
+                ini.write_text("[UserDataSet]\nUserDataSavePath=" + str(root) + "\n", encoding=encoding)
+                self.assertEqual(QQExtractor.get_userdata_save_path(str(ini)), str(root))
+
     def test_scan_pic_folder(self):
         found_files = QQExtractor.scan_pic_folder(self.pic_dir)
         # Should only find the 2 valid image files inside Ori subdirectories:

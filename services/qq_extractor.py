@@ -365,7 +365,7 @@ class QQExtractor:
             return None
 
         # 尝试常用编码，避免第三方依赖
-        encodings = ['gb18030', 'utf-8', 'utf-16', 'gbk', 'big5', 'utf-16-le', 'latin-1']
+        encodings = ['utf-8-sig', 'gb18030', 'utf-16', 'gbk', 'big5', 'utf-16-le', 'latin-1']
         
         try:
             import chardet
@@ -388,7 +388,8 @@ class QQExtractor:
                 content = data.decode(enc, errors='strict')
             except Exception:
                 continue
-            if target_string in content and (QQExtractor.is_content_valid(content) or not target_string.isascii()):
+            # A valid QQ INI and its data path can be entirely ASCII.
+            if target_string in content:
                 return enc
         return None
 
