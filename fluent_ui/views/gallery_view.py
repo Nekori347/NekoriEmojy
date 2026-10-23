@@ -2118,12 +2118,35 @@ class GalleryInterface(QWidget):
             parent = source_node or visible_sources.get(path, self._selection_parents.get(path, self.content_scope_node()))
             groups.setdefault(parent, []).append(path)
         added = 0
+        completed, errors = set(), []
         for parent, subset in groups.items():
-            added += self.storage.move_resources_to(subset, node_id, copy=copy,
-                source_node=None if copy else parent, position=position)
+            try:
+                with self.storage.lock:
+                    added += self.storage.move_resources_to(subset, node_id, copy=copy,
+                        source_node=None if copy else parent, position=position)
+                    # The existing transaction returns an added-count, including
+                    # zero for already-present memberships. Confirm handled paths
+                    # from one target stream read, never per-resource DB queries.
+                    target_paths = {e['path'] for e in self.storage.entries_of(node_id)
+                                    if e['kind'] == 'resource'}
+                    completed.update(set(subset) & target_paths)
+            except Exception as error:
+                errors.append(str(error))
+        self.selected_keys.difference_update(completed)
+        self._shift_touched.difference_update(completed)
+        if hasattr(self, '_shift_base'):
+            self._shift_base.difference_update(completed)
+        if self._shift_anchor in completed:
+            self._shift_anchor = None
+        if self._last_clicked_key in completed:
+            self._last_clicked_key = None
         self.sidebar.refresh_list(self.current_node)
         self.refresh_content_incremental(reason='assign_resources', parents=set(groups)|{node_id})
-        self.show_success(t('分类已更新'), t('{value_0} 项').format(value_0=added), quiet=True)
+        self._commit_selection_visuals()
+        if errors:
+            self.show_error(t('分类操作未完成'), '\n'.join(dict.fromkeys(errors)))
+        elif completed:
+            self.show_success(t('分类已更新'), t('{value_0} 项').format(value_0=added), quiet=True)
 
     def _drag_from_entry(self, entry, path):
         self._selection_parents[path] = entry['_parent']

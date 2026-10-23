@@ -1615,5 +1615,6 @@
   "扫描已停止": "Scan stopped",
   "未应用本次扫描结果。": "The results of this scan were not applied.",
   "无法拖出表情": "Unable to drag out images",
-  "准备外部拖放文件失败，图库原件未改动。": "Could not prepare files for the external drop. Library originals were not changed."
+  "准备外部拖放文件失败，图库原件未改动。": "Could not prepare files for the external drop. Library originals were not changed.",
+  "分类操作未完成": "Category operation incomplete"
 }
