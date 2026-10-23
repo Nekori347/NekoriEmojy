@@ -362,7 +362,7 @@ def command_bar_style(dark=None):
         QWidget#CommandBar {{ background: {c['surface_alt']};
             border-top: {LINE_WIDTH}px solid {c['border']}; }}
         QWidget#CommandBar QLabel {{ color: {c['text_primary']}; }}
-        QLabel#CommandCount {{ font-family: {DATA_FONT}; }}
+        QLabel#CommandCount {{ font-family: '{BODY_FONT}'; }}
     '''
 
 

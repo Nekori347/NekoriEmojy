@@ -1723,6 +1723,9 @@ class GalleryInterface(QWidget):
         resources = [e for e in self._selected_entries() if e['kind'] == 'resource']
         count = len(resources)
         contextual = self.mode == 'manage' or count >= 2
+        manage_label = '退出管理模式' if self.mode == 'manage' else '进入管理模式'
+        bind_text(self.btn_manage, manage_label, 'setToolTip')
+        self.btn_manage.setAccessibleName(self.btn_manage.toolTip())
         self.command_bar.setVisible(contextual)
         bind_text(self.selected_count_label, t('已选 {value_0} 项').format(value_0=count), 'setText')
         direct = ({e['id'] for e in self.entry_model.entries_of(self.content_scope_node())
@@ -1732,6 +1735,12 @@ class GalleryInterface(QWidget):
         self.btn_tags.setEnabled(ActionPolicy.enabled('tag_edit', context))
         self.btn_delete.setEnabled(ActionPolicy.enabled('delete', context))
         bind_text(self.btn_delete, ActionPolicy.delete_label(context), 'setToolTip')
+        missing_only = bool(resources) and not context.existing
+        bind_text(self.btn_delete, '移除记录' if missing_only else '删除', 'setText')
+        if getattr(self, '_delete_missing_icon', None) != missing_only:
+            self._delete_missing_icon = missing_only
+            self.btn_delete.setIcon(FIF.REMOVE if missing_only else FIF.DELETE)
+        self.btn_more.setEnabled(bool(resources))
         self.btn_move_to.setEnabled(ActionPolicy.enabled('category_membership', context)
                                     and any(e['_parent'] != ROOT for e in resources))
         self.btn_arrange.setEnabled(bool(resources) and self._exact_placement_available())
@@ -1739,6 +1748,13 @@ class GalleryInterface(QWidget):
         self.btn_select_all.setEnabled(bool(visible))
         bind_text(self.btn_select_all, '取消全选' if visible and visible <= self.selected_keys else '全选', 'setToolTip')
         self.btn_select_all.setAccessibleName(self.btn_select_all.toolTip())
+        all_selected = bool(visible) and visible <= self.selected_keys
+        if getattr(self, '_all_selected_icon', None) != all_selected:
+            self._all_selected_icon = all_selected
+            self.btn_select_all.setIcon(FIF.CANCEL if all_selected else FIF.ACCEPT)
+        exit_label = '退出管理' if self.mode == 'manage' else '清除选择'
+        bind_text(self.btn_exit_mode, exit_label, 'setText')
+        bind_text(self.btn_exit_mode, exit_label, 'setToolTip')
         self.btn_exit_mode.setVisible(contextual)
         self.filter_flyout.sync(self.filter_state)
         if contextual:

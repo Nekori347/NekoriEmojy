@@ -709,7 +709,7 @@
   "迁移方向": "Migration direction",
   "返回图库": "Back to gallery",
   "连接失败": "Connection failed",
-  "退出管理模式": "Exit management",
+  "退出管理模式": "Exit manage mode",
   "选中此项": "Select this item",
   "选择 / 重新连接资源库": "Choose / reconnect library",
   "选择 Suzu 资源压缩包": "Choose Suzu ZIP",
@@ -1616,5 +1616,7 @@
   "未应用本次扫描结果。": "The results of this scan were not applied.",
   "无法拖出表情": "Unable to drag out images",
   "准备外部拖放文件失败，图库原件未改动。": "Could not prepare files for the external drop. Library originals were not changed.",
-  "分类操作未完成": "Category operation incomplete"
+  "分类操作未完成": "Category operation incomplete",
+  "进入管理模式": "Enter manage mode",
+  "退出管理": "Exit manage"
 }

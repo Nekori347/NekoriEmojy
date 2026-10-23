@@ -104,3 +104,23 @@ def test_assignment_partial_groups_preserve_unfinished_selection(management,monk
     assert set(view.get_selected_paths())==set(paths[1:3])
     assert any(e['id']==storage._resource_id(paths[0]) for e in storage.entries_of(dest))
     assert any(e['id']==storage._resource_id(paths[1]) for e in storage.entries_of(child))
+
+
+def test_management_controls_describe_the_current_action(management):
+    from pathlib import Path
+    view,storage,parent,dest,paths,sent=management
+    view.set_mode('manage')
+    shots=Path(__file__).resolve().parents[2]/'DevData/management-check'
+    shots.mkdir(exist_ok=True)
+    phase='before' if view.btn_more.isEnabled() else 'after'
+    view.grab().save(str(shots/f'G18-{phase}.png'))
+    assert not view.btn_more.isEnabled() and not view.btn_delete.isEnabled()
+    assert view.btn_exit_mode.text()=='退出管理' and view.btn_manage.accessibleName()=='退出管理模式'
+    click_resource(view,paths[0]);assert view.btn_more.isEnabled()
+    Path(paths[0]).unlink();storage.availability.exists(paths[0],revalidate=True)
+    assert view.btn_delete.text()=='移除记录' and '失效' in view.btn_delete.toolTip()
+    view.grab().save(str(shots/'G18-missing.png'))
+    view._drop_selection_only();view.select_all_cards()
+    assert view.btn_select_all.toolTip()=='取消全选'
+    QTest.mouseClick(view.btn_exit_mode,Qt.LeftButton)
+    assert view.btn_manage.accessibleName()=='进入管理模式'
