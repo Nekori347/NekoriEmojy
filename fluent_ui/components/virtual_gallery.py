@@ -2,7 +2,7 @@
 from bisect import bisect_left, bisect_right
 from time import perf_counter
 from PySide6.QtCore import QPoint, QRect, Qt, QSignalBlocker, QTimer, QAbstractAnimation
-from PySide6.QtWidgets import QWidget, QLabel
+from PySide6.QtWidgets import QWidget, QLabel, QApplication
 from fluent_ui.components.gallery_model import occurrence_id
 from fluent_ui.components.gallery_thumbnails import GalleryThumbnails
 from fluent_ui.components.emoji_card import EmojiCard
@@ -17,6 +17,8 @@ class FlowIndex:
         self.height = 36
         self.width = self.size = 0
         self.node_icon_size = 22
+        self.section_owners = []
+        self.section_breaks = []
 
     def layout(self, entries, width, size, first=0, *, node_icon_size=22):
         """Only numeric geometry. Resume at the row before an affected range."""
@@ -73,6 +75,24 @@ class FlowIndex:
             bottom = max(bottom, rect.bottom())
             self.bottoms.append(bottom)
         self.height = max(36, y+4)
+        # Derived from the rendered projection, not a second category model.
+        stack = []
+        self.section_owners = []
+        self.section_breaks = []
+        previous = None
+        for i, entry in enumerate(entries):
+            depth = entry.get('_depth', 0)
+            while stack and entries[stack[-1]].get('_depth', 0) >= depth:
+                stack.pop()
+            if entry['kind'] == 'node':
+                stack.append(i)
+            owner = stack[-1] if stack else None
+            if entry['kind'] == 'resource' and owner is not None and entry.get('_parent') != entries[owner]['id']:
+                owner = None
+            self.section_owners.append(owner)
+            if owner != previous:
+                self.section_breaks.append(self.tops[i])
+                previous = owner
 
     def between(self, top, bottom):
         return range(bisect_left(self.bottoms, top), bisect_right(self.tops, bottom))
@@ -92,6 +112,8 @@ class VirtualGallery:
         self._batch_timer.setSingleShot(True)
         self._batch_timer.setInterval(8)
         self._batch_timer.timeout.connect(self._drain)
+        from fluent_ui.components.sticky_category import StickyCategory
+        self.sticky = StickyCategory(gallery)
 
     def relayout(self, first=0, anchor=None, scroll=None):
         g = self.gallery
@@ -113,6 +135,11 @@ class VirtualGallery:
         self.sync()
 
     def retire(self, card):
+        focus = QApplication.focusWidget()
+        if focus is not None and (focus is card._renderer or card._renderer.isAncestorOf(focus)):
+            # Hiding a focused flow row otherwise traverses other cards and
+            # QScrollArea scrolls to those new focus targets during recycling.
+            self.gallery.scroll_area.viewport().setFocus(Qt.OtherFocusReason)
         if isinstance(card, EmojiCard) and getattr(self.gallery, 'preview_controller', None):
             self.gallery.preview_controller.leave(card)
         card._renderer.hide()
@@ -187,6 +214,7 @@ class VirtualGallery:
         self._batch_timer.stop()
         g = self.gallery
         top = g.scroll_area.verticalScrollBar().value()
+        self.sticky.sync()
         height = max(100, g.scroll_area.viewport().height())
         rows = self.index.between(max(0, top-height), top+height*2)
         wanted = {occurrence_id(g._entries[i]): i for i in rows}

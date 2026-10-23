@@ -1868,6 +1868,7 @@ class GalleryInterface(QWidget):
     # Grid rendering
     # ==================================================================
     def clear_gallery(self):
+        self.renderer.sticky.hide()
         self.renderer._batch_timer.stop()
         self.renderer._pending.clear()
         for card in list(self.renderer.active.values()):
@@ -3017,6 +3018,7 @@ class GalleryInterface(QWidget):
         from fluent_ui.components.drop_contract import DragSession
         self._clear_drop()
         self._gallery_drag_session = DragSession(event.mimeData())
+        self.renderer.sticky.hide()
         if not self._gallery_drag_session.supported:
             event.ignore()
             return
@@ -3026,6 +3028,7 @@ class GalleryInterface(QWidget):
         event.acceptProposedAction()
 
     def _show_drag_cancel(self):
+        self.renderer.sticky.hide()
         self.preview_controller.cancel()
         self.drop_cancel_zone.begin()
 
@@ -3042,6 +3045,7 @@ class GalleryInterface(QWidget):
         self.feedback_host.set_overlays_suppressed(False)
         self.drop_feedback.clear()
         self.drop_scroller.stop()
+        self.renderer.sticky.sync()
 
     def dragLeaveEvent(self, event):
         self._clear_drop()
@@ -3340,7 +3344,7 @@ class GalleryInterface(QWidget):
 
 
 
-    def toggle_node_expansion(self, node_id):
+    def toggle_node_expansion(self, node_id, *, anchor=None):
         # Expanding a node only changes the content at and below it, so the
         # viewport is anchored to the entry it is already showing: laying the
         # grid out at scroll 0 and correcting it on the next frame is what made
@@ -3349,7 +3353,7 @@ class GalleryInterface(QWidget):
         # Everything after this node's own row shifts, and nothing before it
         # does, so the flow index resumes at that row instead of walking the
         # whole library again on every disclosure click.
-        anchor = self.renderer.anchor()
+        anchor = self.renderer.anchor() if anchor is None else anchor
         if node_id in self._expanded_nodes:
             self._expanded_nodes.remove(node_id)
         else:
