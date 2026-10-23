@@ -2960,14 +2960,15 @@ class GalleryInterface(QWidget):
         try:
             target,_rect,_vertical=self._resolve_drop(position,event.mimeData())
             if session and self._over_content(position) and session.commit(target,
-                    lambda resolved,block:self._commit_drop_payload(resolved,event.mimeData(),block)):
+                    lambda resolved,block:self._commit_drop_payload(
+                        resolved,event.mimeData(),block,self.mapToGlobal(position))):
                 event.acceptProposedAction()
             else:
                 event.ignore()
         finally:
             self._clear_drop()
 
-    def _commit_drop_payload(self, target, mime, block):
+    def _commit_drop_payload(self, target, mime, block, global_pos=None):
         if mime.hasFormat(TAG_MIME):
             self._commit_tag_drop(target, block)
         elif target.effect == IMPORT:
@@ -2975,7 +2976,7 @@ class GalleryInterface(QWidget):
         elif mime.hasFormat(NODE_MIME):
             self._apply_node_drop(block, target)
         elif mime.hasFormat(RESOURCE_MIME):
-            self._reorder_by_drop(block, target)
+            self._reorder_by_drop(block, target, global_pos=global_pos)
 
     def _apply_node_drop(self, node_ids, target):
         """Category blocks keep their internal order wherever they land."""
@@ -2984,13 +2985,13 @@ class GalleryInterface(QWidget):
         parent = target.container_id
         self.sidebar._on_nodes_dropped(node_ids, parent, target.index)
 
-    def _reorder_by_drop(self, paths, target):
+    def _reorder_by_drop(self, paths, target, global_pos=None):
         if not paths:
             return
         parent = target.container_id or self.content_scope_node()
         sources = self._resource_sources(paths)
         if any(source != parent for source in sources.values()):
-            self.request_resource_drop(paths, parent, position=target.index)
+            self.request_resource_drop(paths, parent, position=target.index, global_pos=global_pos)
             return
         with self.storage.lock:
             stream = self.storage.entries_of(parent)
