@@ -653,6 +653,10 @@ class SettingsCenter(QWidget):
             '启动时自动检查更新', '后台检查，每24小时最多一次；不会自动下载或安装。',
             'auto_check_updates', self.config.get('auto_check_updates', True), self),
             'auto_check_updates', True))
+        self.diagnostics_row=ActionRow(
+            '诊断资料', '查看本地日志，或导出脱敏日志与版本环境；不包含表情资源及应用配置。',
+            [('查看日志',self._open_logs,False),('导出诊断资料…',self._export_diagnostics,False)],self)
+        section.add_row(self.diagnostics_row)
         self.update_badge=QLabel(self.version_row)
         self.version_row.layout().itemAt(0).layout().addWidget(self.update_badge)
         self.update_badge.hide()
@@ -665,6 +669,32 @@ class SettingsCenter(QWidget):
     def _open_updates(self):
         from fluent_ui.components.update_center import update_center
         update_center().open(self.window())
+
+    def _open_logs(self):
+        from services.crash_evidence import install
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        directory=install()
+        if directory is None or not QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory))):
+            self.show_error(t('无法打开日志目录'),'')
+
+    def _export_diagnostics(self):
+        from services.diagnostic_export import export_diagnostics
+        from services.export_control import ExportCancelled
+        from fluent_ui.components.exchange_task_dialog import run_exchange_task
+        from fluent_ui.components.feedback import feedback_for
+        path,_=QFileDialog.getSaveFileName(self.window(),t('导出诊断资料'),
+                                          'NekoriEmojy-diagnostics.zip','ZIP (*.zip)')
+        if not path:
+            feedback_for(self).notice(t('诊断导出已取消'));return
+        try:
+            run_exchange_task(self.window(),t('导出诊断资料'),
+                              lambda progress,cancel:export_diagnostics(path,progress,cancel),cancellable=True)
+            self.show_success(t('诊断导出完成'),path)
+        except ExportCancelled:
+            feedback_for(self).notice(t('诊断导出已取消'))
+        except Exception as exc:
+            self.show_error(t('诊断导出失败'),str(exc))
 
     def _sync_update_status(self):
         if not hasattr(self,'update_badge'):return

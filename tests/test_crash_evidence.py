@@ -88,3 +88,46 @@ def test_frozen_version_location_and_native_file_count(tmp_path, monkeypatch):
     assert result.returncode == 0, result.stderr
     retained = list(directory.glob('fatal-*.log'))
     assert len(retained) == 1 and retained[0].read_text(encoding='utf-8') == 'old fault 3'
+
+
+def test_large_records_and_native_pipe_obey_byte_limits(tmp_path):
+    code='''
+import faulthandler,logging
+from services import crash_evidence as c
+c.install()
+logger=logging.getLogger('nekori.crash_evidence')
+for i in range(110):logger.error('界'*700000)
+faulthandler.dump_traceback(file=c._fatal_file,all_threads=False)
+c._fatal_file.write(b'x'*(c.LOG_BYTES*4))
+c.record_task_failure('private-task-path','import',dict(state='running',current=2,total=9))
+'''
+    result=child(tmp_path,code)
+    assert result.returncode==0,result.stderr
+    from services.crash_evidence import LOG_BYTES
+    files=list((tmp_path/'app/diagnostics').glob('*.log*'))
+    assert files and len(files)<=5
+    assert all(p.stat().st_size<=LOG_BYTES for p in files)
+    fatal=next(p for p in files if p.name.startswith('fatal-'))
+    assert fatal.stat().st_size==LOG_BYTES
+    assert b'File ' in fatal.read_bytes()
+    assert sum(p.stat().st_size for p in files)<=5*LOG_BYTES
+    text=(tmp_path/'app/diagnostics/exceptions.log').read_text(encoding='utf-8')
+    assert 'kind=import stage=running current=2 total=9' in text
+    assert 'private-task-path' not in text
+
+
+def test_native_trace_survives_abrupt_parent_exit(tmp_path):
+    result=child(tmp_path,'''import faulthandler,os
+from services import crash_evidence as c
+c.install()
+faulthandler.dump_traceback(file=c._fatal_file,all_threads=True)
+os._exit(23)
+''')
+    assert result.returncode==23
+    import time
+    directory=tmp_path/'app/diagnostics'
+    for _ in range(100):
+        logs=list(directory.glob('fatal-*.log'))
+        if logs and b'File ' in logs[0].read_bytes():break
+        time.sleep(.02)
+    assert logs and b'File ' in logs[0].read_bytes()

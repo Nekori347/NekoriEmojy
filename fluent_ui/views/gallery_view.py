@@ -2727,7 +2727,8 @@ class GalleryInterface(QWidget):
                 details+='\n'+job.get('error','')
                 if outcome=='success':outcome='partial'
             host.upsert_task(key,title,current=done,total=total,state=outcome,content=summary,kind='import',
-                cancel=lambda k=key:self.imports.cancel(k),details=details.strip())
+                cancel=lambda k=key:self.imports.cancel(k),details=details.strip(),
+                phase=request.phase if request.phase in {'恢复分类关系','整理资源顺序','完成迁移收尾'} else state)
         for key,job in tuple(self.ocr.jobs.items()):
             if key in self.imports.requests:continue
             done=sum(job.get(k,0) for k in ('done','failed','skipped'));state=job['state']
@@ -2737,7 +2738,7 @@ class GalleryInterface(QWidget):
             if state in {'cancelled','interrupted'}:title=t('文字识别已停止')
             resume=(lambda k=key,f=job.get('force',False):self.ocr.supplement(force=f,job_id=k)) if job.get('origin')=='library' and state in {'cancelled','interrupted'} else None
             host.upsert_task(key,title,current=done,total=job.get('total',0),state=outcome,content=content,kind='ocr',
-                cancel=lambda k=key:self.ocr.cancel(job_id=k),resume=resume,details=job.get('error',''))
+                cancel=lambda k=key:self.ocr.cancel(job_id=k),resume=resume,details=job.get('error',''),phase=state)
 
     def _on_import_progress(self, current, total):
         self.task_status.update(t('正在处理: {value_0} / {value_1}').format(value_0=current, value_1=total), current=current, total=total)

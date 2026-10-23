@@ -27,6 +27,8 @@ app=QApplication([]);app.setQuitOnLastWindowClosed(False)
 from services.single_instance import SingleInstance
 instance=SingleInstance(app)
 if not instance.start():sys.exit(0)
+from services.crash_evidence import install as install_crash_evidence
+install_crash_evidence()
 server=QLocalServer()
 if not server.listen(SERVER):raise RuntimeError('A development Demo already exists; use Start-Demo.cmd to restart')
 clients=[]

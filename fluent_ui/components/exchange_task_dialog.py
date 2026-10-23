@@ -21,6 +21,11 @@ class ExchangeWorker(QThread):
                            if self.cancellable else self.operation(self.progress.emit))
         except Exception as exc:
             self.error = exc
+            from services.export_control import ExportCancelled
+            if not isinstance(exc,ExportCancelled):
+                import sys
+                from services.crash_evidence import record_task_failure
+                record_task_failure(f'exchange:{id(self)}','exchange',exc_info=sys.exc_info())
 
 
 from fluent_ui.components.dialogs import NekoriDialog

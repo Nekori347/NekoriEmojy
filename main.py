@@ -3,6 +3,11 @@ import os
 import glob
 import warnings
 
+if __name__ == '__main__' and len(sys.argv)==4 and sys.argv[1]=='--diagnostic-writer':
+    from services.crash_evidence import collect_native
+    collect_native(sys.argv[2],sys.argv[3])
+    raise SystemExit(0)
+
 
 def _lock_ffmpeg_path_for_frozen_app():
     """在 Nuitka/PyInstaller 冻结环境中锁定随程序发布的 FFmpeg。"""

@@ -1621,5 +1621,15 @@
   "退出管理": "Exit manage",
   "拖到此处取消": "Drop here to cancel",
   "启动时自动检查更新": "Check for updates at startup",
-  "后台检查，每24小时最多一次；不会自动下载或安装。": "Check in the background at most once every 24 hours; never download or install automatically."
+  "后台检查，每24小时最多一次；不会自动下载或安装。": "Check in the background at most once every 24 hours; never download or install automatically.",
+  "诊断资料": "Diagnostics",
+  "查看本地日志，或导出脱敏日志与版本环境；不包含表情资源及应用配置。": "Open local logs or export redacted logs and version information; excludes emotes and app settings.",
+  "查看日志": "View logs",
+  "导出诊断资料…": "Export diagnostics…",
+  "导出诊断资料": "Export diagnostics",
+  "无法打开日志目录": "Cannot open the log folder",
+  "诊断导出已取消": "Diagnostic export cancelled",
+  "诊断导出完成": "Diagnostics exported",
+  "诊断导出失败": "Diagnostic export failed",
+  "写入脱敏诊断日志": "Writing redacted diagnostic logs"
 }

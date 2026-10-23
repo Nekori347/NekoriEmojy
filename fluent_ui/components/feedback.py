@@ -414,13 +414,17 @@ class FeedbackHost(QObject):
         return False
 
 
-    def upsert_task(self,key,title,*,current=0,total=0,state='running',content='',kind='import',cancel=None,resume=None,details='',action_text=None):
+    def upsert_task(self,key,title,*,current=0,total=0,state='running',content='',kind='import',cancel=None,resume=None,details='',action_text=None,phase=''):
         """Update the existing job identity; presentation never starts or cancels work."""
         if self._dismissed_task_states.get(key)==state and state not in {'running','waiting'}:return
         if state in {'running','waiting'}:self._dismissed_task_states.pop(key,None)
         previous=self.named_tasks.get(key)
         value=dict(title=clean_message(title),current=current,total=total,state=state,content=clean_message(content),kind=kind,cancel=cancel,resume=resume,details=str(details),action_text=action_text)
+        value['phase']=phase
         if previous==value:return
+        if state in {'error','partial'} and (not previous or previous.get('state') not in {'error','partial'}):
+            from services.crash_evidence import record_task_failure
+            record_task_failure(key,kind,previous)
         self.named_tasks[key]=value
         if not hasattr(self,'_caption_ui'):self.dock_to_caption(self.owner.window())
         self._caption_ui.sync(key,previous)
