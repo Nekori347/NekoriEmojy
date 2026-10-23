@@ -31,7 +31,9 @@ def test_tree_pixels_and_gallery_node_sizes_are_independent(management,tmp_path)
         assert card._icon.size()==QSize(size,size) and tree.iconSize()==tree_size
         index=next(i for i,e in enumerate(view._entries) if e['id']==child)
         rect=view.renderer.index.rects[index]
-        assert card.height()==rect.height()==max(40,size+12)
+        # Compact category rows preserve the requested image extent, with
+        # 8 px vertical room; the former 40 px minimum is no longer the UI.
+        assert card.height()==rect.height()==max(30,size+8)
         assert card.rect().contains(card.disclosure_rect())
     reloaded=ConfigService()
     assert reloaded.get('sidebar_icon_size')==48 and reloaded.get('gallery_node_icon_size')==48

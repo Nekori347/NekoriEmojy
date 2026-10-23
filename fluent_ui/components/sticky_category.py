@@ -1,7 +1,7 @@
 """One viewport presentation of the existing mixed-flow category row."""
 from bisect import bisect_right
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QColor, QPainter, QLinearGradient
 from fluent_ui.components.node_card import NodeCard
 from fluent_ui.components.gallery_model import occurrence_id
 from fluent_ui.visual import colors
@@ -34,7 +34,9 @@ class StickyCategory(NodeCard):
         if rect.top()>=top or entry['id'] not in g._expanded_nodes:
             self.hide();return
         signature=(entry,index.node_icon_size,entry['id'] in g._expanded_nodes)
-        if self._signature!=signature:
+        rebound=self._signature!=signature
+        if rebound:
+            self.reset_interaction()
             self.entry=self.content_entry=entry;self.node_id=entry['id']
             self.refresh_icon();self.set_expanded(True)
             self._motion.stop();self._angle=90.0
@@ -45,6 +47,7 @@ class StickyCategory(NodeCard):
         y=min(0,index.section_breaks[next_break]-top-rect.height()) if next_break<len(index.section_breaks) else 0
         self.setGeometry(rect.x(),y,rect.width(),rect.height())
         self.show();self.raise_()
+        if rebound:self.sync_pointer_state()
 
     def _toggle(self,node_id):
         # The visible resource is about to disappear: anchor the real header.
@@ -58,8 +61,12 @@ class StickyCategory(NodeCard):
         # NodeCard normally focuses a real flow row. Focusing this temporary
         # proxy makes QScrollArea scroll to it again as it hides/rebinds.
         self._dragging=False
+        self._pressed=True;self._keyboard_focus=False;self.update()
         event.accept()
 
     def paintEvent(self,event):
-        painter=QPainter(self);painter.fillRect(self.rect(),QColor(colors()['window_base']));painter.end()
+        gradient=QLinearGradient(0,0,0,self.height())
+        for stop,alpha in ((0,190),(.55,140),(1,0)):
+            color=QColor(colors()['window_base']);color.setAlpha(alpha);gradient.setColorAt(stop,color)
+        painter=QPainter(self);painter.fillRect(self.rect(),gradient);painter.end()
         super().paintEvent(event)

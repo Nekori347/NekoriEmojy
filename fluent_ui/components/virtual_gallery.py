@@ -7,6 +7,7 @@ from fluent_ui.components.gallery_model import occurrence_id
 from fluent_ui.components.gallery_thumbnails import GalleryThumbnails
 from fluent_ui.components.emoji_card import EmojiCard
 from services.i18n import t
+from fluent_ui.components.node_card import node_row_height
 
 
 class FlowIndex:
@@ -43,7 +44,7 @@ class FlowIndex:
             indent = min(entry.get('_depth', 0), 6)*14
             available = max(1, width-24-indent)
             if entry['kind'] == 'node':
-                height = max(40, node_icon_size + 12)
+                height = node_row_height(node_icon_size)
                 rects.append(QRect(12+indent, y, available, height))
                 index += 1
                 y += height + 4
@@ -170,6 +171,7 @@ class VirtualGallery:
                 label.setText(label.fontMetrics().elidedText(source, Qt.ElideMiddle, self.index.size))
                 label.setToolTip(source)
         else:
+            if card.node_id!=entry['id']:card.reset_interaction()
             signature = (entry['id'], entry['name'], entry.get('icon'), entry.get('total'),
                          entry.get('children'), entry['id'] in self.gallery._expanded_nodes,
                          self.index.node_icon_size)

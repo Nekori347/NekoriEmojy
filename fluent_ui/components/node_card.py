@@ -7,7 +7,7 @@ from services.exchange_icons import IMAGE_SUFFIXES, resolve_icon_path
 
 from PySide6.QtCore import Qt, Signal, QMimeData, QPoint, QRect, QRectF, QVariantAnimation
 from PySide6.QtGui import (
-    QColor, QDrag, QFont, QFontMetrics, QPainter, QPen, QPixmap,
+    QColor, QDrag, QFont, QFontMetrics, QPainter, QPen, QPixmap, QCursor,
 )
 from PySide6.QtWidgets import QApplication, QLabel, QSizePolicy
 
@@ -17,6 +17,11 @@ from fluent_ui import visual
 from fluent_ui.icons import Icon
 
 __all__ = ['NodeCard', 'render_node_icon', 'NODE_MIME', 'RESOURCE_MIME']
+
+
+def node_row_height(icon_size):
+    """Compact at the default icon size; larger user icons keep their extent."""
+    return max(30, max(14, min(48, int(icon_size))) + 8)
 
 
 def render_node_icon(storage, record, size):
@@ -68,6 +73,8 @@ class NodeCard(QLabel):
         self.is_selectable = False
         self.is_selected = False
         self._hovered = False
+        self._pressed = False
+        self._keyboard_focus = False
         self._drag_start = None
         self._dragging = False
         # Set by the gallery: returns every node id that travels with one drag.
@@ -79,7 +86,6 @@ class NodeCard(QLabel):
         self._motion.setEasingCurve(visual.MOTION.easing)
         self._motion.valueChanged.connect(self._rotate)
         self.setFocusPolicy(Qt.TabFocus)
-        self.setFixedHeight(40)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.setCursor(Qt.PointingHandCursor)
         self.setContextMenuPolicy(Qt.DefaultContextMenu)
@@ -109,7 +115,7 @@ class NodeCard(QLabel):
         self._icon = render_node_icon(self.storage, self.entry.get("node", {"id": self.node_id}),
                                       extent)
         self._icon_extent = extent
-        self.setFixedHeight(max(40, extent + 12))
+        self.setFixedHeight(node_row_height(extent))
         self.update()
 
     def update_size(self, new_size, load_image=True):
@@ -137,34 +143,36 @@ class NodeCard(QLabel):
 
     def paintEvent(self, event):
         c=colors();p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
-        p.setPen(Qt.NoPen)
-        if self.is_selected or self._hovered:
-            p.setBrush(QColor(c['selected'] if self.is_selected else c['hover']))
-            p.drawRoundedRect(QRectF(self.rect()).adjusted(0,2,0,-2),8,8)
-        p.setPen(QPen(QColor(accent()),2))
-        p.drawLine(8,12,8,self.height()-12)
+        marker=QColor(c['border_soft']);p.setPen(QPen(marker,1))
+        p.drawLine(6,9,6,self.height()-9)
 
-        if self._icon is not None:p.drawPixmap(24,(self.height()-self._icon.height())//2,self._icon)
+        if self._icon is not None:p.drawPixmap(16,(self.height()-self._icon.height())//2,self._icon)
         font=visual.font();font.setWeight(QFont.Medium);p.setFont(font)
+        name_metrics=QFontMetrics(font)
         summary=f"{self.entry.get('children',0)}/{self.entry.get('total',0)}"
-        count_width=p.fontMetrics().horizontalAdvance(summary)+12
-        count_x=self.width()-count_width-40
+        count_font=QFont(font);count_font.setFamily(DATA_FONT.split(',')[0]);count_font.setPixelSize(11);count_font.setBold(False)
+        count_width=QFontMetrics(count_font).horizontalAdvance(summary)+8
+        count_x=self.disclosure_rect().left()-8-count_width
         p.setPen(QColor(c['text']))
-        text_left = 24 + self._icon_extent + 10
-        text_width = max(0, count_x-text_left-10)
-        p.drawText(QRect(text_left,0,text_width,self.height()),Qt.AlignVCenter,p.fontMetrics().elidedText(self.entry['name'],Qt.ElideRight,text_width))
-        line_start=min(count_x-12,text_left+p.fontMetrics().horizontalAdvance(self.entry['name'])+12)
-        p.setPen(QPen(QColor(c['border_soft']),1));p.drawLine(line_start,self.height()//2,count_x-8,self.height()//2)
+        text_left = 16 + self._icon_extent + 8
+        text_width = max(0, count_x-text_left-34)
+        name=name_metrics.elidedText(self.entry['name'],Qt.ElideRight,text_width)
+        p.drawText(QRect(text_left,0,text_width,self.height()),Qt.AlignVCenter,name)
+        line_start=text_left+name_metrics.horizontalAdvance(name)+10
+        line_color=QColor(accent() if self._hovered or self._pressed else c['border_soft'])
+        if self._hovered and not self._pressed:line_color.setAlpha(180)
+        p.setPen(QPen(line_color,1.8 if self._pressed else 1))
+        if line_start<count_x-8:p.drawLine(line_start,self.height()//2,count_x-8,self.height()//2)
         p.setPen(QColor(c['muted']))
-        font.setFamily(DATA_FONT.split(',')[0]);font.setPixelSize(11);font.setBold(False);p.setFont(font)
+        p.setFont(count_font)
         p.drawText(QRect(count_x,0,count_width,self.height()),Qt.AlignRight|Qt.AlignVCenter,summary)
         x,y=self.disclosure_rect().center().x(),self.height()//2
         p.save();p.translate(x,y);p.rotate(self._angle)
         Icon.CHEVRON_RIGHT.render(p,QRectF(-7,-7,14,14),fill=c['text_secondary'])
         p.restore()
         if self.hasFocus() and getattr(self,'_keyboard_focus',False):
-            p.setBrush(Qt.NoBrush);p.setPen(QPen(QColor(c['border']),1,Qt.DotLine))
-            p.drawRoundedRect(QRectF(self.rect()).adjusted(2,5,-2,-5),6,6)
+            p.setPen(QPen(QColor(c['text_secondary']),1,Qt.DotLine))
+            p.drawLine(text_left,self.height()-4,text_left+name_metrics.horizontalAdvance(name),self.height()-4)
         p.end()
 
     # -- interaction --------------------------------------------------
@@ -172,10 +180,27 @@ class NodeCard(QLabel):
         self._hovered=True;self.update();super().enterEvent(event)
 
     def leaveEvent(self,event):
-        self._hovered=False;self.update();super().leaveEvent(event)
+        self._hovered=False;self._pressed=False;self.update();super().leaveEvent(event)
 
     def hideEvent(self,event):
-        self._hovered=False;super().hideEvent(event)
+        self.reset_interaction();super().hideEvent(event)
+
+    def showEvent(self,event):
+        super().showEvent(event);self.sync_pointer_state()
+
+    def moveEvent(self,event):
+        super().moveEvent(event);self.sync_pointer_state()
+
+    def reset_interaction(self):
+        self._hovered=self._pressed=self._keyboard_focus=False
+        self.update()
+
+    def sync_pointer_state(self):
+        hovered=self.isVisible() and QApplication.widgetAt(QCursor.pos()) is self
+        if hovered!=self._hovered:
+            self._hovered=hovered
+            if not hovered:self._pressed=False
+            self.update()
 
     def focusInEvent(self,event):
         self._keyboard_focus=event.reason() in (Qt.TabFocusReason,Qt.BacktabFocusReason,Qt.ShortcutFocusReason)
@@ -183,6 +208,8 @@ class NodeCard(QLabel):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
+            self._keyboard_focus=False
+            self._pressed=True;self.update()
             self.setFocus(Qt.MouseFocusReason)
             self._drag_start = event.pos()
             self._dragging = False
@@ -195,6 +222,7 @@ class NodeCard(QLabel):
             return super().mouseMoveEvent(event)
 
         self._dragging = True
+        self._pressed = False;self.update()
         drag = QDrag(self)
         mime = QMimeData()
         payload = self.drag_payload_provider(self.node_id) if self.drag_payload_provider else None
@@ -207,6 +235,7 @@ class NodeCard(QLabel):
         self._drag_start = None
 
     def mouseReleaseEvent(self, event):
+        self._pressed=False;self.update()
         if event.button() == Qt.LeftButton and not self._dragging:
             if self.disclosure_rect().contains(event.position().toPoint()):
                 self.disclosure_toggled.emit(self.node_id)
