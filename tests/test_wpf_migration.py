@@ -40,3 +40,20 @@ def test_migration_remains_busy_through_relations_order_and_reload(tmp_path,monk
     assert {p.relative_to(source):p.read_bytes() for p in source.rglob('*') if p.is_file()}==before
     assert len(storage.get_images_by_category('A'))==2
     assert len(storage.get_images_by_category('B'))==1
+
+
+def test_cancel_copy_does_not_continue_into_migration_tail(tmp_path,monkeypatch):
+    app=QApplication.instance() or QApplication([])
+    source=tmp_path/'suzu';images=source/'images';images.mkdir(parents=True)
+    for i,color in enumerate(['red','blue']):Image.new('RGB',(20,20),color).save(images/f'{i}.png')
+    (source/'order.json').write_text(json.dumps(['0.png','1.png']),encoding='utf-8')
+    (source/'categories.json').write_text(json.dumps({'A':['0.png','1.png']}),encoding='utf-8')
+    storage=StorageService(tmp_path/'library',config=ConfigService(tmp_path/'app'))
+    service=SuzuMigrationService(storage);worker=ImportThread([str(source)],storage,None)
+    def unexpected(*args,**kwargs):raise AssertionError('migration tail continued after cancel')
+    monkeypatch.setattr(service,'_ensure_node',unexpected)
+    worker.progress.connect(lambda done,total:worker.cancel() if done else None)
+    worker.operation=lambda callback:service.migrate_from_data_dir(source,callback)
+    worker.run();app.processEvents()
+    assert worker.cancel_event.is_set() and worker.errors==[]
+    assert len(storage.index.resources())==1 and storage.index.nodes()==[]
