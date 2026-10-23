@@ -23,6 +23,7 @@ class ImportRequest:
     duplicates:int=0
     kept:int=0
     conflicts:int=0
+    phase:str=''
     skipped:int=0
     failed:int=0
     paths:list=field(default_factory=list)
@@ -75,10 +76,14 @@ class ImportQueue(QObject):
             worker.duplicate_batch_resolver=lambda candidates:self._ask_batch(request,candidates)
             worker.operation=request.operation
             worker.progress.connect(lambda done,total,r=request:self._progress(r,done,total))
+            worker.stage.connect(lambda message,r=request:self._stage(r,message))
             worker.finished.connect(self._finished);self.changed.emit(request.id);worker.start(QThread.LowPriority);return
 
     def _progress(self,request,done,total):
         request.done=done;request.total=total;self.changed.emit(request.id)
+
+    def _stage(self,request,message):
+        request.phase=message;self.changed.emit(request.id)
 
     def _finished(self,saved,duplicates,failed):
         worker=self.worker

@@ -1603,5 +1603,11 @@
   "使用已存在文件导入": "Use existing file",
   "跳过剩余重复项": "Skip remaining duplicates",
   "等待处理重复表情（{count}）": "Waiting for duplicate decisions ({count})",
-  "其中保留独立条目 {count} 张": "Including {count} kept as separate entries"
+  "其中保留独立条目 {count} 张": "Including {count} kept as separate entries",
+  "正在更新图库": "Updating gallery",
+  "清理已完成通知": "Clear completed notifications",
+  "恢复分类关系": "Restoring category memberships",
+  "整理资源顺序": "Restoring resource order",
+  "完成迁移收尾": "Finalizing migration",
+  "迁移数据处理完成": "Migration data processed"
 }

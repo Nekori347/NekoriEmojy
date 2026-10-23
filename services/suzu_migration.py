@@ -159,6 +159,7 @@ class SuzuMigrationService:
     def migrate_from_package(self, package_path, progress=None):
         service = ExchangeImportService(storage=self.storage)
         imported, skipped = service.import_zip(package_path, progress)
+        if progress:progress(0,0,'完成迁移收尾')
         self.storage.force_reload()
         return {"resources": imported, "nodes": len(self.index.nodes()), "duplicates": skipped}
 
@@ -210,7 +211,7 @@ class SuzuMigrationService:
         sources = [images_dir / name for name in source_order if name in known and (images_dir / name).is_file()]
         root_before = [r["id"] for r in self.index.resources()]
         skipped = sum(not (images_dir / name).is_file() for name in known)
-        total = max(1, len(sources) + len(categories))
+        total = len(sources) + len(categories) + 1
         step = 0
         imported = duplicates = 0
         saved_by_name = {}
@@ -222,7 +223,7 @@ class SuzuMigrationService:
                 step+=1
                 continue
             except InterruptedError:
-                break
+                raise
             except Exception as exc:
                 print(f"[WARNING] Suzu 迁移跳过 {source}: {exc}")
                 step += 1
@@ -251,23 +252,29 @@ class SuzuMigrationService:
             if progress:
                 progress(step, total, name)
 
+        if progress:progress(0,0,'恢复分类关系')
         for name, paths in relations.items():
             node_id = node_ids.get(name)
             if node_id is None:
                 continue
             rank = {name: i for i, name in enumerate(source_order)}
             for ref in sorted(paths, key=lambda ref: rank.get(Path(ref.replace("\\", "/")).name, len(rank))):
+                cancelled=getattr(self.storage.import_context,'cancelled',None)
+                if cancelled and cancelled():raise InterruptedError()
                 saved = saved_by_name.get(Path(ref.replace("\\", "/")).name)
                 if saved:
                     self.index.add_membership(self.storage._resource_id(saved), node_id)
 
+        if progress:progress(0,0,'整理资源顺序')
         migrated_ids = list(dict.fromkeys(self.storage._resource_id(saved_by_name[name])
                                          for name in source_order if name in saved_by_name))
         current = [r['id'] for r in self.index.resources()]
         ordered_ids = root_before + [rid for rid in migrated_ids if rid not in root_before]
         ordered_ids += [rid for rid in current if rid not in ordered_ids]
         self.index.reorder_resources(ROOT, ordered_ids)
+        if progress:progress(0,0,'完成迁移收尾')
         self.storage.force_reload()
+        if progress:progress(total,total,'迁移数据处理完成')
         return {"resources": imported, "nodes": len(node_ids), "duplicates": duplicates, "skipped": skipped}
 
 

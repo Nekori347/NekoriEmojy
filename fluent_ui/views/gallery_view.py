@@ -96,6 +96,7 @@ class ImportThread(QThread):
     """Background import. Every source keeps its own target node and position."""
 
     progress = Signal(int, int)
+    stage = Signal(str)
     finished = Signal(int, int, int)  # saved, skipped, failed
 
     def __init__(self, sources, storage, target_node, delete_after=False, parent=None,
@@ -228,7 +229,8 @@ class ImportThread(QThread):
         failed=0
         def progress(done,total,message=''):
             if self.cancel_event.is_set():raise InterruptedError()
-            self.progress.emit(done,total)
+            if message:self.stage.emit(str(message))
+            self.progress.emit(done,total+1 if total>0 else 0)
         try:self.result=self.operation(progress)
         except InterruptedError:pass
         except Exception as exc:
@@ -2615,6 +2617,8 @@ class GalleryInterface(QWidget):
                     # job; the content stays as its tooltip/summary. Both are
                     # cleared by the normal terminal states below.
                     title=t('等待迁移，勿动数据') if state=='waiting' else t('迁移中，勿动源数据')
+                    phase=getattr(request,'phase','')
+                    if phase in {'恢复分类关系','整理资源顺序','完成迁移收尾'}:title+=' · '+t(phase)
                     summary+='\n'+t('迁移期间请保持源数据可用，不要移动或删除源文件；Nekori 只读取源数据，不会修改它。')
             if job.get('failed'):
                 summary+=' · '+t('文字识别失败 {count} 张').format(count=job['failed'])
