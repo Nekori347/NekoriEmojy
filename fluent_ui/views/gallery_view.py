@@ -2598,6 +2598,7 @@ class GalleryInterface(QWidget):
             elif state=='decision':
                 title=t('等待处理重复表情（{count}）').format(count=request.conflicts)
                 outcome='waiting';done=0;total=0
+            elif state=='finalizing':title=t('正在更新图库');outcome='running';done=0;total=0
             elif state=='running':title=t('正在导入表情');outcome='running';done=request.done;total=request.total
             elif state=='recognizing':
                 title=t('正在识别新表情文字');outcome='running'
@@ -2607,7 +2608,7 @@ class GalleryInterface(QWidget):
                 outcome='error' if state=='failed' else 'cancelled' if state=='cancelled' else 'partial' if request.failed else 'success'
                 done=request.done;total=request.total
             if getattr(request,'kept',0):summary+=' · '+t('其中保留独立条目 {count} 张').format(count=request.kept)
-            if request.kind=='migration' and state not in {'recognizing','decision'}:
+            if request.kind=='migration' and state not in {'recognizing','decision','finalizing'}:
                 title=t('等待 Suzu 迁移') if state=='waiting' else t('正在 Suzu 迁移') if state=='running' else (t('Suzu 迁移部分完成') if request.failed else t('Suzu 迁移完成')) if state=='completed' else t('Suzu 迁移失败') if state=='failed' else t('Suzu 迁移已停止')
                 if state in {'waiting','running'}:
                     # The task title is the only persistent text bound to this

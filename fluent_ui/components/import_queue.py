@@ -89,12 +89,15 @@ class ImportQueue(QObject):
         request.paths=list(dict.fromkeys(worker.result_paths));request.errors=list(worker.errors)
         request.result=worker.result
         request.skipped=worker.cancelled_count
-        request.state='cancelled' if worker.cancel_event.is_set() else 'failed' if failed and not (saved or duplicates) else 'completed'
+        terminal='cancelled' if worker.cancel_event.is_set() else 'failed' if failed and not (saved or duplicates) else 'completed'
+        request.state='finalizing';self.changed.emit(request.id)
         self.files_finished.emit(request)
+        request.state=terminal
         if request.paths and self.ocr.available and self.storage.config.get('ocr_auto',False) and request.state!='cancelled':
             request.state='recognizing'
             ids=[r['id'] for path in request.paths if (r:=self.storage.index.resource(path))]
             self.ocr.enqueue(ids,automatic=True,job_id=request.id,origin='import')
+        if request.state=='completed':request.done=request.total
         self.worker=None;self.current=None;worker.deleteLater()
         self.changed.emit(request.id);QTimer.singleShot(0,self._next)
 
@@ -102,7 +105,9 @@ class ImportQueue(QObject):
         for rid,request in tuple(self.requests.items()):
             if request.state!='recognizing':continue
             job=self.ocr.jobs.get(rid)
-            if job and job['state']!='running':request.state='completed' if job['state']=='completed' else 'cancelled'
+            if job and job['state']!='running':
+                request.state='completed' if job['state']=='completed' else 'cancelled'
+                if request.state=='completed':request.done=request.total
             self.changed.emit(rid)
 
     def cancel(self,rid):

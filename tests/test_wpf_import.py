@@ -90,3 +90,35 @@ def test_queue_one_waiting_batch_then_cancel_keeps_completed_imports(tmp_path,mo
     assert queue.worker is None and queue.requests[rid].state=='cancelled'
     assert len(storage.index.content(node))==1
     queue.shutdown();owner.deleteLater();queue.deleteLater();app.processEvents()
+
+
+def test_task_identity_survives_decision_refresh_and_completion(tmp_path,monkeypatch):
+    from fluent_ui.components.import_queue import ImportQueue
+    from fluent_ui.components.feedback import FeedbackHost
+    from fluent_ui.components.duplicate_dialog import DuplicateBatchDialog
+    from fluent_ui.views.gallery_view import GalleryInterface
+    from types import SimpleNamespace
+    app=QApplication.instance() or QApplication([])
+    config=ConfigService(tmp_path/'app');config.config['ocr_auto']=False
+    storage=StorageService(tmp_path/'library',config=config)
+    source=image(tmp_path/'old.png','red');storage.save_file(source)
+    owner=QWidget();owner.resize(1100,700)
+    host=FeedbackHost(owner);queue=ImportQueue(storage,app)
+    view=SimpleNamespace(imports=queue,ocr=queue.ocr,feedback_host=host)
+    states=[];refresh_states=[]
+    def sync(key):
+        GalleryInterface._sync_background_tasks(view)
+        assert set(host.named_tasks)=={key}
+        states.append(host.named_tasks[key]['state'])
+    queue.changed.connect(sync)
+    queue.files_finished.connect(lambda request:refresh_states.append(request.state))
+    monkeypatch.setattr(DuplicateBatchDialog,'show',lambda dialog:dialog.select('reuse'))
+    rid=queue.submit([source],ImportTarget(),owner)
+    for _ in range(500):
+        QTest.qWait(10)
+        if queue.requests[rid].state=='completed':break
+    assert refresh_states==['decision','finalizing']
+    assert states.count('success')==1 and states[-1]=='success'
+    assert queue.requests[rid].done==queue.requests[rid].total
+    assert set(host.named_tasks)=={rid}
+    queue.shutdown();queue.deleteLater();owner.deleteLater();app.processEvents()
