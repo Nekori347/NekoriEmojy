@@ -159,6 +159,12 @@ class CaptionFeedback(QObject):
         from fluent_ui.presentation.scrollbar import install_scrollbars
         install_scrollbars(self.panel)
         self.ear=TaskEar(self);self.cover=NoticeCover(self)
+        self.clear_button=TransparentToolButton(Icon.DELETE,window);self.clear_button.setFixedSize(22,22)
+        self.clear_button.setProperty('role','danger')
+        bind_text(self.clear_button,'清理已完成通知','setToolTip')
+        bind_text(self.clear_button,'清理已完成通知','setAccessibleName')
+        self.clear_button.clicked.connect(host.clear_completed)
+        self.clear_button.installEventFilter(self)
         self.panel.installEventFilter(self);self.ear.installEventFilter(self)
         host.strip.layout().setEnabled(False)
         self.detail=TransparentToolButton(Icon.INFO,host.strip);self.detail.setFixedSize(20,20)
@@ -172,6 +178,7 @@ class CaptionFeedback(QObject):
         if self.window is window:return
         self.window.removeEventFilter(self);self.window=window
         self.panel.setParent(window);self.ear.setParent(window);self.material.setParent(window);self.cover.setParent(window);window.installEventFilter(self)
+        self.clear_button.setParent(window)
         self.refresh()
 
     def refresh_theme(self):
@@ -438,6 +445,9 @@ class CaptionFeedback(QObject):
                                h.strip.width()+self.list_left_padding,extent)
         self.layout_rows()
         self.ear.move(h.strip.geometry().center().x()-self.ear.width()//2,area.bottom()-3)
+        self.clear_button.move(self.ear.x()-24,self.ear.y()-3)
+        self.clear_button.setVisible(bool(h.clearable_tasks()) and self.window.isVisible())
+        self.clear_button.raise_()
         self.material.raise_();h.strip.raise_();self.panel.raise_();self.ear.raise_()
         if self.overlay in h.named_tasks:self.cover.present(self.overlay,h.named_tasks[self.overlay])
         else:self.cover.hide();self.cover.key=None
@@ -445,12 +455,12 @@ class CaptionFeedback(QObject):
 
     def eventFilter(self,obj,event):
         kind=event.type()
-        if obj in (self.ear,self.panel):
+        if obj in (self.ear,self.panel,self.clear_button):
             if kind==QEvent.Enter:
                 self.hovered.add(obj);self.leave_timer.stop()
                 if obj is self.ear:self.expand()
             elif kind==QEvent.Leave:self.hovered.discard(obj);self.leave_timer.start()
         elif obj is self.window:
             if kind in (QEvent.Resize,QEvent.Show):self.refresh()
-            elif kind==QEvent.Hide:self.host.strip.hide();self.panel.hide();self.ear.hide();self.material.hide();self.cover.hide();self.ear.motion.stop()
+            elif kind==QEvent.Hide:self.host.strip.hide();self.panel.hide();self.ear.hide();self.clear_button.hide();self.material.hide();self.cover.hide();self.ear.motion.stop()
         return False

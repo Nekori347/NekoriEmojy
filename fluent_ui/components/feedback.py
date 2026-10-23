@@ -449,6 +449,14 @@ class FeedbackHost(QObject):
         if job:self.notices=[n for n in self.notices if n[:2]!=(job['title'],job['content'])]
         if hasattr(self,'_caption_ui'):self._caption_ui.removed(key)
 
+    def clearable_tasks(self):
+        return [key for key,job in self.named_tasks.items()
+                if job['state'] in {'success','info'} and not job['resume'] and not job['details']]
+
+    def clear_completed(self):
+        for key in self.clearable_tasks():self.remove_task(key)
+        if hasattr(self,'_caption_ui'):self._caption_ui.collapse()
+
 
     def _position_named(self):
         if hasattr(self,'_caption_ui'):self._caption_ui.reposition()
