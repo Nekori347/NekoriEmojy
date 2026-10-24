@@ -1,5 +1,5 @@
 """Shared primary navigation and engineering secondary tabs."""
-from PySide6.QtCore import Qt, QSize, QRectF, QEvent, Signal, Property, QPropertyAnimation, QEasingCurve, QVariantAnimation, QTimer
+from PySide6.QtCore import Qt, QSize, QRectF, QPointF, QEvent, Signal, Property, QPropertyAnimation, QEasingCurve, QVariantAnimation, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen, QPainterPath, QFontMetrics, QFont, QRegion, QCursor
 from PySide6.QtWidgets import QStyledItemDelegate, QStyle, QTabBar, QWidget, QVBoxLayout, QToolButton, QApplication, QLabel, QSizePolicy
 from fluent_ui import visual
@@ -626,11 +626,14 @@ class TabStrip(QTabBar):
         self._wheel_remainder = 0.0
         self._hovered_tab = -1
         self._pointer_inside = False
-        self._line_rect = QRectF()
+        self._line_state = QPointF(0,1)  # local vertical offset and opacity
         self._line_target = QRectF()
         self._line_motion = QVariantAnimation(self)
-        self._line_motion.setDuration(visual.MOTION.select)
-        self._line_motion.setEasingCurve(visual.MOTION.easing)
+        self._line_motion.setDuration(250)
+        self._line_motion.setEasingCurve(QEasingCurve.Linear)
+        for time,state in ((0,QPointF(2,0)),(.16,QPointF(1.2,1)),
+                           (.68,QPointF(-.45,1)),(.84,QPointF(.12,1)),(1,QPointF(0,1))):
+            self._line_motion.setKeyValueAt(time,state)
         self._line_motion.valueChanged.connect(self._move_line)
         self.currentChanged.connect(self._animate_line)
         visual.theme.changed.connect(self.update)
@@ -701,26 +704,25 @@ class TabStrip(QTabBar):
         return QRectF(rect.left()+8,9,max(0,rect.width()-16),3)
 
     def _move_line(self,value):
-        self._line_rect=value
-        self.update()
+        self._line_state=value
+        self.update(QRectF(self._line_target.left(),7,self._line_target.width(),8).toAlignedRect())
 
     def _animate_line(self,*_):
         target=self._target_line()
         self._line_target=target
         self._line_motion.stop()
-        if target.isEmpty() or self._line_rect.isEmpty() or not self.isVisible():
-            self._line_rect=target
+        if target.isEmpty() or not self.isVisible():
+            self._line_state=QPointF(0,1)
         else:
-            self._line_motion.setStartValue(self._line_rect)
-            self._line_motion.setEndValue(target)
+            self._line_state=QPointF(2,0)
             self._line_motion.start()
         self.update()
 
     def resizeEvent(self,event):
         super().resizeEvent(event)
         self._line_motion.stop()
-        self._line_rect=self._target_line()
-        self._line_target=self._line_rect
+        self._line_target=self._target_line()
+        self._line_state=QPointF(0,1)
 
     def mouseMoveEvent(self, event):
         self._pointer_inside = True
@@ -778,7 +780,8 @@ class TabStrip(QTabBar):
         target = self._target_line(viewport)
         if target != self._line_target:
             self._line_motion.stop()
-            self._line_rect = self._line_target = target
+            self._line_target = target
+            self._line_state = QPointF(0,1)
         # Qt moves tabs beneath a stationary pointer when its scroll buttons
         # are used. A cached mouseMove tab index then paints a moving ghost.
         pointer = self.mapFromGlobal(QCursor.pos())
@@ -841,5 +844,9 @@ class TabStrip(QTabBar):
             painter.drawText(text_rect,Qt.AlignCenter,painter.fontMetrics().elidedText(self.tabText(i),Qt.ElideRight,max(0,text_rect.width())))
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(c['accent']))
-        painter.drawRoundedRect(self._line_rect if not self._line_rect.isEmpty() else self._target_line(),1.5,1.5)
+        # Icons start at y=17; this band stays inside the rounded tab contour
+        # and above both icons and text, including the small rebound.
+        painter.setClipRect(QRectF(target.left(),7,target.width(),8),Qt.IntersectClip)
+        painter.setOpacity(self._line_state.y())
+        painter.drawRoundedRect(target.translated(0,self._line_state.x()),1.5,1.5)
         painter.end()

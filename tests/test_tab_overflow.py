@@ -188,14 +188,35 @@ def test_selected_rule_tracks_full_body_through_switch_scroll_resize(strip,monke
         else:assert target.isEmpty()
     matches()
     for index in (1,3,0):
-        strip.setCurrentIndex(index);QTest.qWait(210);matches()
-        assert strip._line_rect==strip._target_line()
+        strip.setCurrentIndex(index);QTest.qWait(280);matches()
+        assert strip._line_state==QPointF(0,1)
     right=next(b for b in strip._scroll_buttons if b.arrowType()==Qt.RightArrow)
     for _ in range(4):
         right.click();QApplication.processEvents();matches()
     strip.resize(680,43);QApplication.processEvents();matches()
-    strip.set_tabs(['Short','Much longer category title'],1);QTest.qWait(210);matches()
+    strip.set_tabs(['Short','Much longer category title'],1);QTest.qWait(280);matches()
     assert strip._target_line().width()>38
     from PySide6.QtCore import QRect
     monkeypatch.setattr(strip,'content_tab_rect',lambda index:QRect(0,0,12,43))
     assert strip._target_line().width()==0  # no negative line on an exceptionally narrow body
+
+
+def test_selected_tab_reveal_is_local_bounded_and_interruptible(strip):
+    tabs=strip;tabs.setCurrentIndex(1);target=tabs._target_line()
+    assert tabs._line_state.y()==0
+    offsets=[]
+    for ms in (0,20,60,130,170,210,250):
+        tabs._line_motion.setCurrentTime(ms);image=own_paint(tabs)
+        offsets.append(tabs._line_state.x())
+        assert tabs._line_target==target
+        moving=target.translated(0,tabs._line_state.x())
+        assert moving.top()>=7 and moving.bottom()<=15
+        assert moving.left()==target.left() and moving.width()==target.width()
+    assert min(offsets)<0 and tabs._line_state==QPointF(0,1)
+    for index in (2,0,3):
+        tabs.setCurrentIndex(index)
+        assert tabs._line_target==tabs._target_line() and tabs._line_state.y()==0
+    tabs._line_motion.setCurrentTime(250)
+    assert tabs._line_state==QPointF(0,1)
+
+
