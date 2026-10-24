@@ -41,7 +41,7 @@ class GalleryEntryModel:
         self.direct.clear()
         self.snapshots.clear()
 
-    def sync(self, parents=None, paths=()):
+    def sync(self, parents=None, paths=(), *, nodes=None, counts=None):
         """Read ordered identities, fetching resource records only when changed.
 
         Existing records survive insertion/removal/order changes. A Tag edit
@@ -49,7 +49,9 @@ class GalleryEntryModel:
         """
         self.snapshots.clear()
         changed = {record['id']: record for record in self.storage.index.resource_records(paths)} if paths else {}
-        counts = self.storage.node_counts()
+        counts = self.storage.node_counts() if counts is None else counts
+        nodes = self.storage.index.nodes() if nodes is None else nodes
+        node_records = {node['id']: node for node in nodes}
         for parent in list(self.direct):
             old = self.direct[parent]
             records = {entry_id(e): e for e in old}
@@ -71,7 +73,7 @@ class GalleryEntryModel:
                     else:
                         continue
                 else:
-                    record = self.storage.node(item['id'])
+                    record = node_records.get(item['id'])
                     if record is None:
                         continue
                     stats = counts.get(record['id'], {})

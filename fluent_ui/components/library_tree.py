@@ -196,25 +196,63 @@ class LibraryTree(QTreeWidget):
         item = self.currentItem()
         return (item.data(0, Qt.UserRole) if item else None) or ALL_RESOURCES
 
-    def refresh(self, select=None):
+    def sync_nodes(self, nodes, counts):
+        """Keep live rows/icons when only resource membership/counts changed."""
+        records = {node['id']: node for node in nodes}
+        def structure(values):
+            children = {}
+            for node in sorted(values, key=lambda n: n['position']):
+                children.setdefault(node['parent_id'], []).append((node['id'], node['name'], node['icon']))
+            return children
+        if structure(records.values()) != structure(self._node_records.values()):
+            self.refresh(select=self.current_node_id, nodes=nodes, counts=counts)
+            return True
+        self._node_records = records
+        self._sync_counts(counts)
+        from PySide6.QtWidgets import QTreeWidgetItemIterator
+        rows = QTreeWidgetItemIterator(self)
+        while rows.value():
+            item = rows.value()
+            node = records.get(item.data(0, Qt.UserRole))
+            if node:
+                self._set_item_counts(item, node, counts)
+            rows += 1
+        return False
+
+    def _sync_counts(self, counts):
+        self.sidebar.sync_root(counts.get(ROOT, {}).get('resources', 0))
+        self.header().resizeSection(1, max(32, max((self.fontMetrics().horizontalAdvance(str(c['resources'])) for c in counts.values()), default=0) + 14))
+
+    def refresh(self, select=None, *, nodes=None, counts=None):
         scroll = self.verticalScrollBar().value()
         self._hovered_index = None
         target = select or self._pending_select or ALL_RESOURCES
         expanded = self._expanded_ids() if self.topLevelItemCount() else set(self.sidebar.gallery_view._saved_view_state.get('sidebar_expanded', []))
         self.end_drag_session()
         self.blockSignals(True)
+        # Import snapshots may add/reorder nodes; retain unchanged rendered
+        # icons during that rebuild, without a cross-refresh image cache.
+        icons = {}
+        if nodes is not None:
+            from PySide6.QtWidgets import QTreeWidgetItemIterator
+            rows = QTreeWidgetItemIterator(self)
+            while rows.value():
+                item = rows.value(); key = item.data(0, Qt.UserRole)
+                if key in self._node_records:
+                    icons[key] = (self._node_records[key].get('icon'), item.icon(0))
+                rows += 1
         self.clear()
         self._node_records.clear()
         self.section_headers.clear()
-        counts = self.storage.node_counts()
-        self.sidebar.sync_root(counts.get(ROOT, {}).get('resources', 0))
-        self.header().resizeSection(1, max(32, max((self.fontMetrics().horizontalAdvance(str(c['resources'])) for c in counts.values()), default=0) + 14))
+        counts = self.storage.node_counts() if counts is None else counts
+        self._sync_counts(counts)
         # A refresh owns one consistent node snapshot. Recursing through
         # child_nodes() opened a new SQLite connection for every category.
         children_by_parent = {}
-        for node in self.storage.index.nodes():
+        for node in self.storage.index.nodes() if nodes is None else nodes:
             children_by_parent.setdefault(node['parent_id'] or ROOT, []).append(node)
         self._refresh_children = children_by_parent
+        self._refresh_icons = icons
         try:
             children = self._children(ALL_RESOURCES)
             section_starts = {index: key for key, index in self.section_projection.positions.items()}
@@ -232,6 +270,7 @@ class LibraryTree(QTreeWidget):
                 self._restore_expanded(item, expanded)
         finally:
             del self._refresh_children
+            del self._refresh_icons
         self._span_rows()
         self.blockSignals(False)
         self.select_node(target)
@@ -267,10 +306,7 @@ class LibraryTree(QTreeWidget):
         self.refresh(select=self.current_node_id)
 
     def _make_item(self, node, counts, pinned=False):
-        stats = counts.get(node["id"], {"resources": 0, "children": 0}) if not pinned else \
-            {"resources": counts.get(ROOT, {}).get("resources", 0),
-             "children": counts.get(ROOT, {}).get("children", 0)}
-        item = QTreeWidgetItem([node.get("name", ""), str(stats["resources"])])
+        item = QTreeWidgetItem([node.get("name", ""), ''])
         item.setData(0, Qt.UserRole, node["id"])
         item.setData(0, Qt.UserRole + 1, bool(pinned))
         item.setTextAlignment(1, Qt.AlignRight | Qt.AlignVCenter)
@@ -279,15 +315,22 @@ class LibraryTree(QTreeWidget):
         item.setFont(1, mono)
         item.setForeground(1, QColor(colors()["muted"]))
         item.setSizeHint(0, QSize(0, self._row_height()))
-        if pinned:
-            item.setToolTip(0, t('表情库全部表情 · {value_0} 项').format(value_0=stats['resources']))
-        else:
-            item.setToolTip(0, t('{value_0}\n{value_1} 个子分类 · {value_2} 项直接内容').format(value_0=node.get('name',''), value_1=stats['children'], value_2=stats['resources']))
-        item.setIcon(0, FIF.TILES.icon() if pinned else self._node_icon(node))
+        self._set_item_counts(item, node, counts)
+        previous = getattr(self, '_refresh_icons', {}).get(node['id'])
+        icon = previous[1] if previous and previous[0] == node.get('icon') else None
+        item.setIcon(0, FIF.TILES.icon() if pinned else icon if icon is not None else self._node_icon(node))
         if pinned:
             flags = Qt.ItemIsEnabled | Qt.ItemIsSelectable
             item.setFlags(flags)
         return item
+
+    def _set_item_counts(self, item, node, counts):
+        stats = counts.get(node['id'], {'resources': 0, 'children': 0})
+        item.setText(1, str(stats['resources']))
+        if item.data(0, Qt.UserRole + 1):
+            item.setToolTip(0, t('表情库全部表情 · {value_0} 项').format(value_0=stats['resources']))
+        else:
+            item.setToolTip(0, t('{value_0}\n{value_1} 个子分类 · {value_2} 项直接内容').format(value_0=node.get('name',''), value_1=stats['children'], value_2=stats['resources']))
 
     def _row_height(self):
         return max(34, self._icon_size + 16)

@@ -394,6 +394,11 @@ class CategorySidebar(Surface):
         if hasattr(self, 'icons'):
             self.icons.canvas.update()
 
+    def sync_nodes(self, nodes, counts):
+        if self.tree.sync_nodes(nodes, counts):
+            self.icons.refresh()
+            self._update_section_index()
+
     def apply_presentation(self):
         mode = SidebarPresentationMode(self.config.get('sidebar_mode', 'tree'))
         self.btn_view_mode.setIcon(FIF.MENU if mode == SidebarPresentationMode.TREE else FIF.TILES)
@@ -459,6 +464,8 @@ class CategorySidebar(Surface):
     def _as_node_id(self, value):
         if not value or value in ("全部表情", "全部资源"):
             return ALL_RESOURCES
+        if value == ROOT or value in self.tree._node_records:
+            return value
         labels = self.storage.category_labels()
         if value in labels:
             return labels[value]
@@ -1391,14 +1398,14 @@ class GalleryInterface(QWidget):
         if getattr(self, '_recent_view', False):
             self.refresh_content_incremental(reason='recent',parents=set())
 
-    def refresh_content_incremental(self, *, reason='', paths=(), parents=None):
+    def refresh_content_incremental(self, *, reason='', paths=(), parents=None, nodes=None, counts=None):
         if self._view_signature_at_build != self._view_signature() or not self.storage.index.node(self.current_node):
             self.entry_model.invalidate()
             self.refresh_content(reason=reason)
             return
         anchors = tuple(self.renderer.visible_anchors())
         old_scroll = self.scroll_area.verticalScrollBar().value()
-        self.entry_model.sync(parents=parents, paths=paths)
+        self.entry_model.sync(parents=parents, paths=paths, nodes=nodes, counts=counts)
         plain = not getattr(self,'_recent_view',False) and not self.search_keyword.strip() and not self.filter_state.is_active() and not self.active_tags and self.content_sort == 'manual'
         if plain:
             first = self.entry_model.patch_normal(self._entries, self.content_scope_node(), self._expanded_nodes)
@@ -2751,10 +2758,11 @@ class GalleryInterface(QWidget):
 
     def _queued_files_finished(self,request):
         self.renderer.loader.invalidate(request.paths)
-        self.sidebar.refresh_list(self.current_node)
+        nodes=self.storage.index.nodes();counts=self.storage.node_counts()
+        self.sidebar.sync_nodes(nodes,counts)
         parents={ROOT,request.target.parent_node}
-        if request.operation:parents.update(n['id'] for n in self.storage.index.nodes())
-        self.refresh_content_incremental(reason='queued_import',paths=set(request.paths),parents=parents)
+        if request.operation:parents.update(n['id'] for n in nodes)
+        self.refresh_content_incremental(reason='queued_import',paths=set(request.paths),parents=parents,nodes=nodes,counts=counts)
 
     def _sync_background_tasks(self):
         host=self.feedback_host
