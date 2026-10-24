@@ -11,14 +11,19 @@ from pathlib import Path
 
 parser=argparse.ArgumentParser()
 parser.add_argument('--root',required=True)
-parser.add_argument('--mode',choices=['measure','native','native-long','native-final','native-regression','import','import-nosort'],default='measure')
+parser.add_argument('--mode',choices=['measure','native','native-long','native-final','native-regression','import','import-nosort','visual','windows','frame-cache'],default='measure')
 parser.add_argument('--label',help='Private output prefix; preserves previous comparison evidence')
+parser.add_argument('--no-motion',action='store_true',help='Isolated A/B only, skip UI animations')
+parser.add_argument('--opaque',action='store_true')
+parser.add_argument('--cache-kb',type=int,default=131072)
+parser.add_argument('--native-window-input',action='store_true',help='Requires an agreed exclusive mouse window')
 args=parser.parse_args()
 ROOT=Path(args.root).resolve();LIB=ROOT/'library';SOURCE=Path(__file__).resolve().parents[1]
 if not (ROOT/'snapshot-summary.json').exists() or not LIB.is_dir():
     raise RuntimeError('A verified isolated snapshot is required')
 os.environ['NEKORI_APP_DATA']=str(ROOT/'app')
 os.environ['NEKORI_LIBRARY']=str(LIB)
+if args.opaque:os.environ['NEKORI_OPAQUE_MATERIAL']='1'
 sys.path.insert(0,str(SOURCE))
 from PySide6.QtCore import Qt,QEvent,QTimer,QEventLoop,QPoint,QPointF,QSize,QAbstractAnimation
 from PySide6.QtGui import QMovie,QImageReader,QPixmapCache,QMouseEvent,QWheelEvent,QDrag,QCursor
@@ -45,7 +50,7 @@ class ProcessMetrics:
             raise ctypes.WinError()
         return dict(rss=mem.WorkingSetSize,read=io.ReadTransferCount,write=io.WriteTransferCount,cpu=time.process_time())
 
-events=collections.deque(maxlen=180000);phase='startup';began=time.perf_counter()
+events=collections.deque(maxlen=180000);phase='startup';began=time.perf_counter();paint_counts=collections.Counter()
 lock=threading.Lock();main_id=threading.get_ident();last_tick=[began];finished=threading.Event()
 def now():return (time.perf_counter()-began)*1000
 def emit(event_name,**values):
@@ -62,6 +67,7 @@ def resource_alias(value):
 class App(QApplication):
     def notify(self,obj,event):
         kind=event.type();start=time.perf_counter()
+        if kind==QEvent.Paint:paint_counts[phase]+=1
         inp=kind in (QEvent.MouseButtonPress,QEvent.MouseButtonRelease,QEvent.Wheel,QEvent.ContextMenu)
         if inp:emit('qt_input',kind=int(kind),receiver=type(obj).__name__)
         try:return super().notify(obj,event)
@@ -168,10 +174,21 @@ card_module.QImageReader=Reader
 
 config=ConfigService();config.config.update(library_path=str(LIB),ocr_auto=False,always_on_top=False,
     auto_check_updates=False,clipboard_import_enabled=False,preview_delay=100,thumbnail_size=60,gallery_click_action='send',hide_main_after_paste=False)
+config.config.update(ui_animations_enabled=not args.no_motion,window_acrylic_enabled=not args.opaque)
 i18n_engine.init(config);visual.theme.configure(config)
 storage=StorageService(library_path=LIB,config=config)
 assert Path(storage.library_root).resolve()==LIB
 MainWindow._init_global_hotkey=lambda self:setattr(self,'hotkey_listener',None)
+if args.mode=='windows':
+    setter=ctypes.windll.user32.SetWindowCompositionAttribute
+    setter.argtypes=[wintypes.HWND,ctypes.c_void_p];setter.restype=wintypes.BOOL
+    class AttributeData(ctypes.Structure):
+        _fields_=[('attribute',ctypes.c_int),('data',ctypes.c_void_p),('size',ctypes.c_size_t)]
+    def composition(hwnd,data):
+        value=ctypes.cast(data,ctypes.POINTER(AttributeData)).contents
+        if value.attribute==19:emit('native_accent',hwnd=int(hwnd.value),state=ctypes.cast(value.data,ctypes.POINTER(ctypes.c_int)).contents.value)
+        return setter(hwnd,ctypes.cast(data,ctypes.c_void_p))
+    ctypes.windll.user32.SetWindowCompositionAttribute=composition
 window=MainWindow(storage,ClipboardService(config),config);g=window.gallery_interface
 window.setWindowTitle('Nekori isolated performance investigation');window.resize(1150,800)
 sent=[]
@@ -228,7 +245,8 @@ def send_probes():
         event=QEvent(PROBE);event.sent=now();QCoreApplication.postEvent(admission,event)
 threading.Thread(target=send_probes,daemon=True).start()
 
-def wait(ms):QTest.qWait(ms)
+def wait(ms):
+    loop=QEventLoop();QTimer.singleShot(ms,loop.quit);loop.exec()
 def scenario(name):
     global phase
     phase=name;emit('phase');last_tick[0]=time.perf_counter()
@@ -256,6 +274,9 @@ def flips():
 def execute():
     try:
         scenario('settle');wait(1300)
+        if args.mode=='visual':visual_probe();return
+        if args.mode=='windows':window_probe();return
+        if args.mode=='frame-cache':frame_cache_probe();return
         if args.mode in ('native','native-long','native-final','native-regression'):native()
         else:
             if args.mode in ('import','import-nosort'):
@@ -353,5 +374,159 @@ def focused_import():
         assert not db.execute('SELECT 1 FROM task_checkpoints WHERE task_id=?',(rid,)).fetchone()
     emit('import_consistency',unique_members=len(order),projection_matches=True,checkpoints_finished=True)
     scenario('import_after');wait(1800)
+
+def visual_probe():
+    from fluent_ui.components.emoji_card import ThumbnailCache
+    cache=ThumbnailCache();cache._normal_limit_kb=args.cache_kb
+    QPixmapCache.setCacheLimit(args.cache_kb)
+    process=ProcessMetrics();previous=process.read()
+    def state(label):
+        nonlocal previous
+        value=process.read();loader=g.renderer.loader
+        emit('cache_state',label=label,limit=QPixmapCache.cacheLimit(),rss=value['rss'],
+             cpu_delta=value['cpu']-previous['cpu'],decodes=loader.decodes,disk_hits=loader.disk_hits,
+             memory_hits=loader.memory_hits,active=len(loader.running),queued=len(loader.wanted),paints=paint_counts[phase])
+        previous=value
+    emit('visual_config',no_motion=args.no_motion,opaque=args.opaque,cache_kb=args.cache_kb,
+         material=window.property('nativeMaterial'),hwnd=int(window.winId()),utc=time.time())
+    for repeat in range(2):
+        scenario('navigation_'+str(repeat));start=now()
+        g.set_node(plan['static'])
+        top=g.scroll_area.verticalScrollBar().value()
+        indices=list(g.renderer.index.between(top,top+g.scroll_area.viewport().height()))
+        from fluent_ui.components.gallery_model import occurrence_id
+        def bound():
+            return all((c:=g.renderer.active.get(occurrence_id(g._entries[i]))) is not None
+                       and c.isVisible() and c.content_entry is g._entries[i] for i in indices)
+        while not bound() and now()-start<2500:wait(10)
+        emit('visible_ready',ms=now()-start,cards=len(cards()),repeat=repeat,complete=bound())
+        wait(350);state('static_'+str(repeat))
+        g.set_node(plan['animated']);wait(500);state('animated_'+str(repeat))
+    scenario('incremental_profile')
+    profile=cProfile.Profile()
+    try:
+        for _ in range(3):
+            profile.enable()
+            g.refresh_content_incremental(paths=[str(LIB/m['relative']) for m in plan['largest'][:8]],parents={LIBROOT,plan['animated']})
+            profile.disable();wait(70)
+    finally:
+        profile.disable();out=io.StringIO();pstats.Stats(profile,stream=out).sort_stats('cumtime').print_stats(45)
+        (ROOT/((args.label or args.mode)+'-profile.txt')).write_text(out.getvalue(),encoding='utf-8')
+    wait(400);state('incremental')
+    scenario('flips');flips();state('flips')
+    scenario('window_lifecycle')
+    start_hwnd=int(window.winId());normal=window.geometry()
+    window.showMaximized();wait(150);window.showNormal();wait(150)
+    window.setGeometry(normal);window.resize(1120,780);wait(150)
+    window.move(window.x()+20,window.y()+10);wait(150)
+    window.move(normal.topLeft());window.resize(normal.size());wait(150)
+    emit('window_check',same_hwnd=int(window.winId())==start_hwnd,material=window.property('nativeMaterial'),maximized=window.isMaximized())
+    scenario('movie_content')
+    item=plan['largest'][0];popup=g.preview_controller.popup
+    popup.show_preview(str(LIB/item['relative']),QPoint(50,50),320,info={})
+    frames=[]
+    if popup.current_movie:popup.current_movie.frameChanged.connect(frames.append)
+    wait(650);emit('movie_frames',changes=len(frames));popup.hide_preview();state('movie')
+def frame_cache_probe():
+    from fluent_ui.components.gallery_thumbnails import GalleryThumbnails
+    item=plan['largest'][0];path=str(LIB/item['relative']);record=storage.index.resource(path)
+    metadata=json.loads(record['metadata_json']);metadata['thumb_frame']=item['frames']//2
+    entry=dict(kind='resource',id=record['id'],path=path,resource=dict(record,metadata_json=json.dumps(metadata)))
+    card=EmojiCard(path,size=120,load_image=False,parent=g);card.content_entry=entry
+    loader=GalleryThumbnails(config,g);loader.cache_dir=ROOT/'frame-cache';loader.cache_dir.mkdir(exist_ok=True)
+    key,*_,disk=loader.key(entry,120);cold=not disk.exists();pixels=None
+    if disk.exists():
+        disk.rename(ROOT/('frame-cache-prior-'+str(time.time_ns())+'.png'));cold=True
+    for label in ('source','disk','memory'):
+        scenario('frame_cache_'+label)
+        if label!='memory':QPixmapCache.remove(key)
+        card._is_loaded=False;card._gallery_thumbnail_key=None
+        start=now();loader.request([card])
+        if not card._is_loaded:
+            loop=QEventLoop();timeout=QTimer();timeout.setSingleShot(True);timeout.timeout.connect(loop.quit)
+            tasks=[task for _,task in loader.running.values()]
+            for task in tasks:task.signals.finished.connect(loop.quit)
+            timeout.start(5000);loop.exec();timeout.stop()
+        assert card._is_loaded
+        image=card.pixmap().toImage()
+        if pixels is not None:assert image==pixels
+        pixels=image
+        emit('frame_cache_result',label=label,ms=now()-start,cold_source=cold,
+             frame=metadata['thumb_frame'],decodes=loader.decodes,disk_hits=loader.disk_hits,memory_hits=loader.memory_hits)
+    card.deleteLater();loader.deleteLater()
+
+def window_probe():
+    from fluent_ui.window_shell import ToolWindow
+    from fluent_ui.materials import shell_color
+    from PySide6.QtWidgets import QLabel
+    u=ctypes.windll.user32
+    u.GetForegroundWindow.restype=wintypes.HWND
+    u.WindowFromPoint.argtypes=[wintypes.POINT];u.WindowFromPoint.restype=wintypes.HWND
+    u.GetAncestor.argtypes=[wintypes.HWND,wintypes.UINT];u.GetAncestor.restype=wintypes.HWND
+    tool=ToolWindow(window,QLabel('Isolated visual preference test'),'Visual preference test')
+    settings=window.settings_window
+    def input_action(action):
+        driver=threading.Thread(target=action);driver.start()
+        while driver.is_alive():wait(15)
+    def click(point):
+        assert int(u.GetAncestor(u.WindowFromPoint(wintypes.POINT(point.x(),point.y())),2))==hwnd==int(u.GetForegroundWindow())
+        def perform():
+            u.SetCursorPos(point.x(),point.y());u.mouse_event(2,0,0,0,0);time.sleep(.06)
+            u.mouse_event(4,0,0,0,0);time.sleep(.18)
+        input_action(perform)
+    def drag(point,dx,dy):
+        assert int(u.GetAncestor(u.WindowFromPoint(wintypes.POINT(point.x(),point.y())),2))==hwnd==int(u.GetForegroundWindow())
+        def perform():
+            u.SetCursorPos(point.x(),point.y());u.mouse_event(2,0,0,0,0);time.sleep(.07)
+            u.SetCursorPos(point.x()+dx,point.y()+dy);time.sleep(.13)
+            u.mouse_event(4,0,0,0,0);time.sleep(.18)
+        input_action(perform)
+    for title,w in [('main',window),('settings',settings),('tool',tool)]:
+        scenario('window_'+title)
+        if title=='main':w.showNormal()
+        else:w.present()
+        w.setGeometry(60,60,1100,740);w.raise_();w.activateWindow();wait(220)
+        hwnd=int(w.winId());normal=w.geometry();h=wintypes.HWND(hwnd)
+        u.SetForegroundWindow(h)
+        if u.GetForegroundWindow()!=hwnd:
+            foreground=u.GetWindowThreadProcessId(u.GetForegroundWindow(),None)
+            current=ctypes.windll.kernel32.GetCurrentThreadId()
+            attached=bool(u.AttachThreadInput(current,foreground,True))
+            try:u.BringWindowToTop(h);u.SetForegroundWindow(h)
+            finally:
+                if attached:u.AttachThreadInput(current,foreground,False)
+        emit('foreground_check',window=title,active=u.GetForegroundWindow()==hwnd)
+        if args.native_window_input:
+            u.SetForegroundWindow(h);wait(150)
+            assert int(u.GetForegroundWindow())==hwnd
+            point=w.mapToGlobal(QPoint(210,14));drag(point,70,35)
+            moved=w.geometry();emit('native_drag_check',window=title,dx=moved.x()-normal.x(),dy=moved.y()-normal.y())
+            corner=w.mapToGlobal(QPoint(w.width()-2,w.height()-2));before=w.size()
+            drag(corner,30,20)
+            emit('native_resize_check',window=title,dw=w.width()-before.width(),dh=w.height()-before.height())
+            click(w.titleBar.maxBtn.mapToGlobal(w.titleBar.maxBtn.rect().center()))
+        else:w.showMaximized();wait(180)
+        maximum=w.geometry();native_max=bool(u.IsZoomed(h));qt_max=w.isMaximized()
+        if args.native_window_input:click(w.titleBar.maxBtn.mapToGlobal(w.titleBar.maxBtn.rect().center()))
+        else:w.showNormal();wait(180)
+        restored=w.geometry()
+        w.showMinimized();wait(100);w.showNormal();wait(140)
+        w.hide();wait(80)
+        if title=='main':w.show_gallery(refresh=False)
+        else:w.present()
+        wait(180)
+        emit('host_check',window=title,material=w.property('nativeMaterial'),alpha=shell_color(w).alpha(),
+             same_hwnd=int(w.winId())==hwnd,native_max=native_max,qt_max=qt_max,
+             larger=maximum.width()>restored.width() and maximum.height()>restored.height(),
+             restored=not w.isMaximized(),native_contour=w.property('nativeContour'),
+             size=[w.width(),w.height()],layout=[w.body_layout.geometry().width(),w.body_layout.geometry().height()] if hasattr(w,'body_layout') else [])
+        assert int(w.winId())==hwnd and native_max and qt_max and not w.isMaximized()
+        if title!='main':w.hide()
+    waits=[]
+    for _ in range(6):
+        t=now();ctypes.windll.dwmapi.DwmFlush();waits.append(round(now()-t,3))
+    emit('dwm_flush_roundtrip',ms=waits)
+    tool.hide();tool.deleteLater()
+
 QTimer.singleShot(0,execute)
 app.exec()
