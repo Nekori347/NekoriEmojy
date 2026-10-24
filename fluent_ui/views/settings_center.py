@@ -491,6 +491,14 @@ class SettingsCenter(QWidget):
     def _page_hotkeys(self):
         section = self._section("GLOBAL HOTKEYS")
         section.add_row(self._track(
+            SwitchRow('全局快捷键导入表情', '在其它应用中复制后，直接导入根层资源。',
+                      'clipboard_import_enabled', self.config.get('clipboard_import_enabled', True), self),
+            'clipboard_import_enabled', True))
+        section.add_row(self._track(
+            HotkeyRow('导入快捷键', '', 'clipboard_import_hotkey',
+                      self.config.get('clipboard_import_hotkey', 'ctrl+alt+v'), self),
+            'clipboard_import_hotkey', 'ctrl+alt+v'))
+        section.add_row(self._track(
             HotkeyRow("唤醒快捷键", "全局显示 / 隐藏主面板。", "global_hotkey",
                       self.config.get("global_hotkey", "ctrl+shift+e"), self),
             "global_hotkey", "ctrl+shift+e"))
@@ -796,6 +804,11 @@ class SettingsCenter(QWidget):
         original.update(self._preview_backup)
         autostart_before = self._autostart_enabled()
         autostart_applied = False
+        command = getattr(self.config, 'clipboard_import_command', None)
+        hotkey_changed = bool({'clipboard_import_enabled', 'clipboard_import_hotkey'} & keys.keys())
+        if command and hotkey_changed and not command.configure(keys):
+            self.show_error(t('保存失败'), t(command.hotkey.error))
+            return False
         try:
             from contextlib import nullcontext
             from services.library_setup import prepare_library
@@ -810,6 +823,7 @@ class SettingsCenter(QWidget):
             if 'library_path' not in keys and not isinstance(error,(OSError,RuntimeError)):raise
             self.config.config.clear()
             self.config.config.update(original)
+            if command and hotkey_changed:command.configure(original)
             failure = str(error)
             if 'library_path' in keys:
                 from services.library_setup import LibraryLocationError
@@ -846,6 +860,27 @@ class SettingsCenter(QWidget):
             if row is not None:
                 row.set_hint(t('唤醒快捷键与快速面板快捷键不能相同') if conflict else '')
                 row.hint_label.setStyleSheet(f'color: {visual.colors()["danger"]};' if conflict else '')
+        row = self._all_rows.get('clipboard_import_hotkey', (None,))[0]
+        enabled = keys.get('clipboard_import_enabled', self.config.get('clipboard_import_enabled', True))
+        text = keys.get('clipboard_import_hotkey', self.config.get('clipboard_import_hotkey', 'ctrl+alt+v'))
+        error = ''
+        if enabled:
+            from services.import_hotkey import hotkey_parts
+            try:
+                parts = hotkey_parts(text)
+                for other in (main, quick):
+                    try: same = parts == hotkey_parts(other)
+                    except ValueError: same = False
+                    if same:error = '导入快捷键不能与唤醒或快速面板快捷键相同。'
+            except ValueError as exc:error = str(exc)
+        command = getattr(self.config, 'clipboard_import_command', None)
+        if row is not None:
+            status = command.hotkey.error if command else ''
+            if not status:
+                status = '快捷键已生效' if command and command.hotkey.binding else '快捷键未启用'
+            row.set_hint(t(error or status))
+            row.hint_label.setStyleSheet(f'color: {visual.colors()["danger"]};' if error or (command and command.hotkey.error) else '')
+        conflict = conflict or bool(error)
         return not conflict
 
     def discard(self):

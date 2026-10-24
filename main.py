@@ -223,6 +223,8 @@ def main():
         window.view_check_shortcut = QShortcut(QKeySequence('F9'), window)
         window.view_check_shortcut.activated.connect(toggle_empty_content)
     tray_icon.show()
+    from fluent_ui.components.clipboard_import_command import install_clipboard_import
+    install_clipboard_import(window, config_service, tray_icon)
     
     from services.autostart import should_start_hidden
     if not should_start_hidden(sys.argv, QSystemTrayIcon.isSystemTrayAvailable()):

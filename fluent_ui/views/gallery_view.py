@@ -2792,24 +2792,30 @@ class GalleryInterface(QWidget):
 
     def paste_into(self, placement):
         """Paste using a placement resolved from where the user clicked."""
-        data_type, data = self.clipboard.get_data_from_clipboard()
         parent = placement.parent or self.content_scope_node()
         position = placement.resolved_position()
+        return self.paste_clipboard_to(parent, position)
+
+    def paste_clipboard_to(self, parent, position=None, *, background=False, notify=None):
+        """One clipboard command, with an explicit target even while hidden."""
+        data_type, data = self.clipboard.get_data_from_clipboard()
+        notify = notify or self.feedback_host.toast
         if data_type == 'file':
             data=[p for p in data if p.lower().endswith(self.storage.SUPPORTED_FORMATS) or os.path.isdir(p)]
             if not data:
-                self.feedback_host.toast(t('剪贴板中没有可导入的表情'));return
-            self.import_paths_to(data, parent, position=position)
+                notify(t('剪贴板中没有可导入的表情'));return
+            from services.resource_import import ImportTarget
+            return self.imports.submit(data,ImportTarget(parent,position if background or position is not None else 0),self,background=background)
         elif data_type == 'image':
             from services.resource_import import ImportTarget
-            self.imports.submit([data.copy()],ImportTarget(parent,position),self)
+            return self.imports.submit([data.copy()],ImportTarget(parent,position),self,background=background)
         elif data_type == 'network_url':
             # A download finishes later, so an index captured now could point
             # into a stream that changed meanwhile; it appends by design.
             from services.resource_import import ImportTarget
-            self.imports.submit([data],ImportTarget(parent,position),self)
+            return self.imports.submit([data],ImportTarget(parent,position),self,background=background)
         else:
-            self.feedback_host.toast(t('剪贴板中没有可导入的表情'))
+            notify(t('剪贴板中没有可导入的表情'))
 
     def _on_download_finished(self, success, temp_filepath, error_msg, url, target_node=None):
         for thread in self.download_threads[:]:

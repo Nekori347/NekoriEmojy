@@ -11,6 +11,8 @@ class ConfigService:
         self.load_error=None
         
         self.default_config = {
+            "clipboard_import_enabled": True,
+            "clipboard_import_hotkey": "ctrl+alt+v",
             "auto_check_updates": True,
             "light_theme_key": "nekori",
             "dark_theme_key": "nekori",

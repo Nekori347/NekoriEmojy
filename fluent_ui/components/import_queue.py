@@ -2,7 +2,7 @@
 from collections import deque
 from dataclasses import dataclass,field
 import threading,uuid
-from PySide6.QtCore import QObject,Signal,QTimer,QThread
+from PySide6.QtCore import QObject,Signal,QTimer,QThread,QEvent
 from PySide6.QtWidgets import QApplication
 from services.resource_import import ImportTarget
 from services.ocr_service import ocr_service
@@ -32,6 +32,7 @@ class ImportRequest:
     result:object=None
     before:tuple|None=None
     kind:str='import'
+    background:bool=False
 
 
 class ImportQueue(QObject):
@@ -43,15 +44,18 @@ class ImportQueue(QObject):
     def __init__(self,storage,parent):
         super().__init__(parent);self.storage=storage;self.requests={};self.waiting=deque();self.worker=None
         self.current=None;self._closing=False;self._decisions={};self._dialogs={}
+        self._pending_batches={}
         self.duplicate_requested.connect(self._show_duplicate)
         self.batch_requested.connect(self._show_batch)
         self.ocr=ocr_service(storage);self.ocr.changed.connect(self._ocr_changed)
         parent.aboutToQuit.connect(self.shutdown)
 
-    def submit(self,sources,target,owner,*,delete_after=False,operation=None,kind='import'):
+    def submit(self,sources,target,owner,*,delete_after=False,operation=None,kind='import',background=False):
         request=ImportRequest(list(sources),target,owner,delete_after);request.total=len(request.sources)
         request.operation=operation
         request.kind=kind
+        request.background=background
+        if background:owner.window().installEventFilter(self)
         if target.insert_position is not None:
             entries=self.storage.index.content(target.parent_node)
             if 0<=target.insert_position<len(entries):
@@ -125,6 +129,7 @@ class ImportQueue(QObject):
             if job==rid:
                 choice[0]='skip';event.set()
                 if key in self._dialogs:self._dialogs[key].reject()
+                self._pending_batches.pop(key,None)
         self.changed.emit(rid)
 
     def _ask_duplicate(self,request,old,new):
@@ -168,11 +173,25 @@ class ImportQueue(QObject):
             if item:item[2][0]=choices;item[1].set()
             if request.state!='cancelled':request.state='running';self.changed.emit(request.id)
             self._dialogs.pop(key,None)
-        dialog=DuplicateBatchDialog(request.owner.window(),candidates,self.storage,decide)
-        self._dialogs[key]=dialog;dialog.show()
+        def show():
+            dialog=DuplicateBatchDialog(request.owner.window(),candidates,self.storage,decide)
+            self._dialogs[key]=dialog;dialog.show()
+        owner=request.owner.window()
+        if request.background and not (owner.isVisible() and not owner.isMinimized() and owner.isActiveWindow()):
+            self._pending_batches[key]=(request,show)
+        else:show()
+
+    def eventFilter(self,watched,event):
+        if event.type()==QEvent.WindowActivate:
+            for key,(request,show) in tuple(self._pending_batches.items()):
+                if request.owner.window() is watched:
+                    self._pending_batches.pop(key,None)
+                    if key in self._decisions and request.state=='decision':show()
+        return False
 
     def shutdown(self):
         self._closing=True
+        self._pending_batches.clear()
         if self.worker:self.worker.cancel()
         for _,event,choice in tuple(self._decisions.values()):choice[0]='skip';event.set()
         for dialog in tuple(self._dialogs.values()):dialog.reject()

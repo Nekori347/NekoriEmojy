@@ -109,6 +109,8 @@ if (DATA/'sticky-sample.json').is_file():
 menu.addAction('导入120张样本',batch);menu.addAction('重复项集中决策',duplicates)
 menu.addAction('打开QQ提取样本',window.show_qq_scan);menu.addAction('退出开发 Demo',app.quit)
 tray.setContextMenu(menu);tray.activated.connect(lambda reason:show() if reason==QSystemTrayIcon.Trigger else None);tray.show()
+from fluent_ui.components.clipboard_import_command import install_clipboard_import
+install_clipboard_import(window,config,tray)
 def cleanup():
     gallery.imports.shutdown();gallery.ocr.close();window.settings_window.center.discard();tray.hide()
 app.aboutToQuit.connect(cleanup)

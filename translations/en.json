@@ -1631,5 +1631,17 @@
   "诊断导出已取消": "Diagnostic export cancelled",
   "诊断导出完成": "Diagnostics exported",
   "诊断导出失败": "Diagnostic export failed",
-  "写入脱敏诊断日志": "Writing redacted diagnostic logs"
+  "写入脱敏诊断日志": "Writing redacted diagnostic logs",
+  "全局快捷键导入表情": "Global clipboard import",
+  "在其它应用中复制后，直接导入根层资源。": "Import copied emotes directly into the library root.",
+  "导入快捷键": "Import shortcut",
+  "快捷键已生效": "Shortcut active",
+  "快捷键未启用": "Shortcut inactive",
+  "快捷键无效，请使用修饰键与一个按键。": "Invalid shortcut. Use a modifier and one key.",
+  "全局导入快捷键仅支持 Windows。": "Global import shortcuts require Windows.",
+  "快捷键注册失败，可能已被其它程序占用。": "Registration failed. Another application may be using this shortcut.",
+  "导入快捷键不能与唤醒或快速面板快捷键相同。": "The import shortcut must differ from the main and quick panel shortcuts.",
+  "剪贴板导入仍在进行，请先完成当前任务。": "Clipboard import is still in progress. Complete the current task first.",
+  "重复表情等待处理，请打开 Nekori 继续。": "Duplicates need your decision. Open Nekori to continue.",
+  "请保留 Ctrl+V 用于普通粘贴。": "Keep Ctrl+V available for normal paste."
 }
