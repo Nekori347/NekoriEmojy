@@ -774,14 +774,11 @@ class TabStrip(QTabBar):
         self.update()
 
     def paintEvent(self, event):
-        # Pure scrolling does not emit currentChanged. Compare the actual Qt
-        # geometry before drawing, cancelling only animation with a stale target.
+        # Qt owns horizontal geometry. Local reveal state can follow a moved
+        # or resized tab directly; there is no cross-tab rectangle to repair.
         viewport = self._tab_viewport()
         target = self._target_line(viewport)
-        if target != self._line_target:
-            self._line_motion.stop()
-            self._line_target = target
-            self._line_state = QPointF(0,1)
+        self._line_target = target
         # Qt moves tabs beneath a stationary pointer when its scroll buttons
         # are used. A cached mouseMove tab index then paints a moving ghost.
         pointer = self.mapFromGlobal(QCursor.pos())
