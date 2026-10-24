@@ -98,6 +98,7 @@ class ImportThread(QThread):
 
     progress = Signal(int, int)
     stage = Signal(str)
+    committed = Signal(object, object)  # reliable paths / changed direct parents
     finished = Signal(int, int, int)  # saved, skipped, failed
 
     def __init__(self, sources, storage, target_node, delete_after=False, parent=None,
@@ -153,6 +154,7 @@ class ImportThread(QThread):
         if self.operation is not None:
             self._run_operation(context)
             return
+        context.committed=self.committed.emit
         pending=[];temporaries=[];awaiting_anchor=[];deferred_slots=0
         context.deferred_duplicates=pending if self.duplicate_batch_resolver else None
         from services.task_recovery import RecoveryWait
@@ -172,7 +174,9 @@ class ImportThread(QThread):
                 try:
                     target=self.recovery.target(unit)
                     if unit['directory']:
-                        self.recovery.directory(unit,target);continue
+                        self.recovery.directory(unit,target)
+                        self.committed.emit([],{target.parent_node,unit['node']})
+                        continue
                     if unit['state'] in {'done','skipped','failed'}:
                         if unit['state']=='done':
                             record=self.storage.index.resource_by_id(unit['resource'])
@@ -263,7 +267,7 @@ class ImportThread(QThread):
                                 self.storage.importer._validate_target(destination)
                                 if not self.storage.index.resource(candidate.existing):raise FileNotFoundError(candidate.existing)
                                 saved,duplicate=self.storage.importer._accept(candidate.existing,True,os.path.basename(candidate.existing),destination)
-                            self.storage.importer._notify(saved,True)
+                            self.storage.importer._notify(saved,True,destination)
                         elif isinstance(candidate.source,QImage):saved,duplicate=self.storage.save_image(candidate.source,destination)
                         else:saved,duplicate=self.storage.save_file(candidate.source,strict=True,target=destination)
                         self.result_paths.append(saved);skipped_count+=int(duplicate);saved_count+=int(not duplicate)
@@ -282,6 +286,7 @@ class ImportThread(QThread):
             context.job_id='';context.duplicate_resolver=None;context.cancelled=None;context.normalized=None
             context.checkpoint=None;context.deferred_duplicates=None
             context.duplicate_choice=''
+            context.committed=None
         self.finished.emit(saved_count, skipped_count, failed_count)
 
     def _run_operation(self,context):
@@ -838,6 +843,7 @@ class GalleryInterface(QWidget):
         self.imports.changed.connect(self._schedule_task_refresh)
         self.ocr.changed.connect(self._schedule_task_refresh)
         self.imports.files_finished.connect(self._queued_files_finished)
+        self.imports.resources_committed.connect(self._queued_resources_committed)
         self.imports.restore(self)
         self._schedule_task_refresh()
         visual.theme.changed.connect(self.refresh_theme)
@@ -2758,11 +2764,13 @@ class GalleryInterface(QWidget):
 
     def _queued_files_finished(self,request):
         self.renderer.loader.invalidate(request.paths)
+        parents={ROOT,request.target.parent_node}
+        self._queued_resources_committed(request.paths,None if request.operation else parents)
+
+    def _queued_resources_committed(self,paths,parents):
         nodes=self.storage.index.nodes();counts=self.storage.node_counts()
         self.sidebar.sync_nodes(nodes,counts)
-        parents={ROOT,request.target.parent_node}
-        if request.operation:parents.update(n['id'] for n in nodes)
-        self.refresh_content_incremental(reason='queued_import',paths=set(request.paths),parents=parents,nodes=nodes,counts=counts)
+        self.refresh_content_incremental(reason='queued_import',paths=set(paths),parents=parents,nodes=nodes,counts=counts)
 
     def _sync_background_tasks(self):
         host=self.feedback_host

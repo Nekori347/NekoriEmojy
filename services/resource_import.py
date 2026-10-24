@@ -81,7 +81,7 @@ class ResourceImporter:
             saved,duplicate=self._resolve_duplicate(saved,source,normalized)
         with self.storage.lock:
             result = self._accept(saved, duplicate, Path(source).name, target, library_added_seq)
-        self._notify(saved,duplicate)
+        self._notify(saved,duplicate,target)
         return result
 
     def image(self, image, target=ImportTarget()):
@@ -97,7 +97,7 @@ class ResourceImporter:
             saved,duplicate=self._resolve_duplicate(saved,image,normalized)
         with self.storage.lock:
             result = self._accept(saved, duplicate, Path(saved).name, target)
-        self._notify(saved,duplicate)
+        self._notify(saved,duplicate,target)
         return result
 
     def _resolve_duplicate(self,saved,source,normalized):
@@ -127,7 +127,9 @@ class ResourceImporter:
         pending.append(DuplicateCandidate(saved,source,target,before,getattr(self.storage.import_context,'checkpoint',None)))
         raise ImportDeferred()
 
-    def _notify(self,saved,duplicate=False):
+    def _notify(self,saved,duplicate=False,target=ImportTarget()):
+        committed=getattr(self.storage.import_context,'committed',None)
+        if committed:committed([saved],{ROOT,target.parent_node})
         accepted=getattr(self.storage.import_context,'accepted',None)
         if accepted is not None:accepted.append((saved,duplicate))
         if getattr(self.storage.import_context,'job_id',None):return
@@ -165,6 +167,8 @@ class ResourceImporter:
                         position=destination.insert_position)
                     if siblings and destination.insert_position is not None:
                         self.storage.index.move_node(node, destination.parent_node, destination.insert_position)
+                    committed=getattr(self.storage.import_context,'committed',None)
+                    if committed:committed([],{destination.parent_node,node})
                     for child in sorted(path.iterdir(), key=lambda p: p.name.casefold()):
                         if child.is_dir() or child.suffix.lower() in self.storage.SUPPORTED_FORMATS:
                             visit(child, ImportTarget(node))

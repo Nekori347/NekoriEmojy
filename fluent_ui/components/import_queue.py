@@ -38,6 +38,7 @@ class ImportRequest:
 class ImportQueue(QObject):
     changed=Signal(str)
     files_finished=Signal(object)
+    resources_committed=Signal(object,object)
     duplicate_requested=Signal(object)
     batch_requested=Signal(object)
 
@@ -45,6 +46,11 @@ class ImportQueue(QObject):
         super().__init__(parent);self.storage=storage;self.requests={};self.waiting=deque();self.worker=None
         self.current=None;self._closing=False;self._decisions={};self._dialogs={}
         self._pending_batches={}
+        self._committed_paths=set();self._committed_parents=set()
+        # Merge commits already queued for this GUI turn. No fixed wait or
+        # per-file full refresh: the consumer patches the existing projection.
+        self._refresh_timer=QTimer(self);self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.timeout.connect(self._flush_committed)
         self.duplicate_requested.connect(self._show_duplicate)
         self.batch_requested.connect(self._show_batch)
         self.ocr=ocr_service(storage);self.ocr.changed.connect(self._ocr_changed)
@@ -146,6 +152,7 @@ class ImportQueue(QObject):
                 worker.recovery=recovery
             worker.progress.connect(lambda done,total,r=request:self._progress(r,done,total))
             worker.stage.connect(lambda message,r=request:self._stage(r,message))
+            worker.committed.connect(self._committed)
             worker.finished.connect(self._finished);self.changed.emit(request.id);worker.start(QThread.LowPriority);return
 
     def _progress(self,request,done,total):
@@ -154,10 +161,22 @@ class ImportQueue(QObject):
     def _stage(self,request,message):
         request.phase=message;self.changed.emit(request.id)
 
+    def _committed(self,paths,parents):
+        self._committed_paths.update(paths);self._committed_parents.update(parents)
+        if not self._refresh_timer.isActive():self._refresh_timer.start(0)
+
+    def _flush_committed(self):
+        self._refresh_timer.stop()
+        if not self._committed_parents:return
+        paths=self._committed_paths;parents=self._committed_parents
+        self._committed_paths=set();self._committed_parents=set()
+        self.resources_committed.emit(paths,parents)
+
     def _finished(self,saved,duplicates,failed):
         worker=self.worker
         if worker is None:return
         worker.wait();request=self.requests[self.current]
+        self._flush_committed()
         request.saved=saved;request.duplicates=duplicates;request.failed=failed
         request.kept=worker.kept_count
         request.paths=list(dict.fromkeys(worker.result_paths));request.errors=list(worker.errors)

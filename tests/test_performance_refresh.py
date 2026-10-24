@@ -73,3 +73,84 @@ def test_import_structure_reuses_icons_and_model_reads_snapshot(management,monke
     storage.index.update_node(child,icon='X')
     view.sidebar.sync_nodes(storage.index.__class__.nodes(storage.index),storage.node_counts())
     assert rendered==[child,child]
+
+
+def test_committed_placeholder_interacts_and_sorts_before_batch_finishes(management,monkeypatch,tmp_path):
+    import threading,time,json
+    from PySide6.QtGui import QImage,QColor
+    from PySide6.QtTest import QTest
+    from services.resource_import import ImportTarget
+    from fluent_ui.components.drop_contract import DropTarget,INSERT_BEFORE,MOVE
+    view,storage,parent,dest,paths,sent=management
+    sources=[]
+    for i in range(2):
+        image=QImage(40,30,QImage.Format_RGB32);image.fill(QColor(160,50+i*80,190))
+        path=tmp_path/f'progress-{i}.png';image.save(str(path));sources.append(str(path))
+    blocked=threading.Event();release=threading.Event();file=storage.importer.file
+    def pause_second(source,*args,**kwargs):
+        if source==sources[1]:
+            blocked.set();assert release.wait(10)
+        return file(source,*args,**kwargs)
+    monkeypatch.setattr(storage.importer,'file',pause_second)
+    monkeypatch.setattr(view.renderer.loader,'dispatch',lambda:None)
+    rid=view.imports.submit(sources,ImportTarget(parent,0),view)
+    try:
+        deadline=time.monotonic()+8
+        while time.monotonic()<deadline:
+            QTest.qWait(10)
+            new=[e for e in view._entries if e.get('name')=='progress-0.png']
+            if blocked.is_set() and new:break
+        assert blocked.is_set() and new and view.imports.requests[rid].state=='running'
+        record=storage.index.resource(new[0]['path'])
+        with storage.index.connect(search=False) as db:
+            units=[json.loads(r[0]) for r in db.execute("SELECT payload FROM task_checkpoints WHERE task_id=? AND unit_id!=''",(rid,))]
+        assert any(u.get('resource')==record['id'] and u['state']=='done' for u in units)
+        card=next(c for c in view._all_card_widgets if getattr(c,'image_path',None)==new[0]['path'] and c.isVisible())
+        assert not card._is_loaded
+        QTest.mouseClick(card,Qt.LeftButton)
+        assert sent==[new[0]['path']]
+        target=view._entries[0]
+        view._reorder_by_drop([paths[-1]],DropTarget(INSERT_BEFORE,MOVE,target['id'],parent,0))
+        existing_order=[e['id'] for e in storage.index.content(parent) if e['id']!=record['id']]
+    finally:release.set()
+    deadline=time.monotonic()+8
+    while view.imports.worker is not None and time.monotonic()<deadline:QTest.qWait(10)
+    request=view.imports.requests[rid]
+    assert request.state=='completed' and request.saved==2 and not request.failed
+    members=storage.index.content(parent)
+    old_ids={storage._resource_id(path) for path in paths}
+    assert [e['id'] for e in members if e['id'] in old_ids]==existing_order
+    assert len(members)==8 and len({e['id'] for e in members})==8
+    assert [e['id'] for e in view._entries]==[e['id'] for e in members]
+
+
+def test_directory_nodes_publish_after_commit_before_child_file(management,monkeypatch,tmp_path):
+    import threading,time
+    from PySide6.QtGui import QImage,QColor
+    from PySide6.QtTest import QTest
+    from services.resource_import import ImportTarget
+    view,storage,parent,dest,paths,sent=management
+    folder=tmp_path/'Import folder';nested=folder/'Nested';nested.mkdir(parents=True)
+    image=QImage(36,25,QImage.Format_RGB32);image.fill(QColor('purple'));image.save(str(nested/'child.png'))
+    blocked=threading.Event();release=threading.Event();file=storage.importer.file
+    def pause(*args,**kwargs):
+        blocked.set();assert release.wait(10);return file(*args,**kwargs)
+    monkeypatch.setattr(storage.importer,'file',pause)
+    rid=view.imports.submit([str(folder)],ImportTarget(parent,0),view)
+    try:
+        deadline=time.monotonic()+8
+        while time.monotonic()<deadline:
+            QTest.qWait(10)
+            nodes={n['name']:n for n in storage.index.nodes() if n['name'] in ('Import folder','Nested')}
+            if blocked.is_set() and 'Nested' in nodes and view.sidebar.tree._find_item(nodes['Nested']['id']):break
+        assert blocked.is_set() and len(nodes)==2
+        assert nodes['Nested']['parent_id']==nodes['Import folder']['id']
+        assert view.sidebar.tree._find_item(nodes['Nested']['id']) is not None
+        assert any(e['id']==nodes['Import folder']['id'] for e in view._entries)
+        assert not storage.index.content(nodes['Nested']['id'])
+    finally:release.set()
+    deadline=time.monotonic()+8
+    while view.imports.worker is not None and time.monotonic()<deadline:QTest.qWait(10)
+    assert view.imports.requests[rid].saved==1
+    view.set_node(nodes['Nested']['id'])
+    assert len(view._entries)==1 and view._entries[0]['name']=='child.png'
