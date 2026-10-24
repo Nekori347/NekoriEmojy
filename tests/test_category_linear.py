@@ -20,7 +20,7 @@ def test_click_selection_does_not_leave_category_background(surface,manage):
     assert (s.child in g.selected_keys)==(not manage),'existing category selection semantics changed'
     after=node.grab().toImage()
     assert (after!=normal)==(not manage),'selected signal must follow real node selection'
-    assert all(after.pixelColor(x,2)==normal.pixelColor(x,2) for x in range(12,node.width()-40)),'no row fill'
+    assert (after.pixelColor(20,5)!=normal.pixelColor(20,5))==(not manage),'only real selection has a neutral backing'
     assert node.height()==g.renderer.index.rects[next(i for i,e in enumerate(g._entries) if e['id']==s.child)].height()
     assert node.height()==30 and node._icon_extent==22
 
@@ -73,16 +73,16 @@ def test_identity_accent_and_selected_line(surface):
     s.config.set('accent_color','#36a8d4');visual.theme.preview_accent()
     QApplication.sendEvent(node,QEvent(QEvent.Leave));node.clearFocus()
     image=node.grab().toImage()
-    assert image.pixelColor(6,node.height()//2).name()==QColor(visual.accent()).name()
+    assert image.pixelColor(6,node.height()//2).name()!=QColor(visual.accent()).name()
     QTest.mouseClick(node,Qt.LeftButton,pos=node.rect().center())
     QApplication.sendEvent(node,QEvent(QEvent.Leave))
     image=node.grab().toImage()
     assert node.is_selected
-    assert image.pixelColor(100,node.height()-3).name()==QColor(visual.accent()).name()
+    assert image.pixelColor(150,node.height()//2).name()==QColor(visual.accent()).name()
     s.config.set('accent_color','#c068c4');visual.theme.preview_accent()
     image=node.grab().toImage()
     assert image.pixelColor(6,node.height()//2).name()==QColor(visual.accent()).name()
-    assert image.pixelColor(100,node.height()-3).name()==QColor(visual.accent()).name()
+    assert image.pixelColor(150,node.height()//2).name()==QColor(visual.accent()).name()
 
 
 @pytest.mark.parametrize('result',[Qt.IgnoreAction,Qt.MoveAction])
@@ -159,3 +159,32 @@ def test_category_drop_placements_use_existing_feedback_and_data(surface):
     g._apply_node_drop([s.child],g._resolve_drop(point,mime)[0]);settle(s.app)
     assert s.storage.node(s.child)['parent_id']==target
     assert [e['id'] for e in s.storage.index.content(target)]==[s.child]
+
+
+def test_state_rules_keep_one_center_line_and_neutral_backing(surface):
+    from fluent_ui import visual
+    from qfluentwidgets import setTheme,Theme
+    from PySide6.QtGui import QColor
+    s=surface;g=s.g
+    node=next(c for c in g._all_card_widgets if getattr(c,'node_id',None)==s.child)
+    s.config.set('accent_color','#ce357b');visual.theme.preview_accent()
+    try:
+        for theme in (Theme.LIGHT,Theme.DARK):
+            setTheme(theme);visual.theme.refresh();node.clearFocus()
+            g.selected_keys.clear();g._commit_selection_visuals()
+            QApplication.sendEvent(node,QEvent(QEvent.Leave));normal=node.grab().toImage()
+            point=node.rect().center()
+            QApplication.sendEvent(node,QEnterEvent(QPointF(point),QPointF(point),QPointF(node.mapToGlobal(point))))
+            hover=node.grab().toImage();signal=QColor(visual.accent()).name();y=node.height()//2
+            xs=[x for x in range(110,node.width()-70) if hover.pixelColor(x,y).name()==signal]
+            assert len(xs)>100
+            g._select_single(s.child);QApplication.sendEvent(node,QEvent(QEvent.Leave));selected=node.grab().toImage()
+            assert all(selected.pixelColor(x,y).name()==signal for x in xs),'selected moved structural rule'
+            assert selected.pixelColor(20,5)!=normal.pixelColor(20,5)
+            assert selected.pixelColor(20,5).saturationF()<.2,'backing must be neutral, not accent tinted'
+            assert all(selected.pixelColor(x,node.height()-3).name()!=signal for x in xs),'no extra bottom rule'
+            QApplication.sendEvent(node,QEnterEvent(QPointF(point),QPointF(point),QPointF(node.mapToGlobal(point))))
+            assert node.grab().toImage().pixelColor(20,5)==selected.pixelColor(20,5)
+            assert node.height()==30
+    finally:
+        setTheme(Theme.LIGHT);visual.theme.refresh()

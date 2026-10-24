@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from services.exchange_icons import IMAGE_SUFFIXES, resolve_icon_path
 
-from PySide6.QtCore import Qt, Signal, QMimeData, QPoint, QRect, QRectF, QSize, QVariantAnimation
+from PySide6.QtCore import Qt, Signal, QMimeData, QPoint, QPointF, QRect, QRectF, QSize, QVariantAnimation
 from PySide6.QtGui import (
     QColor, QDrag, QFont, QFontMetrics, QPainter, QPen, QPixmap, QCursor,
 )
@@ -149,11 +149,17 @@ class NodeCard(QLabel):
 
     def _paint_row(self,p,width,preview=False):
         c=colors()
-        p.setPen(QPen(QColor(accent()),2))
+        if self.is_selected and not preview:
+            surface=QColor(c['surface_alt']);surface.setAlpha(155)
+            p.setPen(Qt.NoPen);p.setBrush(surface)
+            p.drawRoundedRect(QRectF(.5,.5,width-1,self.height()-1),5,5)
+        active=self.is_selected or self._hovered or preview
+        signal=QColor(accent() if active else c['border_soft'])
+        p.setPen(QPen(signal,2))
         p.drawLine(6,(self.height()-18)//2,6,(self.height()+18)//2)
 
         if self._icon is not None:p.drawPixmap(16,(self.height()-self._icon.height())//2,self._icon)
-        font=visual.font();font.setWeight(QFont.DemiBold if self.is_selected else QFont.Medium);p.setFont(font)
+        font=visual.font();font.setWeight(QFont.Medium);p.setFont(font)
         name_metrics=QFontMetrics(font)
         summary=f"{self.entry.get('children',0)}/{self.entry.get('total',0)}"
         count_font=QFont(font);count_font.setFamily(DATA_FONT.split(',')[0]);count_font.setPixelSize(11);count_font.setBold(False)
@@ -164,13 +170,13 @@ class NodeCard(QLabel):
         text_width = max(0, count_x-text_left-34)
         name=name_metrics.elidedText(self.entry['name'],Qt.ElideRight,text_width)
         p.drawText(QRect(text_left,0,text_width,self.height()),Qt.AlignVCenter,name)
-        # Selection has a stable extent independent of the title length. Hover
-        # never replaces it, and the drop surface owns separate placement marks.
-        line_start=16 if self.is_selected else text_left+name_metrics.horizontalAdvance(name)+10
-        line_y=self.height()-3 if self.is_selected else self.height()//2
-        line_color=QColor(accent() if self.is_selected else c['text_secondary'] if self._hovered or self._pressed else c['border_soft'])
-        p.setPen(QPen(line_color,2 if self.is_selected or self._pressed else 1))
-        if line_start<count_x-8:p.drawLine(line_start,line_y,count_x-8,line_y)
+        # One structural rule, with identical geometry in every state. Drop
+        # placement stays with the gallery's separate feedback painter.
+        line_start=text_left+name_metrics.horizontalAdvance(name)+10
+        p.setPen(QPen(signal,2 if self._pressed else 1))
+        if line_start<count_x-8:
+            y=self.height()//2+.5
+            p.drawLine(QPointF(line_start,y),QPointF(count_x-8,y))
         p.setPen(QColor(c['muted']))
         p.setFont(count_font)
         p.drawText(QRect(count_x,0,count_width,self.height()),Qt.AlignRight|Qt.AlignVCenter,summary)
@@ -193,7 +199,7 @@ class NodeCard(QLabel):
         p=QPainter(pixmap);p.setRenderHint(QPainter.Antialiasing);p.setPen(Qt.NoPen)
         shadow=QColor(colors()['text']);shadow.setAlpha(25);p.setBrush(shadow)
         p.drawRoundedRect(QRectF(3,5,width+2,self.height()+1),6,6)
-        surface=QColor(colors()['surface_raised']);surface.setAlpha(230);p.setBrush(surface)
+        surface=QColor(colors()['surface_alt']);surface.setAlpha(230);p.setBrush(surface)
         p.drawRoundedRect(QRectF(4,4,width,self.height()),5,5)
         p.translate(4,4);self._paint_row(p,width,preview=True)
         p.end()
