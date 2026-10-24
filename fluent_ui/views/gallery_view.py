@@ -2565,9 +2565,13 @@ class GalleryInterface(QWidget):
             action(FIF.SEND, '发送表情', lambda: self.use_resource(path))
             menu.addSeparator()
         from fluent_ui.components.category_menu import CategoryTargetMenu
+        nodes = self.storage.index.nodes()
+        category_records = {node['id']: node for node in nodes}
+        category_rows = self.storage.node_choice_rows(nodes=nodes)
         for copy, title, icon in ((True, '加入分类', FIF.COPY), (False, '移动到分类', FIF.MOVE)):
             can_move = any(self._selection_parents.get(p, parent) != ROOT for p in paths)
-            branch=CategoryTargetMenu(title,self.storage,lambda target,c=copy:self.assign_resources(paths,target,copy=c),menu)
+            branch=CategoryTargetMenu(title,self.storage,lambda target,c=copy:self.assign_resources(paths,target,copy=c),menu,
+                                      snapshot=category_rows,records=category_records)
             branch.setIcon(icon);menu.addMenu(branch)
             if not (ActionPolicy.enabled('category_membership', context) and (copy or can_move)):
                 branch.menuItem.setFlags(branch.menuItem.flags()&~Qt.ItemIsEnabled)

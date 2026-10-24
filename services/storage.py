@@ -346,23 +346,20 @@ class StorageService:
         return [(row["id"], "    " * row["depth"] + row["name"])
                 for row in self.node_choice_rows()]
 
-    def node_choice_rows(self):
+    def node_choice_rows(self, *, nodes=None):
         """Every node with its depth and full path, for searchable target pickers.
 
         Kept alongside node_choices because a flat indented label is not enough
         once the tree is deep: search and the path line need the actual
         structure rather than padding.
         """
-        nodes = {n["id"]: n for n in self.index.nodes()}
+        children = {}
+        for node in self.index.nodes() if nodes is None else nodes:
+            children.setdefault(node['parent_id'] or ROOT, []).append(node)
         result = []
 
         def visit(parent, depth, trail):
-            for entry in self.index.content(parent):
-                if entry["kind"] != "node":
-                    continue
-                node = nodes.get(entry["id"])
-                if node is None:
-                    continue
+            for node in children.get(parent, ()):
                 path = trail + [node["name"]]
                 result.append({"id": node["id"], "name": node["name"], "depth": depth,
                                "path": " / ".join(path)})

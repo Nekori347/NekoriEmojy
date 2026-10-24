@@ -14,8 +14,8 @@ class CategoryTargetMenu(SafeRoundMenu):
     def __init__(self,title,storage,choose,parent=None,*,node=None,snapshot=None,records=None):
         super().__init__(str(title) if node is not None else t(title),parent)
         self.storage=storage;self.choose=choose;self.node=node;self._prepared=False
-        self.snapshot=snapshot if snapshot is not None else storage.node_choice_rows()
         self.records = records if records is not None else {r['id']: r for r in storage.index.nodes()}
+        self.snapshot=snapshot if snapshot is not None else storage.node_choice_rows(nodes=self.records.values())
         self.setIcon(self._node_icon(node) if node else Icon.FOLDER)
         self.view.installEventFilter(self)
         self.search=None
