@@ -126,7 +126,13 @@ def execute():
                 profile=cProfile.Profile();t=now();profile.enable()
                 try:menu=g._build_resource_menu(card)
                 finally:profile.disable()
-                record('menu_build',ms=round(now()-t,3),repeat=n)
+                stats=pstats.Stats(profile)
+                counts={name:sum(row[1] for key,row in stats.stats.items()
+                                 if key[2]==name and ('library_index' in key[0] or name=='node_choice_rows'))
+                        for name in ('nodes','content','node_choice_rows')}
+                counts['sqlite_connections']=sum(row[1] for key,row in stats.stats.items() if '_sqlite3.connect' in key[2])
+                counts['sql_execute']=sum(row[1] for key,row in stats.stats.items() if 'execute' in key[2] and 'sqlite3.Connection' in key[2])
+                record('menu_build',ms=round(now()-t,3),repeat=n,queries=counts)
                 out=io.StringIO();pstats.Stats(profile,stream=out).sort_stats('cumtime').print_stats(32)
                 (root/(a.label+f'-menu-{n}-profile.txt')).write_text(out.getvalue(),encoding='utf-8')
                 menu.deleteLater();wait(200)
@@ -162,7 +168,9 @@ def execute():
         if hasattr(g,'ocr'):g.ocr.close()
         window.hide();timer.stop();_thumbnail_pool.waitForDone(5000)
         (root/(a.label+'-compare.json')).write_text(json.dumps(events),encoding='utf-8')
-        output=io.StringIO();pstats.Stats(metadata_profile,stream=output).sort_stats('cumtime').print_stats(22)
+        output=io.StringIO()
+        if metadata_profile.getstats():
+            pstats.Stats(metadata_profile,stream=output).sort_stats('cumtime').print_stats(22)
         # Function locations are implementation paths, never private image paths.
         (root/(a.label+'-metadata-profile.txt')).write_text(output.getvalue(),encoding='utf-8')
         print(json.dumps(dict(label=a.label,events=len(events))),flush=True);app.quit()

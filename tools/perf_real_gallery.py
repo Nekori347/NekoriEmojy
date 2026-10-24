@@ -11,7 +11,8 @@ from pathlib import Path
 
 parser=argparse.ArgumentParser()
 parser.add_argument('--root',required=True)
-parser.add_argument('--mode',choices=['measure','native','native-long','native-final','import','import-nosort'],default='measure')
+parser.add_argument('--mode',choices=['measure','native','native-long','native-final','native-regression','import','import-nosort'],default='measure')
+parser.add_argument('--label',help='Private output prefix; preserves previous comparison evidence')
 args=parser.parse_args()
 ROOT=Path(args.root).resolve();LIB=ROOT/'library';SOURCE=Path(__file__).resolve().parents[1]
 if not (ROOT/'snapshot-summary.json').exists() or not LIB.is_dir():
@@ -124,7 +125,7 @@ from fluent_ui.components.import_queue import ImportQueue
 from fluent_ui.main_window import MainWindow
 
 for cls,names in [
- (GalleryInterface,('set_node','refresh_content','refresh_content_incremental','_queued_files_finished','get_preview_metadata','get_preview_info','_on_card_clicked','_on_scroll','_sync_background_tasks','sync_content_after_reorder')),
+ (GalleryInterface,('set_node','refresh_content','refresh_content_incremental','_queued_files_finished','_queued_resources_committed','get_preview_metadata','get_preview_info','_on_card_clicked','_on_scroll','_sync_background_tasks','sync_content_after_reorder')),
  (VirtualGallery,('acquire','bind','sync','_drain')),
  (GalleryThumbnails,('request','attach','completed','dispatch')),
  (GalleryEntryModel,('sync','patch')),
@@ -255,7 +256,7 @@ def flips():
 def execute():
     try:
         scenario('settle');wait(1300)
-        if args.mode in ('native','native-long','native-final'):native()
+        if args.mode in ('native','native-long','native-final','native-regression'):native()
         else:
             if args.mode in ('import','import-nosort'):
                 focused_import();return
@@ -275,7 +276,7 @@ def execute():
     finally:
         g.preview_controller.cancel();g.imports.shutdown();g.ocr.close();window.hide()
         finished.set();timer.stop()
-        output=ROOT/(args.mode+'-events.json')
+        output=ROOT/((args.label or args.mode)+'-events.json')
         output.write_text(json.dumps(list(events)),encoding='utf-8')
         print(json.dumps(dict(events=len(events),output=output.name)),flush=True)
         app.quit()
@@ -287,13 +288,15 @@ def native():
     u=ctypes.windll.user32;hwnd=int(window.winId());u.SetForegroundWindow(hwnd)
     window.raise_();window.activateWindow();wait(400)
     tests=[('animated_card_long_corrected','card',1000,350)] if args.mode=='native-long' else [('animated_card_slow','card',100,350),('animated_blank_slow','blank',100,350),('animated_card_long','card',1000,350),('animated_card_normal','card',100,130)]
-    if args.mode=='native-final':
+    if args.mode in ('native-final','native-regression'):
         tests=[('real_scroll_card_100','card',100,350),('real_scroll_blank_100','blank',100,350),('real_scroll_card_1000','card',1000,350)]
-        navigate(plan['static'])
+        if args.mode=='native-regression':
+            g.config.config['thumbnail_size']=160;g._apply_thumbnail_size(160)
+        navigate(plan['animated'] if args.mode=='native-regression' else plan['static'])
         assert g.scroll_area.verticalScrollBar().maximum()>500
     for label,location,delay,interval in tests:
         scenario(label);g.config.config['preview_delay']=delay;g.preview_controller.set_delay(delay)
-        if args.mode=='native-final':g.scroll_area.verticalScrollBar().setValue(0);wait(200)
+        if args.mode in ('native-final','native-regression'):g.scroll_area.verticalScrollBar().setValue(0);wait(200)
         else:navigate(plan['animated'])
         g.preview_controller.cancel();g.preview_controller._warm_until=0
         cs=cards();card=cs[min(3,len(cs)-1)]
@@ -301,7 +304,7 @@ def native():
         QCursor.setPos(point);wait(450)
         hit=QApplication.widgetAt(QCursor.pos())
         emit('native_target',foreground=int(u.GetForegroundWindow())==hwnd,card_hit=isinstance(hit,EmojiCard),expected=location,configured_delay=g.config.get('preview_delay'),effective_delay=g.preview_controller.delay)
-        count=6 if args.mode=='native-final' else 16
+        count=6 if args.mode in ('native-final','native-regression') else 16
         def drive():
             for i in range(count):
                 emit('native_wheel_sent',delta=-120 if i<count//2 else 120)
@@ -334,10 +337,21 @@ def focused_import():
             entries=[e for e in g._entries if e['kind']=='resource']
             t=now()
             if len(entries)>1:
-                g._reorder_by_drop([entries[-1]['path']],DropTarget(INSERT_BEFORE,MOVE,entries[0]['id'],target,0))
-            emit('reorder',ms=round(now()-t,3))
+                moved=entries[-1]['id'];before=entries[0]['id']
+                g._reorder_by_drop([entries[-1]['path']],DropTarget(INSERT_BEFORE,MOVE,before,target,0))
+                order=[e['id'] for e in storage.index.content(target)]
+                assert order.index(moved)+1==order.index(before)
+            emit('reorder',ms=round(now()-t,3),order_valid=True)
         wait(220);iteration+=1
     emit('import_end',state=request.state,saved=request.saved,kept=request.kept,failed=request.failed,elapsed=now()-start)
+    order=[e['id'] for e in storage.index.content(target)]
+    assert len(order)==len(set(order))==40
+    assert [e['id'] for e in g._entries]==order
+    assert all(Path(path).is_file() for path in request.paths)
+    with storage.index.connect() as db:
+        assert db.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+        assert not db.execute('SELECT 1 FROM task_checkpoints WHERE task_id=?',(rid,)).fetchone()
+    emit('import_consistency',unique_members=len(order),projection_matches=True,checkpoints_finished=True)
     scenario('import_after');wait(1800)
 QTimer.singleShot(0,execute)
 app.exec()
