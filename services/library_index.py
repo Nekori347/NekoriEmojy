@@ -59,6 +59,10 @@ class LibraryIndex:
                     used_at INTEGER NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS library_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS task_checkpoints (
+                    task_id TEXT NOT NULL, unit_id TEXT NOT NULL, kind TEXT NOT NULL,
+                    payload TEXT NOT NULL, PRIMARY KEY(task_id,unit_id)
+                );
             """)
             db.execute("INSERT OR IGNORE INTO nodes(id,name) VALUES (?,?)", (ROOT, "Library"))
             db.execute("INSERT OR IGNORE INTO library_meta VALUES ('library_id',?)", (uuid.uuid4().hex,))
@@ -257,14 +261,20 @@ class LibraryIndex:
                    (parent, item if kind == 'resource' else None,
                     item if kind == 'node' else None, slot))
 
-    def register(self, path, display_name=None, *, library_added_seq=None):
+    def register(self, path, display_name=None, *, library_added_seq=None, target=None, checkpoint=None, duplicate=False, kept=False):
         relative = self.relative_path(path)
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             existing = db.execute("SELECT id FROM resources WHERE relative_path=?", (relative,)).fetchone()
+            resource_id = existing[0] if existing else uuid.uuid4().hex
             if existing:
-                return existing[0]
-            resource_id = uuid.uuid4().hex
+                if target is not None and not db.execute('SELECT 1 FROM content WHERE parent_id=? AND resource_id=?',
+                                                         (target.parent_node, resource_id)).fetchone():
+                    self._insert(db, target.parent_node, 'resource', resource_id, target.insert_position)
+                if checkpoint:
+                    from services.task_recovery import write_checkpoint
+                    write_checkpoint(db, checkpoint, state='done', resource=resource_id, duplicate=duplicate, kept=kept)
+                return resource_id
             filename = Path(path).name
             if db.execute("SELECT 1 FROM resources WHERE filename=?", (filename,)).fetchone():
                 filename = resource_id + Path(path).suffix
@@ -276,6 +286,14 @@ class LibraryIndex:
                        (resource_id, filename, relative, display_name or Path(path).name, seq))
             db.execute("UPDATE library_meta SET value=? WHERE key='next_resource_seq'", (str(max(next_seq, seq + 1)),))
             self._insert(db, ROOT, "resource", resource_id, 0)
+            if target is not None:
+                if target.parent_node != ROOT:
+                    self._insert(db, target.parent_node, 'resource', resource_id, target.insert_position)
+                elif target.insert_position is not None:
+                    self._insert(db, ROOT, 'resource', resource_id, target.insert_position)
+            if checkpoint:
+                from services.task_recovery import write_checkpoint
+                write_checkpoint(db, checkpoint, state='done', resource=resource_id, duplicate=duplicate, kept=kept)
             return resource_id
 
     def nodes(self):
@@ -283,17 +301,29 @@ class LibraryIndex:
             return [dict(r) for r in db.execute("SELECT n.*,c.position FROM nodes n JOIN content c "
                 "ON c.node_id=n.id WHERE n.id!=? ORDER BY c.position", (ROOT,))]
 
-    def create_node(self, name, parent_id=ROOT, icon="", position=None):
+    def create_node(self, name, parent_id=ROOT, icon="", position=None, *, checkpoint=None, reuse=False):
         name = name.strip()
         if not name:
             raise ValueError("Node name is required")
         node_id = uuid.uuid4().hex
         with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            existing=db.execute('SELECT id FROM nodes WHERE parent_id=? AND name=?',(parent_id or ROOT,name)).fetchone() if reuse else None
+            if existing:
+                node_id=existing[0]
+                if position is not None:self._insert(db,parent_id or ROOT,'node',node_id,position)
+                if checkpoint:
+                    from services.task_recovery import write_checkpoint
+                    write_checkpoint(db,checkpoint,state='done',node=node_id)
+                return node_id
             try:
                 db.execute("INSERT INTO nodes VALUES (?,?,?,?)", (node_id, parent_id or ROOT, name, icon))
             except sqlite3.IntegrityError as exc:
                 raise ValueError(f"Same-level node already exists: {name}") from exc
             self._insert(db, parent_id or ROOT, "node", node_id, position)
+            if checkpoint:
+                from services.task_recovery import write_checkpoint
+                write_checkpoint(db, checkpoint, state='done', node=node_id)
         return node_id
 
     def update_node(self, node_id, *, name=None, icon=None):
@@ -604,7 +634,7 @@ class LibraryIndex:
             db.execute('UPDATE resources SET ocr_text=?,ocr_state_json=? WHERE id=?',
                        (str(text),json.dumps(state,ensure_ascii=False),resource_id))
 
-    def commit_ocr(self, resource_id, result, *, revision, source, version, overwrite=False, error=''):
+    def commit_ocr(self, resource_id, result, *, revision, source, version, overwrite=False, error='', checkpoint=None):
         """Compare-and-set protects edits, rebinds and deletions during inference."""
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -618,6 +648,9 @@ class LibraryIndex:
             if not error:state.update(manual=False,raw_text=result.get('raw_text',''))
             db.execute('UPDATE resources SET ocr_text=?,ocr_state_json=? WHERE id=?',
                        (text,json.dumps(state,ensure_ascii=False),resource_id))
+            if checkpoint:
+                from services.task_recovery import write_checkpoint
+                write_checkpoint(db,checkpoint,state='done',outcome='failed' if error else 'done')
             return True
 
     def restore_ocr(self, resource_id, text, incoming):

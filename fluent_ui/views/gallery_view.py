@@ -113,6 +113,7 @@ class ImportThread(QThread):
         self.result_paths=[];self.errors=[];self.cancelled_count=0
         self.operation=None;self.result=None
         self.duplicate_batch_resolver=None;self.kept_count=0
+        self.recovery=None;self.recovery_waiting=''
 
     def cancel(self):self.cancel_event.set()
 
@@ -154,11 +155,41 @@ class ImportThread(QThread):
             return
         pending=[];temporaries=[];awaiting_anchor=[];deferred_slots=0
         context.deferred_duplicates=pending if self.duplicate_batch_resolver else None
-        for i, source in enumerate(self.sources):
+        from services.task_recovery import RecoveryWait
+        sources=self.sources
+        if self.recovery:
+            try:sources=self.recovery.prepare()
+            except (RecoveryWait,OSError) as exc:
+                self.recovery_waiting=str(exc);sources=[]
+            total=sum(not u['directory'] for u in sources)
+        for i, source in enumerate(sources):
             if self.cancel_event.is_set():break
+            unit=source if self.recovery else None
+            context.checkpoint=None
+            context.duplicate_choice=''
+            if unit:
+                source=unit['source']
+                try:
+                    target=self.recovery.target(unit)
+                    if unit['directory']:
+                        self.recovery.directory(unit,target);continue
+                    if unit['state'] in {'done','skipped','failed'}:
+                        if unit['state']=='done':
+                            record=self.storage.index.resource_by_id(unit['resource'])
+                            if record:self.result_paths.append(self.storage.index.absolute_path(record))
+                            skipped_count+=int(unit.get('duplicate',False));saved_count+=int(not unit.get('duplicate',False))
+                            self.kept_count+=int(unit.get('kept',False))
+                        elif unit['state']=='skipped':self.cancelled_count+=1
+                        else:failed_count+=1
+                        self.progress.emit(saved_count+skipped_count+failed_count+self.cancelled_count,total+1)
+                        continue
+                    self.recovery.validate(unit)
+                    context.checkpoint=(self.job_id,unit['id'])
+                except (RecoveryWait,OSError) as exc:
+                    self.recovery_waiting=str(exc);break
             temporary=None;pending_before=len(pending);paths_before=len(self.result_paths)
             try:
-                target = ImportTarget(self.target_node, None if self.insert_position is None else self.insert_position+i-deferred_slots)
+                if not unit:target = ImportTarget(self.target_node, None if self.insert_position is None else self.insert_position+i-deferred_slots)
                 if isinstance(source,str) and source.startswith(('https://','http://')):
                     response=[];download=DownloadThread(source)
                     download.finished.connect(lambda *args:response.append(args));download.run()
@@ -174,15 +205,19 @@ class ImportThread(QThread):
                     self.cancelled_count+=result.cancelled
                     saved_count += result.imported;skipped_count += result.duplicates;failed_count += len(result.errors)
                     self.errors.extend(result.errors.values())
+                    if unit and result.errors:self.recovery.mark(unit,state='failed')
                     if result.errors:self._handle_failed_import(source)
                     elif self.delete_after and not result.cancelled and len(pending)==pending_before and os.path.isfile(source):os.remove(source)
             except ImportDeferred:pass
             except ImportSkipped:self.cancelled_count+=1
+            except (RecoveryWait,KeyError) as exc:
+                self.recovery_waiting=str(exc);break
             except InterruptedError:break
             except Exception as exc:
                 self.errors.append(str(exc))
                 if isinstance(source,str):self._handle_failed_import(source)
                 failed_count += 1
+                if unit:self.recovery.mark(unit,state='failed')
             finally:
                 if temporary:
                     from pathlib import Path
@@ -198,7 +233,7 @@ class ImportThread(QThread):
                     awaiting_anchor.clear()
             new_anchors=[c for c in pending[pending_before:] if c.target.parent_node==self.target_node and c.target.insert_position is not None]
             awaiting_anchor.extend(new_anchors);deferred_slots+=len(new_anchors)
-            self.progress.emit(i + 1, total+1)
+            self.progress.emit(saved_count+skipped_count+failed_count+self.cancelled_count+len(pending) if self.recovery else i+1, total+1)
         context.deferred_duplicates=None
         try:
             if pending and not self.cancel_event.is_set():
@@ -206,7 +241,16 @@ class ImportThread(QThread):
                 decisions=self.duplicate_batch_resolver(pending)
                 for candidate,decision in zip(pending,decisions):
                     if self.cancel_event.is_set():break
-                    if decision=='skip':self.cancelled_count+=1;continue
+                    context.checkpoint=candidate.checkpoint
+                    context.duplicate_choice=decision
+                    unit=self.recovery.units[candidate.checkpoint[1]] if self.recovery and candidate.checkpoint else None
+                    if decision=='skip':
+                        self.cancelled_count+=1
+                        if unit:self.recovery.mark(unit,state='skipped')
+                        continue
+                    if unit:
+                        self.recovery.validate(unit)
+                        if decision in {'keep','replace'}:self.recovery.mark(unit,state='uncertain')
                     context.duplicate_resolver=lambda old,new,choice=decision:choice
                     try:
                         destination=candidate.target
@@ -226,12 +270,18 @@ class ImportThread(QThread):
                         self.kept_count+=int(decision=='keep' and not duplicate)
                         if self.delete_after and isinstance(candidate.source,str) and os.path.isfile(candidate.source):os.remove(candidate.source)
                     except InterruptedError:break
-                    except Exception as exc:self.errors.append(str(exc));failed_count+=1
+                    except RecoveryWait as exc:self.recovery_waiting=str(exc);break
+                    except Exception as exc:
+                        self.errors.append(str(exc));failed_count+=1
+                        if unit:self.recovery.mark(unit,state='failed')
+        except RecoveryWait as exc:self.recovery_waiting=str(exc)
         finally:
             for temporary in temporaries:
                 from pathlib import Path
                 Path(temporary).unlink(missing_ok=True)
             context.job_id='';context.duplicate_resolver=None;context.cancelled=None;context.normalized=None
+            context.checkpoint=None;context.deferred_duplicates=None
+            context.duplicate_choice=''
         self.finished.emit(saved_count, skipped_count, failed_count)
 
     def _run_operation(self,context):
@@ -781,6 +831,8 @@ class GalleryInterface(QWidget):
         self.imports.changed.connect(self._schedule_task_refresh)
         self.ocr.changed.connect(self._schedule_task_refresh)
         self.imports.files_finished.connect(self._queued_files_finished)
+        self.imports.restore(self)
+        self._schedule_task_refresh()
         visual.theme.changed.connect(self.refresh_theme)
         i18n_engine.language_changed.connect(self.refresh_texts)
 
@@ -2708,6 +2760,10 @@ class GalleryInterface(QWidget):
             summary=t('新增 {saved} 张，已处理重复 {duplicates} 张，跳过 {skipped} 张，失败 {failed} 张').format(
                 saved=request.saved,duplicates=request.duplicates,skipped=request.skipped,failed=request.failed)
             if state=='waiting':title=t('等待导入表情');outcome='waiting';done=0;total=request.total
+            elif state in {'interrupted','waiting_source','ocr_interrupted'}:
+                title=t('发现未完成导入任务');outcome='interrupted';done=request.done;total=request.total
+                summary=t(request.phase)
+                if state=='ocr_interrupted':title=t('发现未完成 OCR 任务');summary=t(job.get('error',''))
             elif state=='decision':
                 title=t('等待处理重复表情（{count}）').format(count=request.conflicts)
                 outcome='waiting';done=0;total=0
@@ -2737,17 +2793,44 @@ class GalleryInterface(QWidget):
                 if outcome=='success':outcome='partial'
             host.upsert_task(key,title,current=done,total=total,state=outcome,content=summary,kind='import',
                 cancel=lambda k=key:self.imports.cancel(k),details=details.strip(),
+                resume=(lambda k=key,kind='ocr' if state=='ocr_interrupted' else 'import':self._recovery_options(k,kind)) if state in {'interrupted','waiting_source','ocr_interrupted'} else None,
+                action_text=t('查看恢复选项') if state in {'interrupted','waiting_source','ocr_interrupted'} else None,
                 phase=request.phase if request.phase in {'恢复分类关系','整理资源顺序','完成迁移收尾'} else state)
         for key,job in tuple(self.ocr.jobs.items()):
             if key in self.imports.requests:continue
+            if job['state'] in {'completed','cancelled'} and key not in self.ocr.session_jobs:continue
             done=sum(job.get(k,0) for k in ('done','failed','skipped'));state=job['state']
             outcome=state if state in {'cancelled','interrupted'} else 'running' if state=='running' else ('partial' if job.get('done') or job.get('skipped') else 'error') if job.get('failed') else 'success' if state=='completed' else state
             title=t('重新识别全部表情') if job.get('force') and job.get('origin')=='library' else t('补充识别') if job.get('origin')=='library' else t('识别表情文字')
             content=t('表情 {done}/{total} 张，失败 {failed} 张，跳过 {skipped} 张').format(done=done,total=job.get('total',0),failed=job.get('failed',0),skipped=job.get('skipped',0))
-            if state in {'cancelled','interrupted'}:title=t('文字识别已停止')
+            if state in {'cancelled','interrupted','waiting_source'}:title=t('文字识别已停止')
             resume=(lambda k=key,f=job.get('force',False):self.ocr.supplement(force=f,job_id=k)) if job.get('origin')=='library' and state in {'cancelled','interrupted'} else None
+            if state in {'interrupted','waiting_source'}:
+                title=t('发现未完成 OCR 任务');outcome='interrupted'
+                resume=lambda k=key:self._recovery_options(k,'ocr')
+                if job.get('error'):content+='\n'+t(job['error'])
             host.upsert_task(key,title,current=done,total=job.get('total',0),state=outcome,content=content,kind='ocr',
                 cancel=lambda k=key:self.ocr.cancel(job_id=k),resume=resume,details=job.get('error',''),phase=state)
+
+    def _recovery_options(self,key,kind):
+        from fluent_ui.components.dialogs import NekoriDialog
+        from PySide6.QtWidgets import QLabel
+        service=self.imports if kind=='import' else self.ocr
+        dialog=NekoriDialog(self.window(),t('未完成任务'))
+        label=QLabel(t('继续仅处理未完成部分；放弃不会删除已完成成果。'),dialog)
+        reason=self.imports.recovery_block_reason(key) if kind=='import' else '' if self.ocr._items(key) else '此任务没有可靠的恢复清单'
+        if reason:label.setText(t(reason)+'\n'+label.text())
+        label.setWordWrap(True);dialog.add_widget(label)
+        def resume():
+            try:service.resume(key)
+            except RuntimeError as exc:
+                label.setText(t(str(exc)));return
+            dialog.accept()
+        dialog.add_button('继续任务',on_click=resume,enabled=not reason)
+        dialog.add_button('暂不继续',on_click=dialog.reject)
+        dialog.add_button('放弃任务',role='danger',on_click=lambda:(service.abandon(key),dialog.accept()))
+        dialog.setModal(False);dialog.setWindowModality(Qt.NonModal)
+        dialog.show();self._recovery_dialog=dialog
 
     def _on_import_progress(self, current, total):
         self.task_status.update(t('正在处理: {value_0} / {value_1}').format(value_0=current, value_1=total), current=current, total=total)

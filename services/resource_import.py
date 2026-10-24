@@ -29,6 +29,7 @@ class DuplicateCandidate:
     source: object
     target: ImportTarget
     before: tuple | None = None
+    checkpoint: tuple | None = None
 
 
 class ImportDeferred(Exception):
@@ -43,6 +44,12 @@ class ResourceImporter:
         if not saved:
             raise RuntimeError("Resource could not be saved")
         index = self.storage.index
+        checkpoint = getattr(self.storage.import_context, 'checkpoint', None)
+        if checkpoint:
+            index.register(saved, source_name, library_added_seq=library_added_seq, target=target,
+                           checkpoint=checkpoint, duplicate=duplicate,
+                           kept=getattr(self.storage.import_context,'duplicate_choice','')=='keep' and not duplicate)
+            return saved, duplicate
         existing = index.resource(saved)
         resource_id = index.register(saved, source_name, library_added_seq=library_added_seq)
         already_member = existing and any(e['kind'] == 'resource' and e['id'] == resource_id
@@ -65,6 +72,10 @@ class ResourceImporter:
             if not saved:
                 return None, False
             normalized=getattr(self.storage.import_context,'normalized',None)
+        if duplicate and getattr(self.storage.import_context,'checkpoint',None) and not self.storage.index.resource(saved):
+            # A crash may leave validated bytes/features but no accepted catalog
+            # resource. Reuse those bytes as a new acceptance, not a user conflict.
+            duplicate=False
         if duplicate:
             self._defer_duplicate(saved,source,target)
             saved,duplicate=self._resolve_duplicate(saved,source,normalized)
@@ -113,7 +124,7 @@ class ResourceImporter:
             entries=self.storage.index.content(target.parent_node)
             if 0<=target.insert_position<len(entries):
                 entry=entries[target.insert_position];before=(entry['kind'],entry['id'])
-        pending.append(DuplicateCandidate(saved,source,target,before))
+        pending.append(DuplicateCandidate(saved,source,target,before,getattr(self.storage.import_context,'checkpoint',None)))
         raise ImportDeferred()
 
     def _notify(self,saved,duplicate=False):
@@ -171,6 +182,11 @@ class ResourceImporter:
             except ImportSkipped:
                 result.cancelled+=1
             except InterruptedError:
+                raise
+            except KeyError:
+                if getattr(self.storage.import_context,'checkpoint',None):
+                    from services.task_recovery import RecoveryWait
+                    raise RecoveryWait('目标分类已改变，无法安全继续')
                 raise
             except Exception as exc:
                 result.errors[str(path)] = str(exc)
