@@ -37,3 +37,11 @@ Qt 对已创建窗口晚设 Alpha 的处理依据：[Qt 6.11.2 QWidget 源码 up
 保留七个原脏文件；其中宿主原实验仅上述获准删除行被正式吸收，其它实验内容保持。T-07 不改，W-03 补丁未应用。没有改 MainWindow 几何恢复逻辑，没有新增或删除其定时器；没有改图库、主题及数据模型。
 
 固定入口仍为 DevData/Demo/Start-Demo.cmd，持续数据 DevData/Demo/data 不清空。#57、#37 保持 Open/待人工验收，不 Push、不发布。
+
+## 人工反馈补充：还原图标状态一致性
+
+源码 `5f74b91`。CaptionButton 原先先画完整后框，再用当前按钮背景填充前框；NORMAL 透明时无法遮住后框，HOVER/PRESSED 的背景掩盖了多余线段。现在后框只描绘应露出的连续轮廓，前框保持无填充，几何/笔宽/原有配色/圆角背景均未变。
+
+Windows Qt 定向三项通过：原两项窗口状态回归及新增图标轮廓对照；在同一对比底色上，透明 NORMAL 与不透明 HOVER/PRESSED 的图标区域逐像素一致，覆盖浅/深色对比。另以实际主宿主及 NekoriOwnedWindow 标题栏检查浅/深主题三态截图、普通最大化图标，无异常底色，Acrylic 保持。证据留本地 DevData/caption-check；不冒称真实鼠标或 Win10 验收。
+
+仅修改 CaptionButton.paintEvent 与 QPainterPath 导入，不修改 _getColors、setMaxState、按钮动画、窗口状态/Alpha 生命周期或材质。暂存区仅该绘制修正和回归测试；原七处实验其余内容保持，T-07/W-03 候选不变。#57 保持 Open，固定 Demo 待人工体验。
