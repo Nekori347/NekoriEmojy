@@ -42,7 +42,7 @@ try:
 except ImportError:
     pass
 
-from PySide6.QtWidgets import QApplication
+from fluent_ui.components.runtime_diagnostics import DiagnosticApplication as QApplication
 from PySide6.QtCore import Qt, QTimer
 
 def main():
@@ -132,6 +132,8 @@ def main():
     install_global_tooltips(app, int(config_service.get('tooltip_delay', 120)))
 
     window = MainWindow(storage_service, clipboard_service, config_service)
+    from fluent_ui.components.runtime_diagnostics import install_runtime_diagnostics
+    install_runtime_diagnostics(app, window)
     
     from services.app_icon import ApplicationIconService, set_app_user_model_id
     set_app_user_model_id()

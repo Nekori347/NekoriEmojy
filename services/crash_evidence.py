@@ -11,6 +11,8 @@ import threading
 import time
 import traceback
 import subprocess
+from collections import deque
+import re
 
 from services.app_paths import app_data_dir
 
@@ -20,9 +22,89 @@ _fatal_file = None
 _fatal_process = None
 LOG_BYTES = 512 * 1024
 RECORD_BYTES = 16 * 1024
+RETENTION_SECONDS = 14 * 86400
+_recent = deque(maxlen=64)
+_context_lock = threading.RLock()
+_environment = {}
+_handler = None
+_active_native = None
+
+
+def breadcrumb(event, **fields):
+    """Internal event codes and scalar counts only; never accept user text."""
+    if event not in {'startup','shutdown','window_show','window_hide','window_state',
+                     'window_environment','task_state','exception','drag_summary'}:return
+    safe = {key:value for key,value in fields.items()
+            if key in {'count','duration_ms','max_dispatch_ms','events','kind','state','phase','role',
+                       'qt_dispatches','native_events','hit_tests','nc_calculations','position_changes'}
+            and (isinstance(value,(int,float,bool)) or
+                 (isinstance(value,str) and re.fullmatch(r'[A-Za-z_]{1,32}',value)))}
+    with _context_lock:
+        _recent.append(dict(time=round(time.monotonic(),3),event=event,**safe))
+
+
+def context_snapshot():
+    with _context_lock:return dict(environment=dict(_environment),recent=list(_recent))
+
+
+def set_environment(values):
+    with _context_lock:_environment.update(values)
+
+
+def persist_context(label):
+    if _installed:
+        logging.getLogger('nekori.crash_evidence').info('%s context=%s',label,
+            json.dumps(context_snapshot(),ensure_ascii=True,separators=(',',':')))
+
+
+def maintain(directory, *, active=(), native_slots=2, now=None):
+    """Only owned, closed segments. An exported ZIP and unknown files are untouched."""
+    directory=Path(directory);now=time.time() if now is None else now
+    active={Path(p) for p in active if p is not None}
+    try:
+        if directory.is_symlink():return
+        native=[p for p in directory.glob('fatal-*.log')
+                if re.fullmatch(r'fatal-\d{8}-\d{6}-\d+\.log',p.name) and not p.is_symlink()]
+        python=[directory/name for name in ('exceptions.log','exceptions.log.1','exceptions.log.2')]
+        for path in python+native:
+            if path in active or path.is_symlink():continue
+            try:
+                if now-path.stat().st_mtime>RETENTION_SECONDS:path.unlink()
+                else:_trim(path)
+            except OSError:pass
+        existing=[]
+        for path in native:
+            try:existing.append((path.stat().st_mtime,path))
+            except OSError:pass
+        # Active segments count against the same two-file budget.
+        excess=max(0,len(existing)-native_slots)
+        for _,path in sorted(existing):
+            if not excess:break
+            if path not in active:
+                try:path.unlink();excess-=1
+                except OSError:pass
+    except OSError:pass
+
+
+def maintenance():
+    if _handler is not None:
+        _handler.acquire()
+        try:
+            path=Path(_handler.baseFilename)
+            # Close/rotate before removing an expired current Python segment.
+            try:
+                if path.exists() and time.time()-path.stat().st_mtime>RETENTION_SECONDS:
+                    _handler.doRollover()
+            except OSError:pass
+            maintain(path.parent,active=(path,_active_native))
+        finally:_handler.release()
 
 
 class BoundedRotatingHandler(RotatingFileHandler):
+    def doRollover(self):
+        super().doRollover()
+        maintain(Path(self.baseFilename).parent,active=(Path(self.baseFilename),_active_native))
+
     def format(self, record):
         text = super().format(record).encode('utf-8', errors='replace')
         return text[:RECORD_BYTES].decode('utf-8', errors='ignore')
@@ -95,6 +177,8 @@ def record_task_failure(key, kind, previous=None, *, exc_info=None):
     import hashlib
     task = hashlib.sha256(str(key).encode()).hexdigest()[:12]
     previous = previous or {}
+    breadcrumb('exception',kind='task')
+    persist_context('task_failure')
     logger = logging.getLogger('nekori.crash_evidence')
     safe_kind = kind if kind in {'import','ocr','export','migration','exchange'} else 'task'
     phase = previous.get('phase','')
@@ -132,12 +216,13 @@ def _frames(tb):
 
 def install():
     """Install once; an unavailable diagnostics directory must not block startup."""
-    global _installed, _fatal_file, _fatal_process
+    global _installed, _fatal_file, _fatal_process, _handler, _active_native
     if _installed:
         return app_data_dir() / 'diagnostics'
     directory = app_data_dir() / 'diagnostics'
     try:
         directory.mkdir(parents=True, exist_ok=True)
+        maintain(directory)
         for path in directory.glob('exceptions.log*'):
             if path.name in {'exceptions.log','exceptions.log.1','exceptions.log.2'}:_trim(path)
         handler = BoundedRotatingHandler(directory / 'exceptions.log', maxBytes=LOG_BYTES,
@@ -146,17 +231,20 @@ def install():
         return None
 
     logger = logging.getLogger('nekori.crash_evidence')
-    logger.setLevel(logging.ERROR)
+    logger.setLevel(logging.INFO)
     logger.propagate = False
     formatter = logging.Formatter('%(asctime)sZ %(message)s', '%Y-%m-%dT%H:%M:%S')
     formatter.converter = time.gmtime
     handler.setFormatter(formatter)
     logger.addHandler(handler)
+    _handler=handler
     version = _version()
 
     def record(kind, exc_type, tb):
         try:
             name = f'{exc_type.__module__}.{exc_type.__qualname__}'
+            breadcrumb('exception',kind=kind)
+            persist_context('exception')
             logger.error('version=%s pid=%s thread=%s source=%s exception=%s\n%s',
                          version, os.getpid(), threading.get_ident(),
                          kind, name, _frames(tb))
@@ -181,11 +269,9 @@ def install():
     # console-less executable cannot show stderr. Keep at most two such files.
     try:
         fatal_path = directory / f'fatal-{time.strftime("%Y%m%d-%H%M%S")}-{os.getpid()}.log'
-        old = sorted(directory.glob('fatal-*.log'), key=lambda path: path.stat().st_mtime)
-        for path in old[:-1]:
-            path.unlink()
-        for path in old[-1:]:_trim(path)
+        maintain(directory,native_slots=1)
         _fatal_file, _fatal_process = _native_sink(fatal_path)
+        _active_native=fatal_path
         faulthandler.enable(file=_fatal_file, all_threads=True)
 
         def close_fatal():

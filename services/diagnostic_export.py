@@ -5,7 +5,7 @@ import re
 import zipfile
 from pathlib import Path
 from services.app_paths import app_data_dir
-from services.crash_evidence import LOG_BYTES, _version
+from services.crash_evidence import LOG_BYTES, _version, context_snapshot
 from services.export_control import staged_export_path, check_export_cancelled
 from services.i18n import t
 
@@ -41,6 +41,7 @@ def export_diagnostics(target,progress=lambda *_:None,cancel=None):
                   system_release=platform.release(),system_version=platform.version(),machine=platform.machine(),
                   log_file_limit_bytes=LOG_BYTES,logs=len(files),
                   scope='Redacted application diagnostics only; no settings, images, Library or credentials.')
+    metadata['runtime_context']=context_snapshot()
     try:
         from PySide6.QtCore import qVersion
         metadata['qt']=qVersion()

@@ -23,6 +23,7 @@ os.environ['NEKORI_APP_DATA']=str(DATA/'app');os.environ['NEKORI_LIBRARY']=str(D
 sys.path.insert(0,str(SOURCE))
 sys.stdout=sys.stderr=(HERE/'demo.log').open('a',encoding='utf-8',buffering=1)
 from PySide6.QtWidgets import QApplication,QSystemTrayIcon,QMenu
+from fluent_ui.components.runtime_diagnostics import DiagnosticApplication as QApplication
 app=QApplication([]);app.setQuitOnLastWindowClosed(False)
 from services.single_instance import SingleInstance
 instance=SingleInstance(app)
@@ -89,6 +90,8 @@ if not config.get('qq_save_path'):config.set('qq_save_path',str(DATA/'exports'))
 (DATA/'exports').mkdir(exist_ok=True)
 MainWindow._init_global_hotkey=lambda self:setattr(self,'hotkey_listener',None)
 window=MainWindow(storage,ClipboardService(config),config)
+from fluent_ui.components.runtime_diagnostics import install_runtime_diagnostics
+install_runtime_diagnostics(app,window)
 head=subprocess.check_output(['git','rev-parse','--short','HEAD'],cwd=SOURCE).decode().strip()
 window.setWindowTitle(f'NekoriEmojy · 开发 Demo · {head}')
 gallery=window.gallery_interface

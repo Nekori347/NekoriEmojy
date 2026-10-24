@@ -80,10 +80,12 @@ def test_frozen_version_location_and_native_file_count(tmp_path, monkeypatch):
 
     directory = tmp_path / 'app' / 'diagnostics'
     directory.mkdir(parents=True)
+    import time
     for index in range(4):
-        path = directory / f'fatal-old-{index}.log'
+        path = directory / f'fatal-20261024-120000-{index}.log'
         path.write_text(f'old fault {index}', encoding='utf-8')
-        os.utime(path, (index + 1, index + 1))
+        stamp=time.time()-100+index
+        os.utime(path, (stamp,stamp))
     result = child(tmp_path, 'from services.crash_evidence import install; assert install()')
     assert result.returncode == 0, result.stderr
     retained = list(directory.glob('fatal-*.log'))

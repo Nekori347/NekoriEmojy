@@ -422,6 +422,9 @@ class FeedbackHost(QObject):
         value=dict(title=clean_message(title),current=current,total=total,state=state,content=clean_message(content),kind=kind,cancel=cancel,resume=resume,details=str(details),action_text=action_text)
         value['phase']=phase
         if previous==value:return
+        if not previous or previous.get('state')!=state:
+            from services.crash_evidence import breadcrumb
+            breadcrumb('task_state',kind=kind,state=state)
         if state in {'error','partial'} and (not previous or previous.get('state') not in {'error','partial'}):
             from services.crash_evidence import record_task_failure
             record_task_failure(key,kind,previous)
