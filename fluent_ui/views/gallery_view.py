@@ -1183,7 +1183,7 @@ class GalleryInterface(QWidget):
         self._activate_inline_scope()
         self._initial_anchor = self._decode_anchor(self._location_anchors.get(node_id))
         self._live_anchor = self._initial_anchor
-        self.sidebar.tree.select_node(node_id, reveal=True)
+        self.sidebar.tree.select_node(node_id, reveal=False)
         self.finish_selection()
         self.search_keyword = ''
         self.search_box.blockSignals(True)
