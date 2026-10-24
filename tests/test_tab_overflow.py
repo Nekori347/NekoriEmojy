@@ -177,13 +177,13 @@ def test_scroll_hover_is_inset_but_full_button_remains_clickable(strip):
     assert right.size() == size
 
 
-def test_selected_rule_tracks_full_body_through_switch_scroll_resize(strip):
+def test_selected_rule_tracks_full_body_through_switch_scroll_resize(strip,monkeypatch):
     def matches():
         strip.grab()  # drive the existing geometry synchronization path
         body=strip.content_tab_rect(strip.currentIndex())
         target=strip._target_line()
         if strip._tab_viewport().intersects(body):
-            assert target.left()==body.left()+3 and target.width()==body.width()-6
+            assert target.left()==body.left()+8 and target.width()==max(0,body.width()-16)
             assert target.top()==9
         else:assert target.isEmpty()
     matches()
@@ -196,3 +196,6 @@ def test_selected_rule_tracks_full_body_through_switch_scroll_resize(strip):
     strip.resize(680,43);QApplication.processEvents();matches()
     strip.set_tabs(['Short','Much longer category title'],1);QTest.qWait(210);matches()
     assert strip._target_line().width()>38
+    from PySide6.QtCore import QRect
+    monkeypatch.setattr(strip,'content_tab_rect',lambda index:QRect(0,0,12,43))
+    assert strip._target_line().width()==0  # no negative line on an exceptionally narrow body
