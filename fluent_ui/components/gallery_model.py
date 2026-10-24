@@ -15,6 +15,22 @@ class GalleryEntryModel:
         self.storage = storage
         self.direct = {}
         self.snapshots = {}
+        self.projected = {}
+
+    def bind_projection(self, entries):
+        """Index occurrences only when the logical projection changes."""
+        self.projected = {}
+        for index,entry in enumerate(entries):
+            key=entry['path'] if entry['kind']=='resource' else entry['id']
+            self.projected.setdefault(key,[]).append((index,entry))
+
+    def selected_entries(self, keys, parents):
+        chosen=[]
+        for key in keys:
+            occurrences=self.projected.get(key,())
+            if occurrences:
+                chosen.append(next((item for item in occurrences if item[1]['_parent']==parents.get(key)),occurrences[0]))
+        return [entry for _,entry in sorted(chosen,key=lambda item:item[0])]
 
     def entries_of(self, parent):
         if parent not in self.direct:

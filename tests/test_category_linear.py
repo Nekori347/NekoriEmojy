@@ -17,10 +17,10 @@ def test_click_selection_does_not_leave_category_background(surface,manage):
     normal=node.grab().toImage()
     QTest.mouseClick(node,Qt.LeftButton,pos=node.rect().center())
     QApplication.sendEvent(node,QEvent(QEvent.Leave));settle(s.app)
-    assert (s.child in g.selected_keys)==(not manage),'existing category selection semantics changed'
+    assert s.child in g.selected_keys,'both modes select a category'
     after=node.grab().toImage()
-    assert (after!=normal)==(not manage),'selected signal must follow real node selection'
-    assert (after.pixelColor(20,5)!=normal.pixelColor(20,5))==(not manage),'only real selection has a neutral backing'
+    assert after!=normal,'selected signal must follow real node selection'
+    assert after.pixelColor(20,5)!=normal.pixelColor(20,5),'real selection has a neutral backing'
     assert node.height()==g.renderer.index.rects[next(i for i,e in enumerate(g._entries) if e['id']==s.child)].height()
     assert node.height()==30 and node._icon_extent==22
 

@@ -582,8 +582,10 @@ class EmojiCard(QLabel):
         payload = [self.image_path]
         if self.drag_payload_provider is not None:
             resolved = self.drag_payload_provider(self.image_path)
-            if resolved:
-                payload = list(resolved)
+            if resolved is None:
+                self._drag_start_pos=None
+                return  # keep _is_dragging until release, so this never sends
+            payload = list(resolved)
 
         from services.external_drag import ResourceDragMimeData
         drag = QDrag(self)

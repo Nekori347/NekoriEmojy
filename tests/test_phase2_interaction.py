@@ -199,16 +199,16 @@ def test_filter_continuous_checkbox_clear_and_context_sync(surface):
     assert popup.geometry().bottom() < g.btn_filter.mapToGlobal(QPoint()).y()
 
 
-def test_selection_bar_layout_shared_mode_and_resource_only_count(surface):
+def test_selection_bar_layout_shared_mode_and_mixed_count(surface):
     s, g = surface, surface.g
     g._select_single(s.child)
     g._toggle_selection(s.paths[0])
-    assert not g.command_bar.isVisible()  # A Node plus one Resource is one resource.
+    assert g.command_bar.isVisible()  # Node and resource are both selected entries.
     g._toggle_selection(s.paths[1])
     settle(s.app)
     shared = g.command_bar
     assert shared.isVisible() and g.top_bar.isVisible()
-    assert g.selected_count_label.text() == '已选 2 项'
+    assert g.selected_count_label.text() == '已选 3 项（2 张表情，1 个节点）'
     layout = g.content_pane.content_layout
     assert [layout.itemAt(i).widget() for i in range(layout.count())] == [
         g.context_strip, shared, g.tag_panel_host]
@@ -220,7 +220,7 @@ def test_selection_bar_layout_shared_mode_and_resource_only_count(surface):
     assert shared.isVisible() and g.selected_count_label.text() == '已选 0 项'
     assert g.top_bar.isVisible()
     g.select_all_cards()
-    assert g.selected_keys == g._visible_resource_keys() and s.child not in g.selected_keys
+    assert g.selected_keys == set(g.entry_model.projected) and s.child in g.selected_keys
     assert g.btn_select_all.toolTip() == '取消全选'
     g.select_all_cards()
     assert not g.selected_keys and not g._selection_parents

@@ -252,9 +252,13 @@ class NodeCard(QLabel):
             return super().mouseMoveEvent(event)
 
         self._pressed = False;self.update()
+        payload = self.drag_payload_provider(self.node_id) if self.drag_payload_provider else None
+        if self.drag_payload_provider is not None and payload is None:
+            self._drag_start=None
+            self._dragging=True  # suppress release-click after the rejected gesture
+            return
         drag = QDrag(self)
         mime = QMimeData()
-        payload = self.drag_payload_provider(self.node_id) if self.drag_payload_provider else None
         mime.setData(NODE_MIME, json.dumps(payload or [self.node_id]).encode("utf-8"))
         drag.setMimeData(mime)
         pixmap=self.drag_pixmap()

@@ -164,7 +164,7 @@ def test_resource_drag_cancel_surface_consumes_without_writes(management,monkeyp
     assert all(Path(p).read_bytes()==data for p,data in contents.items())
 
 
-def test_resource_only_selection_and_current_filtered_projection(management):
+def test_mixed_selection_and_current_filtered_projection(management):
     view,storage,parent,dest,paths,sent=management
     child=storage.create_node('Nested',parent)
     storage.move_resources_to(paths[:2],child,copy=True)
@@ -174,12 +174,12 @@ def test_resource_only_selection_and_current_filtered_projection(management):
     node=next(c for c in view._all_card_widgets if getattr(c,'node_id',None)==child)
     QTest.mouseClick(node,Qt.LeftButton);assert child in view.selected_keys
     QTest.mouseClick(view.btn_manage,Qt.LeftButton)
-    assert not view.selected_keys and not node.is_selected
+    assert view.selected_keys=={child} and node.is_selected
     QTest.mouseClick(node,Qt.LeftButton,Qt.ControlModifier)
     assert not view.selected_keys
     QTest.mouseClick(view.btn_select_all,Qt.LeftButton)
     assert set(view.get_selected_paths())==set(paths)
-    assert view.selected_count_label.text()=='已选 6 项'  # repeated child occurrences deduplicate
+    assert view.selected_count_label.text()=='已选 7 项（6 张表情，1 个节点）'  # occurrence identities deduplicate
     QTest.mouseClick(view.btn_select_all,Qt.LeftButton)
     assert not view.selected_keys
     view.active_tags={'focused'};view.refresh_content();QTest.qWait(100)

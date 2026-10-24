@@ -428,11 +428,12 @@ class CategorySidebar(Surface):
             self.storage.move_nodes(node_ids, parent_id, position)
         except (KeyError, ValueError) as exc:
             self._error(t('无法移动分类'), str(exc))
-            return
+            return False
         self.tree.patch_nodes(node_ids, parent_id)
         self.icons.refresh()
         self._update_section_index()
         self.gallery_view.refresh_content_incremental(reason='structure', parents=old_parents | {parent_id})
+        return True
 
     def _on_resources_dropped(self, node_id, paths, global_pos):
         if self.gallery_view:
@@ -1148,15 +1149,13 @@ class GalleryInterface(QWidget):
                 and self.content_sort == 'manual')
 
     def _drop_selection_only(self):
-        """Clear the selection without rebuilding the grid."""
+        changed=set(self.selected_keys)
         self.selected_keys.clear()
         self._selection_parents.clear()
         self._last_clicked_key = self._shift_anchor = None
         self._shift_touched.clear()
-        for card in self._all_card_widgets:
-            if getattr(card, 'is_selected', False):
-                card.set_selected(False)
-        self._sync_command_bar()
+        self._shift_base=set()
+        self._commit_selection_visuals(changed)
 
     def set_node(self, node_id, force=False):
         """Explicit category navigation resets the relative view to its location.
@@ -1409,8 +1408,7 @@ class GalleryInterface(QWidget):
                     anchor, cold_start = self._initial_anchor, True
                 else:
                     self._initial_anchor = None
-        projection_filter_changed = old is not None and (old[1] != signature[1] or old[3:5] != signature[3:5])
-        self._reconcile_selection(resources_only=projection_filter_changed)
+        self._reconcile_selection()
         self._view_signature_at_build = signature
         if anchor is not None:
             # Callers that changed something below the viewport (expanding a
@@ -1691,7 +1689,8 @@ class GalleryInterface(QWidget):
         self.btn_manage.setChecked(mode == "manage")
         if mode == "normal":
             self._drop_selection_only()
-        elif hasattr(self, 'preview_controller'):
+            return
+        if hasattr(self, 'preview_controller'):
             self.preview_controller.cancel()
         self._commit_selection_visuals()
 
@@ -1755,33 +1754,41 @@ class GalleryInterface(QWidget):
         if hasattr(self,'_view_shortcuts'):self._sync_view_shortcuts()
         self._selection_parents = {key: parent for key, parent in self._selection_parents.items()
                                    if key in self.selected_keys}
-        resources = [e for e in self._selected_entries() if e['kind'] == 'resource']
-        count = len(resources)
+        entries=self._selected_entries()
+        resources = [e for e in entries if e['kind'] == 'resource']
+        nodes=[e for e in entries if e['kind']=='node']
+        count = len(entries)
+        resource_only=bool(resources) and not nodes
+        node_only=bool(nodes) and not resources
         contextual = self.mode == 'manage' or count >= 2
         manage_label = '退出管理模式' if self.mode == 'manage' else '进入管理模式'
         bind_text(self.btn_manage, manage_label, 'setToolTip')
         self.btn_manage.setAccessibleName(self.btn_manage.toolTip())
         self.command_bar.setVisible(contextual)
-        bind_text(self.selected_count_label, t('已选 {value_0} 项').format(value_0=count), 'setText')
-        direct = ({e['id'] for e in self.entry_model.entries_of(self.content_scope_node())
-                   if e['kind'] == 'resource'} if resources else set())
+        bind_text(self.selected_count_label,
+            t('已选 {value_0} 项（{value_1} 张表情，{value_2} 个节点）').format(value_0=count,value_1=len(resources),value_2=len(nodes))
+            if nodes else t('已选 {value_0} 项').format(value_0=count), 'setText')
+        direct = {e['id'] for e in resources if e['_parent']==self.content_scope_node()}
         context = ActionContext.from_entries(resources, direct, self.content_scope_node())
-        self.btn_add_to.setEnabled(ActionPolicy.enabled('category_membership', context))
-        self.btn_tags.setEnabled(ActionPolicy.enabled('tag_edit', context))
-        self.btn_delete.setEnabled(ActionPolicy.enabled('delete', context))
+        self.btn_add_to.setEnabled(resource_only and ActionPolicy.enabled('category_membership', context))
+        self.btn_tags.setEnabled(resource_only and ActionPolicy.enabled('tag_edit', context))
+        self.btn_delete.setEnabled(resource_only and ActionPolicy.enabled('delete', context))
         bind_text(self.btn_delete, ActionPolicy.delete_label(context), 'setToolTip')
         missing_only = bool(resources) and not context.existing
         bind_text(self.btn_delete, '移除记录' if missing_only else '删除资源', 'setText')
         if getattr(self, '_delete_missing_icon', None) != missing_only:
             self._delete_missing_icon = missing_only
             self.btn_delete.setIcon(FIF.REMOVE if missing_only else FIF.DELETE)
-        self.btn_more.setEnabled(bool(resources))
-        self.btn_move_to.setEnabled(ActionPolicy.enabled('category_membership', context)
-                                    and any(e['_parent'] != ROOT for e in resources))
-        self.btn_arrange.setEnabled(bool(resources) and self._exact_placement_available())
-        visible = self._visible_resource_keys()
+        self.btn_more.setEnabled(resource_only)
+        self.btn_move_to.setEnabled(node_only or (resource_only and ActionPolicy.enabled('category_membership', context)
+                                    and any(e['_parent'] != ROOT for e in resources)))
+        self.btn_arrange.setEnabled(bool(entries) and self._exact_placement_available())
+        for button in (self.btn_add_to,self.btn_tags,self.btn_delete,self.btn_more):
+            button.setToolTip(t('此操作仅支持表情；请先取消所选分类节点。') if nodes else (ActionPolicy.delete_label(context) if button is self.btn_delete else button.text()))
+        self.btn_move_to.setToolTip(t('混合选择不能一次移动到分类；请分别选择节点或表情。') if nodes and resources else self.btn_move_to.text())
+        visible = self.entry_model.projected
         self.btn_select_all.setEnabled(bool(visible))
-        select_label = '取消全选' if visible and visible <= self.selected_keys else '全选当前结果'
+        select_label = '取消全选' if visible and len(visible)==len(self.selected_keys) else '全选当前结果'
         bind_text(self.btn_select_all, select_label, 'setText')
         bind_text(self.btn_select_all, select_label, 'setToolTip')
         self.btn_select_all.setAccessibleName(self.btn_select_all.toolTip())
@@ -1793,83 +1800,71 @@ class GalleryInterface(QWidget):
         if contextual:
             self._layout_selection_actions()
 
-    def _visible_resource_keys(self):
-        return {self._entry_key(e) for e in self._entries if e['kind'] == 'resource'}
-
-    def _reconcile_selection(self, *, resources_only=False):
-        visible = self._visible_resource_keys() if resources_only or self.mode == 'manage' else {self._entry_key(e) for e in self._entries}
+    def _reconcile_selection(self):
+        self.entry_model.bind_projection(self._entries)
+        visible=self.entry_model.projected
         self.selected_keys.intersection_update(visible)
-        sources = {}
-        for entry in self._entries:
-            key = self._entry_key(entry)
-            if key in self.selected_keys:
-                sources.setdefault(key, []).append(entry['_parent'])
-        self._selection_parents = {key: self._selection_parents.get(key)
-                                   if self._selection_parents.get(key) in parents else parents[0]
-                                   for key, parents in sources.items()}
+        self._selection_parents={self._entry_key(e):e['_parent'] for e in self._selected_entries()}
         self._shift_touched.intersection_update(self.selected_keys)
-        if hasattr(self, '_shift_base'):
-            self._shift_base.intersection_update(self.selected_keys)
-        if self._shift_anchor not in visible:
-            self._shift_anchor = None
-        if self._last_clicked_key not in visible:
-            self._last_clicked_key = None
+        if hasattr(self,'_shift_base'):self._shift_base.intersection_update(self.selected_keys)
+        if self._shift_anchor not in visible:self._shift_anchor=None
+        if self._last_clicked_key not in visible:self._last_clicked_key=None
 
     def update_selection_count(self):
         self._sync_command_bar()
 
     def _selected_entries(self):
-        result, seen = [], set()
-        occurrences = {(self._entry_key(e), e['_parent']) for e in self._entries}
-        for entry in self._entries:
-            key = self._entry_key(entry)
-            if key in self.selected_keys and key not in seen:
-                parent = self._selection_parents.get(key)
-                if parent and parent != entry['_parent'] and (key, parent) in occurrences:
-                    continue
-                result.append(entry)
-                seen.add(key)
-        return result
+        return self.entry_model.selected_entries(self.selected_keys,self._selection_parents)
 
     def get_selected_paths(self):
         return [e["path"] for e in self._selected_entries() if e["kind"] == "resource"]
 
-    def _drag_payload(self, path):
-        """Everything that should travel with one drag gesture."""
-        if path in self.selected_keys and len(self.selected_keys) > 1:
-            paths = self.get_selected_paths()
-            return paths or [path]
-        return [path]
+    def _structural_selection(self,entries):
+        """A selected ancestor carries its subtree; never detach selected children."""
+        nodes={e['id'] for e in entries if e['kind']=='node'}
+        result=[]
+        for entry in entries:
+            parent=entry['_parent']
+            while parent and parent not in nodes:
+                rows=self.entry_model.projected.get(parent)
+                if not rows:break
+                parent=rows[0][1]['_parent']
+            if parent not in nodes:result.append(entry)
+        return result
+
+    def _selection_drag_block(self,key,kind):
+        entries=(self._selected_entries() if key in self.selected_keys else
+                 [self.entry_model.projected[key][0][1]])
+        entries=self._structural_selection(entries)
+        if any(e['kind']!=kind for e in entries):
+            self.feedback_host.toast(t('此拖放不能同时处理表情和分类，请分别选择后拖动。'))
+            return None
+        return [e['path'] if kind=='resource' else e['id'] for e in entries]
+
+    def _drag_payload(self,path):
+        return self._selection_drag_block(path,'resource')
+
+    def _resource_command_entries(self):
+        entries=self._selected_entries()
+        if any(e['kind']!='resource' for e in entries):
+            self.feedback_host.toast(t('此操作仅支持表情，请先取消所选分类节点。'))
+            return None
+        return entries
 
     def on_selection_changed(self, key, selected):
-        if selected:
-            self.selected_keys.add(key)
-        else:
-            self.selected_keys.discard(key)
-        self._sync_command_bar()
-
-    def _set_widget_selected(self, key, selected):
-        for widget in self._all_card_widgets:
-            widget_key = getattr(widget, "image_path", None) or getattr(widget, "node_id", None)
-            if widget_key == key:
-                widget.set_selected(selected)
+        if selected:self.selected_keys.add(key)
+        else:self.selected_keys.discard(key)
+        self._commit_selection_visuals({key})
 
     def select_all_cards(self):
-        everything = self._visible_resource_keys()
-        if everything and self.selected_keys >= everything:
-            self.selected_keys.clear()
+        everything=set(self.entry_model.projected)
+        changed=self.selected_keys ^ everything
+        if everything and self.selected_keys==everything:
+            self._drop_selection_only()
         else:
-            self.selected_keys = set(everything)
-        self._reconcile_selection(resources_only=True)
-        from PySide6.QtCore import QSignalBlocker
-        for widget in self._all_card_widgets:
-            with QSignalBlocker(widget):
-                widget.set_selected(self._entry_key(widget.content_entry) in self.selected_keys)
-        self._sync_command_bar()
+            self.selected_keys=everything
+            self._commit_selection_visuals(changed)
 
-    # ==================================================================
-    # Grid rendering
-    # ==================================================================
     def clear_gallery(self):
         self.renderer.sticky.hide()
         self.renderer._batch_timer.stop()
@@ -1930,7 +1925,16 @@ class GalleryInterface(QWidget):
         self._responsive_layout_timer.stop()
         if hasattr(self, 'renderer'):
             anchor = self._initial_anchor or self._live_anchor or self.renderer.anchor()
-            self.renderer.relayout(anchor=anchor)
+            index=self.renderer.index
+            geometry=(max(60,self.scroll_area.viewport().width()),self.config.get('thumbnail_size',120),
+                      max(14,min(48,int(self.config.get('gallery_node_icon_size',22)))))
+            if not force and geometry==(index.width,index.size,index.node_icon_size):
+                # Command-bar visibility changes only viewport height. The
+                # mixed flow has not changed; update realization, not all rows.
+                if anchor:self.renderer.restore(anchor)
+                self.renderer.sync()
+            else:
+                self.renderer.relayout(anchor=anchor)
             self._finish_position_layout(anchor)
             self._update_back_top()
 
@@ -2025,6 +2029,13 @@ class GalleryInterface(QWidget):
         self._schedule_responsive_layout()
 
     def eventFilter(self, obj, event):
+        if (obj in (self.scroll_area.viewport(),self.grid_container)
+                and event.type()==QEvent.MouseButtonPress and event.button()==Qt.LeftButton
+                and not getattr(self,'_gallery_drag_session',None)):
+            hit=obj.childAt(event.position().toPoint())
+            if hit is None or hit is self.grid_container:
+                self._drop_selection_only()
+                return True
         if obj == getattr(self, 'command_bar', None) and event.type() in (QEvent.Resize, QEvent.Show):
             self._layout_selection_actions()
         if obj in (self.scroll_area.viewport(), self.grid_container) or obj.property("galleryDropSurface"):
@@ -2060,14 +2071,6 @@ class GalleryInterface(QWidget):
     # ==================================================================
     # Activation
     # ==================================================================
-    def on_node_clicked(self, node_id, modifiers=Qt.NoModifier):
-        if self.mode == 'manage':
-            return
-        if modifiers & (Qt.ControlModifier | Qt.ShiftModifier):
-            self._toggle_selection(node_id)
-        else:
-            self._select_single(node_id)
-
     def on_node_order_dropped(self, source_id, target_id, insert_after):
         """Single-node reorder next to a sibling; the shared drop path uses
         the same index rule, so a drag and this entry cannot disagree."""
@@ -2092,22 +2095,25 @@ class GalleryInterface(QWidget):
             # selection must not silently disable the configured send action.
             # Modifiers, management and multiple selections still select only.
             if self.selected_keys:
-                self.selected_keys.clear()
-                self._commit_selection_visuals()
+                self._drop_selection_only()
             self._selection_parents.pop(image_path,None)
             self.use_resource(image_path)
             return
-        if modifiers & Qt.ShiftModifier and self._shift_anchor:
-            self._extend_shift_selection(image_path)
-        elif self.mode == 'manage' or modifiers & Qt.ControlModifier:
-            self._toggle_selection(image_path)
-            self._shift_anchor = image_path
+        self._select_key(image_path,modifiers)
+
+    def _select_key(self,key,modifiers):
+        if modifiers & Qt.ShiftModifier:
+            if self._shift_anchor:
+                self._extend_shift_selection(key)
+            else:
+                self._select_single(key)
+        elif self.mode=='manage' or modifiers & Qt.ControlModifier:
+            self._toggle_selection(key)
+            self._shift_anchor=key
             self._shift_touched.clear()
         else:
-            self._select_single(image_path)
-            self._shift_anchor = image_path
-            self._shift_touched.clear()
-        self._last_clicked_key = image_path
+            self._select_single(key)
+        self._last_clicked_key=key
 
     def _send_to_clipboard(self, image_path):
         self.send_target_service.send(image_path, self.clipboard, self.storage,
@@ -2130,12 +2136,8 @@ class GalleryInterface(QWidget):
             self.rebind_resource(image_path)
 
     def _toggle_selection(self, key):
-        if key in self.selected_keys:
-            self.selected_keys.discard(key)
-        else:
-            self.selected_keys.add(key)
-        self._set_widget_selected(key, key in self.selected_keys)
-        self._sync_command_bar()
+        self.selected_keys.symmetric_difference_update({key})
+        self._commit_selection_visuals({key})
 
     def _extend_shift_selection(self, end_key):
         keys = [self._entry_key(e) for e in self._entries]
@@ -2150,12 +2152,13 @@ class GalleryInterface(QWidget):
         self._shift_touched = wanted
         self._commit_selection_visuals()
 
-    def _commit_selection_visuals(self):
+    def _commit_selection_visuals(self,changed=None):
         """One selection commit, bounded by the virtual renderer's active cards."""
         from PySide6.QtCore import QSignalBlocker
-        self._reconcile_selection()
         for card in self._all_card_widgets:
-            selected = self._entry_key(card.content_entry) in self.selected_keys
+            key=self._entry_key(card.content_entry)
+            if changed is not None and key not in changed:continue
+            selected = key in self.selected_keys
             if card.is_selected != selected:
                 with QSignalBlocker(card):
                     card.set_selected(selected)
@@ -2203,21 +2206,11 @@ class GalleryInterface(QWidget):
             self.show_success(t('分类已更新'), t('{value_0} 项').format(value_0=added), quiet=True)
 
     def _drag_from_entry(self, entry, path):
-        self._selection_parents[path] = entry['_parent']
-        for selected in self._selected_entries():
-            self._selection_parents[self._entry_key(selected)] = selected['_parent']
+        self._selection_parents[path]=entry['_parent']
         return self._drag_payload(path)
 
-    def _drag_node_payload(self, node_id):
-        """A selected category drags as one block, in visible order."""
-        self._selection_parents[node_id] = self.content_scope_node()
-        block = [entry['id'] for entry in self._selected_entries()
-                 if entry['kind'] == 'node']
-        if node_id not in block:
-            return [node_id]
-        for entry in self._selected_entries():
-            self._selection_parents[entry['id']] = entry['_parent']
-        return block
+    def _drag_node_payload(self,node_id):
+        return self._selection_drag_block(node_id,'node')
 
     def _node_choice_items(self, exclude=None):
         return [item for item in self.storage.node_choices() if item[0] != exclude]
@@ -2255,18 +2248,24 @@ class GalleryInterface(QWidget):
         self.assign_resources(paths, node_id, copy=copy, source_node=source_parent)
 
     def _batch_assign(self, copy):
-        entries = [e for e in self._selected_entries() if e["kind"] == "resource"]
-        if not entries:
-            self.show_error(t("无法执行"), t("请先选择表情"))
+        entries=self._selected_entries()
+        kinds={e['kind'] for e in entries}
+        if kinds=={'node'} and not copy:
+            target=self.choose_target_node(t('移动到分类'),False,exclude=self.content_scope_node())
+            if target is not None:
+                normalized=self._structural_selection(entries)
+                if self._apply_node_drop([e['id'] for e in normalized],DropTarget(INTO,MOVE,target,target)):
+                    self._drop_selection_only()
             return
-        node_id = self.choose_target_node(
-            t("加入分类") if copy else t("移动到分类"), copy,
-            exclude=self.content_scope_node() if not copy else None)
-        if node_id is None:
-            return
-        self.assign_resources([e["path"] for e in entries], node_id, copy=copy)
+        entries=self._resource_command_entries()
+        if not entries:return
+        node_id=self.choose_target_node(t('加入分类') if copy else t('移动到分类'),copy,
+                                       exclude=self.content_scope_node() if not copy else None)
+        if node_id is not None:
+            self.assign_resources([e['path'] for e in entries],node_id,copy=copy)
 
     def _batch_remove_membership(self):
+        if self._resource_command_entries() is None:return
         paths = self.get_selected_paths()
         if not ActionPolicy.enabled('remove_from_category', self._action_context(paths)):
             return
@@ -2281,6 +2280,7 @@ class GalleryInterface(QWidget):
         self.refresh_content_incremental(reason='remove_membership')
 
     def _batch_tags(self):
+        if self._resource_command_entries() is None:return
         entries = self._selected_entries()
         paths = [e["path"] for e in entries if e["kind"] == "resource"]
         if not ActionPolicy.enabled('tag_edit', self._action_context(paths)):
@@ -2292,6 +2292,7 @@ class GalleryInterface(QWidget):
             self.show_success(t("标签已更新"), quiet=True)
 
     def _batch_delete(self):
+        if self._resource_command_entries() is None:return
         entries = [e for e in self._selected_entries() if e["kind"] == "resource"]
         if not entries:
             self.show_error(t("无法执行"), t("请选择要删除的表情"))
@@ -2319,10 +2320,15 @@ class GalleryInterface(QWidget):
                           t('已删除 {value_0} 项，清理失效记录 {value_1} 项').format(value_0=result['deleted'], value_1=result['missing_cleaned']), quiet=True)
 
     def _show_more_menu(self):
+        if self._resource_command_entries() is None:return
         self._build_selection_more_menu().exec(self.btn_more.mapToGlobal(self.btn_more.rect().bottomLeft()))
 
     def _build_selection_more_menu(self):
         menu = RoundMenu(parent=self)
+        if any(e['kind']=='node' for e in self._selected_entries()):
+            item=translated(Action,FIF.INFO,'此菜单仅支持表情，请取消所选节点',parent=menu)
+            item.setEnabled(False);menu.addAction(item)
+            return menu
         paths = self.get_selected_paths()
         context = self._action_context(paths, revalidate=True)
         def action(icon, label, callback, enabled):
@@ -2365,14 +2371,12 @@ class GalleryInterface(QWidget):
         if not self._manual_order_available():
             return
         grouped = {}
-        for entry in self._selected_entries():
-            if entry['kind'] != 'resource':
-                continue
-            grouped.setdefault(entry['_parent'], set()).add(entry['id'])
+        for entry in self._structural_selection(self._selected_entries()):
+            grouped.setdefault(entry['_parent'], set()).add((entry['kind'],entry['id']))
         for parent, ids in grouped.items():
             stream = self.storage.entries_of(parent)
-            moving = [e for e in stream if e['id'] in ids]
-            remaining = [e for e in stream if e['id'] not in ids]
+            moving = [e for e in stream if (e['kind'],e['id']) in ids]
+            remaining = [e for e in stream if (e['kind'],e['id']) not in ids]
             self.storage.set_content_order(parent, moving+remaining if front else remaining+moving)
         self.refresh_content_incremental(reason='move_extreme')
 
@@ -2458,8 +2462,10 @@ class GalleryInterface(QWidget):
         self.preview_controller.cancel()
         entry = widget.content_entry
         self._selection_parents[entry['path']] = entry['_parent']
-        if entry['path'] not in self.selected_keys:
+        mixed=any(e['kind']=='node' for e in self._selected_entries())
+        if entry['path'] not in self.selected_keys or mixed:
             self._select_single(entry['path'])
+            if mixed:self.feedback_host.toast(t('右键菜单仅操作当前表情。'))
         self._build_resource_menu(widget).exec(widget.mapToGlobal(position))
 
     def show_node_context_menu(self, widget, position):
@@ -3089,7 +3095,7 @@ class GalleryInterface(QWidget):
         if not node_ids:
             return
         parent = target.container_id
-        self.sidebar._on_nodes_dropped(node_ids, parent, target.index)
+        return self.sidebar._on_nodes_dropped(node_ids, parent, target.index)
 
     def _reorder_by_drop(self, paths, target, global_pos=None):
         if not paths:
@@ -3366,23 +3372,20 @@ class GalleryInterface(QWidget):
         self._save_view_state()
 
     def _entry_clicked(self, entry, modifiers):
-        if entry['kind'] == 'node' and self.mode == 'manage':
-            return
         key = self._entry_key(entry)
         self._selection_parents[key] = entry['_parent']
         if entry['kind'] == 'node':
-            self.on_node_clicked(key, modifiers)
+            self._select_key(key, modifiers)
         else:
             self.on_image_clicked(key, modifiers)
 
     def _select_single(self, key):
-        self.selected_keys = {key}
-        from PySide6.QtCore import QSignalBlocker
-        for widget in self._all_card_widgets:
-            with QSignalBlocker(widget):
-                widget.set_selected(self._entry_key(widget.content_entry) == key)
-        self._last_clicked_key = key
-        self._sync_command_bar()
+        changed=self.selected_keys ^ {key}
+        self.selected_keys={key}
+        self._shift_anchor=key
+        self._shift_touched.clear()
+        self._last_clicked_key=key
+        self._commit_selection_visuals(changed)
 
     def use_resource(self, path):
         if self.mode == 'manage':
