@@ -1,5 +1,18 @@
 # 分类条线性视觉与交互修订
 
+## 当前规格：结构线原位变色、中性选中底面及Tab主体线宽
+
+2026-10-24；本节为最新用户规格，替代下方旧合同的永久Accent竖线/Selected底边实线。分类源码e9ce7e8；标签源码3de1b1a。
+
+- 已确认：上轮NodeCard按Selected切换横线起点及Y至底边，且没有本次要求的中性Selected表面。现在所有状态保持同一字体与布局，横线仅在名称和计数间居中绘制一次；Default双结构线为border_soft，Hover/Selected原位变accent()。Selected使用与EmojiCard同源surface_alt、alpha155的5px圆角承托，范围覆盖行内主要内容周围，不增加30px行高。Focus/Pressed仍独立；Sticky继承同一绘制与现有真实选择同步，容器渐变/push-off/归属未改。
+- 拖动：复用现有QDrag/NODE_MIME/热点和Drop Contract，投影表面改为同一surface_alt（alpha230）。用户授权后实测Windows原生拖动：GetCursorInfo为可见，GetIconInfo实际游标bitmap429×51、热点74/18；Esc返回IgnoreAction、来源结束且数据不变。本轮未复现当前源码缺少投影，不以仅生成Pixmap宣称修复；不添加第二套overlay，辨识度与跟手仍待用户。原生结果DevData/category-linear/visual-native/result.json。
+- 标签：TabStrip._target_line旧逻辑最多38px，错误独立于主体；改为content_tab_rect左右各3px安全内缩、顶部Y9，自动排除位置标签分隔间隙。保留既有动画、真实翻页按钮、可见区裁剪及几何同步，不恢复旧翻页逻辑。
+
+验证：19项分类状态/复用/Qt投影/落点实际提交、Sticky嵌套/push-off/锚点、Tab切换/滚动/翻页/动画/缩放及工具栏测试通过。新增深浅主题与自定义Accent检查保证选中灰底持续、双线不移位、不出现第二条底边线；单像素横线对齐半像素以保证清晰。额外Windows平台2项真实Qt控件状态与Sticky折叠检查通过（与19项重叠，不累计独立测试数量）。日志visual-state-tests.log、visual-windows-tests.log。
+
+当前机器验证未替代用户视觉签收；实际灰底强度、原生投影跟手及其它系统/DPI仍按人工边界保留。固定Demo/持续data不重置；七处W-01实验SHA256一致，T-07和无关业务不改，#55/#45/#24保持Open，不Push/发布。
+
+
 ## 最新合同修订：主题身份、真实选择与拖动投影
 
 2026-10-24；源码f69d482。上一轮615ab47未通过用户视觉验收，本节替代“点击后无持续选择提示”的不完整规格，历史记录保留作为上下文。
