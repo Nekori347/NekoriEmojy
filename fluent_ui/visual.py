@@ -209,6 +209,11 @@ class UiTheme(QObject):
 
     def configure(self, config):
         self.config = config
+        # Startup only: reuse the native material's existing process-local
+        # opaque path, before shells create HWNDs. Save does not switch Alpha.
+        if not config.get('window_acrylic_enabled', True):
+            import os
+            os.environ['NEKORI_OPAQUE_MATERIAL'] = '1'
         load_fonts()
 
     def refresh(self):

@@ -61,3 +61,37 @@ def test_save_off_finishes_running_motion_and_preserves_movie(surface,settings,t
         if len(frames)>1:break
     assert movie.state()==QMovie.Running and len(frames)>1
     movie.stop()
+
+
+def test_acrylic_save_waits_for_restart_and_uses_existing_opaque_path(surface,settings,monkeypatch):
+    import os
+    from services.config import ConfigService
+    from fluent_ui.components.setting_rows import SwitchRow
+    c=settings;c._select_page(1);row=c._rows['window_acrylic_enabled'][0]
+    assert isinstance(row,SwitchRow) and row.value()
+    monkeypatch.delenv('NEKORI_OPAQUE_MATERIAL',raising=False)
+    row.switch.click()
+    assert c.pending['window_acrylic_enabled'] is False and 'NEKORI_OPAQUE_MATERIAL' not in os.environ
+    c.discard();assert row.value()
+    row.switch.click();assert c.save()
+    assert 'NEKORI_OPAQUE_MATERIAL' not in os.environ
+    loaded=ConfigService(surface.config.base_dir);assert loaded.get('window_acrylic_enabled') is False
+    visual.theme.configure(loaded)
+    assert os.environ['NEKORI_OPAQUE_MATERIAL']=='1'
+    from fluent_ui.materials import _transparency_allowed
+    assert not _transparency_allowed()
+    visual.theme.configure(surface.config)
+
+
+def test_visual_rows_follow_themes_and_four_languages(surface,settings):
+    from qfluentwidgets import Theme,setTheme
+    from services.i18n import i18n_engine,t
+    settings._select_page(1)
+    for theme in (Theme.LIGHT,Theme.DARK):
+        setTheme(theme);visual.theme.refresh()
+        for language in ('zh','en','ja','zh_TW'):
+            i18n_engine.set_language(language)
+            for key,title in (('ui_animations_enabled','界面动效'),('window_acrylic_enabled','窗口毛玻璃')):
+                row=settings._rows[key][0]
+                assert row.title_label.text()==t(title) and not row.grab().isNull()
+    i18n_engine.set_language('zh');setTheme(Theme.LIGHT);visual.theme.refresh()

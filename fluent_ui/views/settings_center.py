@@ -362,6 +362,10 @@ class SettingsCenter(QWidget):
             '界面动效', '控制窗口及界面的过渡动画，不影响表情动图播放。',
             'ui_animations_enabled', self.config.get('ui_animations_enabled', True), self),
             'ui_animations_enabled', True))
+        section.add_row(self._track(SwitchRow(
+            '窗口毛玻璃', '控制窗口背景的毛玻璃效果；关闭后使用不透明背景。',
+            'window_acrylic_enabled', self.config.get('window_acrylic_enabled', True), self),
+            'window_acrylic_enabled', True))
 
     def _page_gallery_display(self):
         section = self._section("表情显示")
@@ -854,7 +858,10 @@ class SettingsCenter(QWidget):
                 i18n_engine.set_language(keys[key])
             self.settings_changed.emit(key)
         self._set_dirty(False)
-        self.show_success(t('设置已保存'), quiet=True)
+        if 'window_acrylic_enabled' in keys:
+            self.feedback_host.notice(t('需要重启'), t('窗口毛玻璃设置将在重启后生效。'))
+        else:
+            self.show_success(t('设置已保存'), quiet=True)
         return True
 
     def _hotkeys_valid(self, keys):

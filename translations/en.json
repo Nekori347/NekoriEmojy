@@ -1662,5 +1662,8 @@
   "重复表情等待处理，请打开 Nekori 继续。": "Duplicates need your decision. Open Nekori to continue.",
   "请保留 Ctrl+V 用于普通粘贴。": "Keep Ctrl+V available for normal paste.",
   "界面动效": "Interface animations",
-  "控制窗口及界面的过渡动画，不影响表情动图播放。": "Control window and interface transitions without affecting animated emoji playback."
+  "控制窗口及界面的过渡动画，不影响表情动图播放。": "Control window and interface transitions without affecting animated emoji playback.",
+  "窗口毛玻璃": "Window blur",
+  "控制窗口背景的毛玻璃效果；关闭后使用不透明背景。": "Control frosted window backgrounds; turn off to use an opaque background.",
+  "窗口毛玻璃设置将在重启后生效。": "The window blur setting will take effect after restarting."
 }
