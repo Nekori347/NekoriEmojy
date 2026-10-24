@@ -12,7 +12,7 @@
 
 Windows Qt实际控件：contract_states.py完成Default、Hover、Selected、Selected+Hover、Sticky+Selected、push-off、嵌套真实折叠/锚点、自定义accent、深/浅主题、48px图标及780px窄窗口截图。单控件进程级QT_SCALE_FACTOR=1.5实测DPR1.5/56px逻辑行高；不冒称系统全局DPI切换。
 
-拖动Qt投影及热点（428×38含透明边距，热点64/16）与来源45%绘制、Ignore/Move返回收尾已验证。Windows OLE原生会话在无真实输入的情况下阻塞Qt计时取消，已停止该专项进程；最终控件诊断拦截exec观察真实QDrag pixmap，未将此宣称为完整原生鼠标拖放验收。系统鼠标跟手、Esc及真实释放仍需独占输入验证或用户正常体验；不因计时器失败改动产品。
+拖动Qt投影及热点（428×38含透明边距，控件测试热点64/16）与来源45%绘制、Ignore/Move返回收尾已验证。随后用户授权独占鼠标，Windows真实系统指针三次拖动：Esc取消、工具栏无效落点释放均返回IgnoreAction，原顺序/父子关系不变且来源拖动结束；合法INTO显示独立归入轮廓，释放后分类真实parent_id更新至目标，已只读重开SQLite确认。原生热点74/18，截图native-escape/native-invalid/native-into.png及native-result.json。成功投放后的专项采样最初仍查询已从源列表移出的行而StopIteration，因此第三次返回值未保存；不重跑无收益场景，改以数据库父子结果确认实际提交，不把采样脚本错误作为产品缺陷。截图捕获不包含系统拖动图层，另提供实际QDrag pixmap native-projection.png；实际跟手程度与颜色辨识仍待用户签收。早期无系统输入的OLE计时取消实验已停止，无产品补丁。
 
 截图：DevData/category-linear/contract/{default,hover,selected,selected-hover,sticky-selected,sticky-selected-hover,dragging-source,drag-native-pixmap,dark-custom-selected,large-icon,narrow-large-icon,nested-selected,push-off,dpi-150-large-selected}.png。QDrag投影图是实际生成的Qt pixmap，不是屏幕原生跟随轨迹截图。
 
