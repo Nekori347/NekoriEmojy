@@ -90,3 +90,29 @@ def test_reopened_double_click_hide_restore_and_eight_resize_hits(host):
     QTest.mouseDClick(window.titleBar, Qt.LeftButton, pos=QPoint(120, 18))
     QTest.qWait(150)
     assert not window.isMaximized()
+
+
+def test_restore_outline_is_independent_of_background_alpha(host):
+    from PySide6.QtGui import QColor, QImage, QPainter, QRegion
+    from qframelesswindow.titlebar.title_bar_buttons import TitleBarButtonState
+    window, _ = host
+    button = window.titleBar.maxBtn
+    button.setMaxState(True)
+    for foreground, base in (('black', 'white'), ('white', 'black')):
+        color, backdrop = QColor(foreground), QColor(base)
+        button.setNormalColor(color)
+        button.setHoverColor(color)
+        button.setPressedColor(color)
+        button.setNormalBackgroundColor(QColor('transparent'))
+        button.setHoverBackgroundColor(backdrop)
+        button.setPressedBackgroundColor(backdrop)
+        images = []
+        for state in (TitleBarButtonState.NORMAL, TitleBarButtonState.HOVER, TitleBarButtonState.PRESSED):
+            button.setState(state)
+            image = QImage(button.size(), QImage.Format_ARGB32_Premultiplied)
+            image.fill(backdrop)
+            painter = QPainter(image)
+            button.render(painter, QPoint(), QRegion(), QWidget.RenderFlag(0))
+            painter.end()
+            images.append(image.copy(button.icon_rect().toAlignedRect()))
+        assert images[0] == images[1] == images[2]

@@ -6,7 +6,7 @@ import win32con
 import win32gui
 from services.i18n import t, bind_text
 from PySide6.QtCore import QEvent, Qt, QRectF, QPoint, QPropertyAnimation
-from PySide6.QtGui import QColor, QFont, QGuiApplication, QPalette, QPainter, QPen,QIcon
+from PySide6.QtGui import QColor, QFont, QGuiApplication, QPalette, QPainter, QPainterPath, QPen,QIcon
 from PySide6.QtWidgets import QApplication, QWidget, QStackedWidget, QVBoxLayout
 from qframelesswindow import FramelessWindow, StandardTitleBar
 from qframelesswindow.titlebar.title_bar_buttons import TitleBarButtonState,TitleBarButton
@@ -98,8 +98,13 @@ class CaptionButton(TitleBarButton):
         else:
             p.setPen(QPen(foreground,1.3,Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin));p.setBrush(Qt.NoBrush)
             if self._maximized:
-                p.drawRect(r.adjusted(4,1,-1,-4))
-                p.setBrush(background);p.drawRect(r.adjusted(1,4,-4,-1))
+                back=r.adjusted(4,1,-1,-4);front=r.adjusted(1,4,-4,-1)
+                # Draw only the exposed rear edges; transparent states cannot
+                # use the front rectangle's background to hide rear strokes.
+                outline=QPainterPath();outline.moveTo(back.left(),front.top())
+                outline.lineTo(back.topLeft());outline.lineTo(back.topRight())
+                outline.lineTo(back.bottomRight());outline.lineTo(front.right(),back.bottom())
+                p.drawPath(outline);p.drawRect(front)
             else:p.drawRect(r.adjusted(2,2,-2,-2))
 
     def mouseReleaseEvent(self,event):
