@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from services.exchange_icons import IMAGE_SUFFIXES, resolve_icon_path
 
-from PySide6.QtCore import Qt, Signal, QMimeData, QPoint, QRect, QRectF, QVariantAnimation
+from PySide6.QtCore import Qt, Signal, QMimeData, QPoint, QRect, QRectF, QSize, QVariantAnimation
 from PySide6.QtGui import (
     QColor, QDrag, QFont, QFontMetrics, QPainter, QPen, QPixmap, QCursor,
 )
@@ -142,38 +142,62 @@ class NodeCard(QLabel):
         return QRect(self.width()-32,0,32,self.height())
 
     def paintEvent(self, event):
-        c=colors();p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
-        marker=QColor(c['border_soft']);p.setPen(QPen(marker,1))
-        p.drawLine(6,9,6,self.height()-9)
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
+        if self._dragging:p.setOpacity(.45)
+        self._paint_row(p,self.width())
+        p.end()
+
+    def _paint_row(self,p,width,preview=False):
+        c=colors()
+        p.setPen(QPen(QColor(accent()),2))
+        p.drawLine(6,(self.height()-18)//2,6,(self.height()+18)//2)
 
         if self._icon is not None:p.drawPixmap(16,(self.height()-self._icon.height())//2,self._icon)
-        font=visual.font();font.setWeight(QFont.Medium);p.setFont(font)
+        font=visual.font();font.setWeight(QFont.DemiBold if self.is_selected else QFont.Medium);p.setFont(font)
         name_metrics=QFontMetrics(font)
         summary=f"{self.entry.get('children',0)}/{self.entry.get('total',0)}"
         count_font=QFont(font);count_font.setFamily(DATA_FONT.split(',')[0]);count_font.setPixelSize(11);count_font.setBold(False)
         count_width=QFontMetrics(count_font).horizontalAdvance(summary)+8
-        count_x=self.disclosure_rect().left()-8-count_width
+        count_x=width-(12 if preview else 40)-count_width
         p.setPen(QColor(c['text']))
         text_left = 16 + self._icon_extent + 8
         text_width = max(0, count_x-text_left-34)
         name=name_metrics.elidedText(self.entry['name'],Qt.ElideRight,text_width)
         p.drawText(QRect(text_left,0,text_width,self.height()),Qt.AlignVCenter,name)
-        line_start=text_left+name_metrics.horizontalAdvance(name)+10
-        line_color=QColor(accent() if self._hovered or self._pressed else c['border_soft'])
-        if self._hovered and not self._pressed:line_color.setAlpha(180)
-        p.setPen(QPen(line_color,1.8 if self._pressed else 1))
-        if line_start<count_x-8:p.drawLine(line_start,self.height()//2,count_x-8,self.height()//2)
+        # Selection has a stable extent independent of the title length. Hover
+        # never replaces it, and the drop surface owns separate placement marks.
+        line_start=16 if self.is_selected else text_left+name_metrics.horizontalAdvance(name)+10
+        line_y=self.height()-3 if self.is_selected else self.height()//2
+        line_color=QColor(accent() if self.is_selected else c['text_secondary'] if self._hovered or self._pressed else c['border_soft'])
+        p.setPen(QPen(line_color,2 if self.is_selected or self._pressed else 1))
+        if line_start<count_x-8:p.drawLine(line_start,line_y,count_x-8,line_y)
         p.setPen(QColor(c['muted']))
         p.setFont(count_font)
         p.drawText(QRect(count_x,0,count_width,self.height()),Qt.AlignRight|Qt.AlignVCenter,summary)
-        x,y=self.disclosure_rect().center().x(),self.height()//2
-        p.save();p.translate(x,y);p.rotate(self._angle)
-        Icon.CHEVRON_RIGHT.render(p,QRectF(-7,-7,14,14),fill=c['text_secondary'])
-        p.restore()
-        if self.hasFocus() and getattr(self,'_keyboard_focus',False):
+        if not preview:
+            x,y=self.disclosure_rect().center().x(),self.height()//2
+            p.save();p.translate(x,y);p.rotate(self._angle)
+            Icon.CHEVRON_RIGHT.render(p,QRectF(-7,-7,14,14),fill=c['text'] if self._hovered else c['text_secondary'])
+            p.restore()
+        if not preview and self.hasFocus() and self._keyboard_focus:
+            p.setBrush(Qt.NoBrush)
             p.setPen(QPen(QColor(c['text_secondary']),1,Qt.DotLine))
-            p.drawLine(text_left,self.height()-4,text_left+name_metrics.horizontalAdvance(name),self.height()-4)
+            p.drawRoundedRect(QRectF(1,1,width-2,self.height()-2),3,3)
+
+    def drag_pixmap(self):
+        """The same title layout on a compact native Qt drag surface."""
+        width=min(self.width(),420)
+        dpr=self.devicePixelRatioF()
+        pixmap=QPixmap(QSize(round((width+8)*dpr),round((self.height()+8)*dpr)))
+        pixmap.setDevicePixelRatio(dpr);pixmap.fill(Qt.transparent)
+        p=QPainter(pixmap);p.setRenderHint(QPainter.Antialiasing);p.setPen(Qt.NoPen)
+        shadow=QColor(colors()['text']);shadow.setAlpha(25);p.setBrush(shadow)
+        p.drawRoundedRect(QRectF(3,5,width+2,self.height()+1),6,6)
+        surface=QColor(colors()['surface_raised']);surface.setAlpha(230);p.setBrush(surface)
+        p.drawRoundedRect(QRectF(4,4,width,self.height()),5,5)
+        p.translate(4,4);self._paint_row(p,width,preview=True)
         p.end()
+        return pixmap
 
     # -- interaction --------------------------------------------------
     def enterEvent(self,event):
@@ -211,7 +235,7 @@ class NodeCard(QLabel):
             self._keyboard_focus=False
             self._pressed=True;self.update()
             self.setFocus(Qt.MouseFocusReason)
-            self._drag_start = event.pos()
+            self._drag_start = None if self.disclosure_rect().contains(event.position().toPoint()) else event.position().toPoint()
             self._dragging = False
         super().mousePressEvent(event)
 
@@ -221,18 +245,22 @@ class NodeCard(QLabel):
         if (event.pos() - self._drag_start).manhattanLength() < QApplication.startDragDistance():
             return super().mouseMoveEvent(event)
 
-        self._dragging = True
         self._pressed = False;self.update()
         drag = QDrag(self)
         mime = QMimeData()
         payload = self.drag_payload_provider(self.node_id) if self.drag_payload_provider else None
         mime.setData(NODE_MIME, json.dumps(payload or [self.node_id]).encode("utf-8"))
         drag.setMimeData(mime)
-        pixmap = self.grab()
-        drag.setPixmap(pixmap.scaled(72, 72, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        drag.setHotSpot(QPoint(36, 36))
-        drag.exec(Qt.MoveAction)
-        self._drag_start = None
+        pixmap=self.drag_pixmap()
+        drag.setPixmap(pixmap)
+        width=round(pixmap.width()/pixmap.devicePixelRatio())-8
+        drag.setHotSpot(QPoint(min(self._drag_start.x(),width-12)+4,self._drag_start.y()+4))
+        self._dragging=True;self.update()
+        try:
+            drag.exec(Qt.MoveAction)
+        finally:
+            self._drag_start=None;self._dragging=False;self._pressed=False
+            self.sync_pointer_state();self.update()
 
     def mouseReleaseEvent(self, event):
         self._pressed=False;self.update()

@@ -1,4 +1,4 @@
-"""Category feedback is transient, not the resource selection decoration."""
+"""Category selection is persistent; hover/pressed remain transient."""
 from PySide6.QtCore import Qt, QEvent, QPointF
 from PySide6.QtGui import QEnterEvent
 from PySide6.QtTest import QTest
@@ -18,7 +18,9 @@ def test_click_selection_does_not_leave_category_background(surface,manage):
     QTest.mouseClick(node,Qt.LeftButton,pos=node.rect().center())
     QApplication.sendEvent(node,QEvent(QEvent.Leave));settle(s.app)
     assert (s.child in g.selected_keys)==(not manage),'existing category selection semantics changed'
-    assert node.grab().toImage()==normal,'click left a persistent selected fill'
+    after=node.grab().toImage()
+    assert (after!=normal)==(not manage),'selected signal must follow real node selection'
+    assert all(after.pixelColor(x,2)==normal.pixelColor(x,2) for x in range(12,node.width()-40)),'no row fill'
     assert node.height()==g.renderer.index.rects[next(i for i,e in enumerate(g._entries) if e['id']==s.child)].height()
     assert node.height()==30 and node._icon_extent==22
 
@@ -37,7 +39,9 @@ def test_hover_pressed_focus_and_move_feedback(surface,monkeypatch):
     assert node._pressed and node.grab().toImage()!=hover
     QTest.mouseRelease(node,Qt.LeftButton,pos=node.rect().center())
     assert not node._pressed
-    QApplication.sendEvent(node,QEvent(QEvent.Leave));assert node.grab().toImage()==normal
+    QApplication.sendEvent(node,QEvent(QEvent.Leave));assert node.is_selected
+    selected=node.grab().toImage();enter();QApplication.sendEvent(node,QEvent(QEvent.Leave))
+    assert node.grab().toImage()==selected
     node.clearFocus();node.setFocus(Qt.TabFocusReason);settle(s.app)
     assert node.hasFocus() and node._keyboard_focus
     QTest.keyClick(node,Qt.Key_Space);settle(s.app)
@@ -59,3 +63,99 @@ def test_rebound_node_clears_transient_feedback(surface,monkeypatch):
     monkeypatch.setattr(QApplication,'widgetAt',lambda point:None)
     g.renderer.bind(node,incoming)
     assert not node._hovered,'pooled category inherited the prior hit'
+
+
+def test_identity_accent_and_selected_line(surface):
+    from fluent_ui import visual
+    from PySide6.QtGui import QColor
+    s=surface;g=s.g
+    node=next(c for c in g._all_card_widgets if getattr(c,'node_id',None)==s.child)
+    s.config.set('accent_color','#36a8d4');visual.theme.preview_accent()
+    QApplication.sendEvent(node,QEvent(QEvent.Leave));node.clearFocus()
+    image=node.grab().toImage()
+    assert image.pixelColor(6,node.height()//2).name()==QColor(visual.accent()).name()
+    QTest.mouseClick(node,Qt.LeftButton,pos=node.rect().center())
+    QApplication.sendEvent(node,QEvent(QEvent.Leave))
+    image=node.grab().toImage()
+    assert node.is_selected
+    assert image.pixelColor(100,node.height()-3).name()==QColor(visual.accent()).name()
+    s.config.set('accent_color','#c068c4');visual.theme.preview_accent()
+    image=node.grab().toImage()
+    assert image.pixelColor(6,node.height()//2).name()==QColor(visual.accent()).name()
+    assert image.pixelColor(100,node.height()-3).name()==QColor(visual.accent()).name()
+
+
+@pytest.mark.parametrize('result',[Qt.IgnoreAction,Qt.MoveAction])
+def test_category_native_drag_projection_and_cleanup(surface,monkeypatch,result):
+    import json
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QMouseEvent
+    from fluent_ui.components import node_card
+    from fluent_ui.components.drop_contract import NODE_MIME
+    s=surface;g=s.g
+    node=next(c for c in g._all_card_widgets if getattr(c,'node_id',None)==s.child)
+    g._select_single(s.child)
+    before=list(s.storage.index.content(s.parent))
+    captured={}
+    class Drag:
+        def __init__(self,source):assert source is node
+        def setMimeData(self,mime):captured['payload']=json.loads(bytes(mime.data(NODE_MIME)))
+        def setPixmap(self,pixmap):captured['pixmap']=pixmap
+        def setHotSpot(self,point):captured['hotspot']=point
+        def exec(self,actions):
+            assert node._dragging and not node._pressed and node.is_selected
+            assert actions==Qt.MoveAction
+            return result
+    monkeypatch.setattr(node_card,'QDrag',Drag)
+    # Chevron remains a disclosure click, even if moved past the drag threshold.
+    QTest.mousePress(node,Qt.LeftButton,pos=node.disclosure_rect().center())
+    assert node._drag_start is None
+    QTest.mouseRelease(node,Qt.LeftButton,pos=node.disclosure_rect().center());settle(s.app)
+    node=next(c for c in g._all_card_widgets if getattr(c,'node_id',None)==s.child)
+    start=QPoint(40,12);QTest.mousePress(node,Qt.LeftButton,pos=start)
+    point=start+QPoint(QApplication.startDragDistance()+2,0)
+    move=QMouseEvent(QEvent.MouseMove,QPointF(point),QPointF(node.mapToGlobal(point)),Qt.NoButton,Qt.LeftButton,Qt.NoModifier)
+    QApplication.sendEvent(node,move)
+    pm=captured['pixmap'];dpr=pm.devicePixelRatio()
+    assert round(pm.height()/dpr)==node.height()+8
+    assert round(pm.width()/dpr)>200,'title must not be squeezed into a thumbnail square'
+    assert captured['hotspot']==start+QPoint(4,4)
+    assert s.child in captured['payload']
+    assert not node._dragging and not node._pressed and node._drag_start is None
+    assert s.child in g.selected_keys and list(s.storage.index.content(s.parent))==before
+
+
+def test_category_drop_placements_use_existing_feedback_and_data(surface):
+    import json
+    from PySide6.QtCore import QMimeData,QPoint
+    from fluent_ui.components.drop_contract import NODE_MIME,INSERT_BEFORE,INSERT_AFTER,INTO,APPEND
+    s=surface;g=s.g
+    target=s.storage.create_node('Target',s.parent)
+    g.refresh_content_incremental(reason='fixture',parents={s.parent});settle(s.app)
+    i=next(i for i,e in enumerate(g._entries) if e['id']==target)
+    rect=g.renderer.index.rects[i]
+    mime=QMimeData();mime.setData(NODE_MIME,json.dumps([s.child]).encode())
+    for y,placement in ((rect.top()+1,INSERT_BEFORE),(rect.center().y(),INTO),(rect.bottom()-1,INSERT_AFTER)):
+        point=g.grid_container.mapTo(g,QPoint(rect.center().x(),y))
+        resolved,hit,vertical=g._resolve_drop(point,mime)
+        assert resolved.placement==placement
+        g.drop_feedback.show_target(placement,hit,vertical)
+        assert g.drop_feedback.isVisible()
+        assert g.drop_feedback._mode==('outline' if placement==INTO else 'line')
+        g.drop_feedback.clear();assert g.drop_feedback.isHidden()
+    child_i=next(i for i,e in enumerate(g._entries) if e['id']==s.child)
+    centre=g.grid_container.mapTo(g,g.renderer.index.rects[child_i].center())
+    assert not g._resolve_drop(centre,mime)[0].valid
+    point=g.grid_container.mapTo(g,QPoint(20,g.renderer.index.height+20))
+    assert g._resolve_drop(point,mime)[0].placement==APPEND
+    # The same contract commits persistent order and parentage, not a visual-only move.
+    point=g.grid_container.mapTo(g,QPoint(rect.center().x(),rect.top()+1))
+    before_target=g._resolve_drop(point,mime)[0];g._apply_node_drop([s.child],before_target);settle(s.app)
+    ids=[e['id'] for e in s.storage.index.content(s.parent)]
+    assert ids.index(s.child)+1==ids.index(target)
+    g.refresh_content_incremental(reason='fixture',parents={s.parent});settle(s.app)
+    i=next(i for i,e in enumerate(g._entries) if e['id']==target)
+    point=g.grid_container.mapTo(g,g.renderer.index.rects[i].center())
+    g._apply_node_drop([s.child],g._resolve_drop(point,mime)[0]);settle(s.app)
+    assert s.storage.node(s.child)['parent_id']==target
+    assert [e['id'] for e in s.storage.index.content(target)]==[s.child]

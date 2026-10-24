@@ -44,6 +44,9 @@ def test_scroll_push_off_deepest_and_real_collapse(grouped,monkeypatch):
     bar.setValue(header(g,a).top()+80);settle(s.app)
     assert sticky.isVisible() and sticky.node_id==a
     assert 'Sticky scope' in sticky.toolTip()
+    g._select_single(a);assert sticky.is_selected
+    g._select_single(nested);assert not sticky.is_selected
+    g._select_single(a);assert sticky.is_selected
     monkeypatch.setattr(s.storage,'node_path',Mock(side_effect=AssertionError('same-section query')))
     with monkeypatch.context() as block:
         block.setattr(s.storage.index,'connect',Mock(side_effect=AssertionError('scroll-time SQL')))

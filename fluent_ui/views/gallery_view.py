@@ -1749,6 +1749,9 @@ class GalleryInterface(QWidget):
         self.set_mode("manage" if enabled else "normal")
 
     def _sync_command_bar(self):
+        sticky=getattr(getattr(self,'renderer',None),'sticky',None)
+        if sticky is not None:
+            sticky.set_selected(sticky.node_id in self.selected_keys)
         if hasattr(self,'_view_shortcuts'):self._sync_view_shortcuts()
         self._selection_parents = {key: parent for key, parent in self._selection_parents.items()
                                    if key in self.selected_keys}
