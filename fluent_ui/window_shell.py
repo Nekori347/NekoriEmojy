@@ -193,7 +193,9 @@ class NekoriWindow(FramelessWindow):
             from fluent_ui.components.native_state_log import NativeStateLog
             self._native_state_log = NativeStateLog()
         super().__init__(parent)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        # The frameless constructor has already created the native surface.
+        # Enabling Qt alpha here only takes effect after HWND recreation,
+        # switching the backing-store path and freezing maximized content.
         self.setAutoFillBackground(False)
         self._title_bar_buttons = []
         self._reveal=QPropertyAnimation(self,b'windowOpacity',self)
@@ -285,8 +287,9 @@ class NekoriWindow(FramelessWindow):
             hwnd = int(self.internalWinId())
             if hwnd and getattr(self, '_isResizeEnabled', True) and not self.isFullScreen():
                 style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
-                if not style & win32con.WS_THICKFRAME:
-                    win32gui.SetWindowLong(hwnd, win32con.GWL_STYLE, style | win32con.WS_THICKFRAME)
+                frame_style = win32con.WS_CAPTION | win32con.WS_THICKFRAME
+                if style & frame_style != frame_style:
+                    win32gui.SetWindowLong(hwnd, win32con.GWL_STYLE, style | frame_style)
                     win32gui.SetWindowPos(hwnd, None, 0, 0, 0, 0,
                         win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOZORDER |
                         win32con.SWP_NOACTIVATE | win32con.SWP_FRAMECHANGED)
@@ -308,7 +311,7 @@ class NekoriWindow(FramelessWindow):
                 _fields_ = [('old', wintypes.DWORD), ('new', wintypes.DWORD)]
             style = StyleStruct.from_address(msg.lParam)
             if getattr(self, '_isResizeEnabled', True) and not self.isFullScreen():
-                style.new |= win32con.WS_THICKFRAME
+                style.new |= win32con.WS_CAPTION | win32con.WS_THICKFRAME
         if (event_code == win32con.WM_NCHITTEST and self._isResizeEnabled
                 and not self.isMaximized() and not self.isFullScreen()):
             # One DPI-aware hit-test owns all eight directions. Use the event's
