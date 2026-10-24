@@ -1,5 +1,25 @@
 # 分类条线性视觉与交互修订
 
+## 最新合同修订：主题身份、真实选择与拖动投影
+
+2026-10-24；源码f69d482。上一轮615ab47未通过用户视觉验收，本节替代“点击后无持续选择提示”的不完整规格，历史记录保留作为上下文。
+
+- 身份装饰：NodeCard._paint_row恢复统一动态accent()的2px/18px短竖线，主题变化沿原theme信号刷新；普通条/Sticky共用。
+- 状态：Selected仍来自原selected_keys→set_selected，不新建模型。Selected用固定内容起点的2px主题色底部实线与稍高字重；Hover/Pressed仅增强单条中性结构线，不能盖过Selected。无整行选中填充；键盘焦点为独立点线轮廓。保持默认30px、较大图标自适应及Chevron/主体原有语义。GalleryInterface._sync_command_bar补齐Sticky在选择提交时的即时状态同步，解决不滚动时代理显示滞后；复用仍清理临时Hover/Pressed。
+- 拖动：此前抓取宽标题缩入72×72且热点固定36/36，造成投影几乎不可辨认。现在复用图片的Qt QDrag/pixmap/hotspot机制和原NODE_MIME/统一Drop Contract，NodeCard.drag_pixmap以同一内容画法生成最大420px宽、实际行高的中性半透明标题；省略无交互意义Chevron，热点取按下位置并约束在投影内。来源绘制45%透明，finally恢复；Chevron不建立拖动起点。未改排序、归属或投放引擎，Sticky仍不启动拖动。
+
+验证：17项分类状态/Sticky/图标/WP-B定向通过；15项管理模式/外部原件保护相邻回归通过；新增分类Before/After/Into/Append反馈和实际顺序/父子提交1项通过，共33个不同测试目标。新建节点样本最初错误使用快照刷新，改用现有增量刷新后单项通过，未因此修改产品刷新架构。已有pos()弃用警告不扩展处理。
+
+Windows Qt实际控件：contract_states.py完成Default、Hover、Selected、Selected+Hover、Sticky+Selected、push-off、嵌套真实折叠/锚点、自定义accent、深/浅主题、48px图标及780px窄窗口截图。单控件进程级QT_SCALE_FACTOR=1.5实测DPR1.5/56px逻辑行高；不冒称系统全局DPI切换。
+
+拖动Qt投影及热点（428×38含透明边距，热点64/16）与来源45%绘制、Ignore/Move返回收尾已验证。Windows OLE原生会话在无真实输入的情况下阻塞Qt计时取消，已停止该专项进程；最终控件诊断拦截exec观察真实QDrag pixmap，未将此宣称为完整原生鼠标拖放验收。系统鼠标跟手、Esc及真实释放仍需独占输入验证或用户正常体验；不因计时器失败改动产品。
+
+截图：DevData/category-linear/contract/{default,hover,selected,selected-hover,sticky-selected,sticky-selected-hover,dragging-source,drag-native-pixmap,dark-custom-selected,large-icon,narrow-large-icon,nested-selected,push-off,dpi-150-large-selected}.png。QDrag投影图是实际生成的Qt pixmap，不是屏幕原生跟随轨迹截图。
+
+七处W-01实验哈希仍一致；T-07及Sticky归属/push-off算法未改；#55/#45仍Open、未人工签收。固定Demo与持续data保持；无Push/发布/正式数据改动。
+
+## 上轮交付记录（尚未通过人工验收）
+
 2026-10-24；dev/post-0.2.1；源码615ab47；G-24 #45及独立视觉需求#55。已实现/机器验证，待人工验收。
 
 ## 原因与修正
