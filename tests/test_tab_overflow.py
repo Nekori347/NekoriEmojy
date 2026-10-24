@@ -175,3 +175,24 @@ def test_scroll_hover_is_inset_but_full_button_remains_clickable(strip):
         QApplication.processEvents()
         assert strip.tabRect(0).x() < before
     assert right.size() == size
+
+
+def test_selected_rule_tracks_full_body_through_switch_scroll_resize(strip):
+    def matches():
+        strip.grab()  # drive the existing geometry synchronization path
+        body=strip.content_tab_rect(strip.currentIndex())
+        target=strip._target_line()
+        if strip._tab_viewport().intersects(body):
+            assert target.left()==body.left()+3 and target.width()==body.width()-6
+            assert target.top()==9
+        else:assert target.isEmpty()
+    matches()
+    for index in (1,3,0):
+        strip.setCurrentIndex(index);QTest.qWait(210);matches()
+        assert strip._line_rect==strip._target_line()
+    right=next(b for b in strip._scroll_buttons if b.arrowType()==Qt.RightArrow)
+    for _ in range(4):
+        right.click();QApplication.processEvents();matches()
+    strip.resize(680,43);QApplication.processEvents();matches()
+    strip.set_tabs(['Short','Much longer category title'],1);QTest.qWait(210);matches()
+    assert strip._target_line().width()>38

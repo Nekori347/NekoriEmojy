@@ -696,8 +696,9 @@ class TabStrip(QTabBar):
         rect=self.content_tab_rect(self.currentIndex())
         if not (viewport or self._tab_viewport()).intersects(rect):
             return QRectF()
-        width=min(38,max(18,rect.width()-32))
-        return QRectF(rect.center().x()-width/2,9,width,3)
+        # Match the actual rounded tab body, excluding the location-divider
+        # gap. The painter already clips partial tabs behind scroll buttons.
+        return QRectF(rect.left()+3,9,max(0,rect.width()-6),3)
 
     def _move_line(self,value):
         self._line_rect=value
