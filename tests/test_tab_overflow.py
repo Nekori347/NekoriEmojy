@@ -218,5 +218,3 @@ def test_selected_tab_reveal_is_local_bounded_and_interruptible(strip):
         assert tabs._line_target==tabs._target_line() and tabs._line_state.y()==0
     tabs._line_motion.setCurrentTime(250)
     assert tabs._line_state==QPointF(0,1)
-
-
