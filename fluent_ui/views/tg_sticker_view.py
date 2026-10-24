@@ -1208,7 +1208,7 @@ class TGStickerInterface(QWidget):
         self._config_anim = QPropertyAnimation(
             self.configCard, b"maximumHeight", self
         )
-        from fluent_ui.visual import MOTION
+        from fluent_ui.visual import MOTION, start_animation
         self._config_anim.setDuration(MOTION.expand)
         self._config_anim.setEasingCurve(QEasingCurve.OutCubic)
         self._config_anim.setStartValue(height_from)
@@ -1220,7 +1220,7 @@ class TGStickerInterface(QWidget):
             self._config_anim = None
 
         self._config_anim.finished.connect(_finish)
-        self._config_anim.start()
+        start_animation(self._config_anim, MOTION.expand)
 
 
     def update_texts(self, _lang=None):

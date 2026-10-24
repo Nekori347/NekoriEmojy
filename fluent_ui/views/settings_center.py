@@ -358,6 +358,10 @@ class SettingsCenter(QWidget):
             "appearance_mode", "system"))
         row = AccentRow(self.pending.get('accent_color', self.config.get('accent_color', visual.DEFAULT_ACCENT)), self)
         section.add_row(self._track(row, 'accent_color', visual.DEFAULT_ACCENT))
+        section.add_row(self._track(SwitchRow(
+            '界面动效', '控制窗口及界面的过渡动画，不影响表情动图播放。',
+            'ui_animations_enabled', self.config.get('ui_animations_enabled', True), self),
+            'ui_animations_enabled', True))
 
     def _page_gallery_display(self):
         section = self._section("表情显示")
@@ -842,6 +846,9 @@ class SettingsCenter(QWidget):
         self.pending.clear()
         self.config.preview_values.clear()
         self._preview_backup.clear()
+        if 'ui_animations_enabled' in keys:
+            visual.finish_ui_animations()
+            visual.theme.motion_changed.emit()
         for key in keys:
             if key == 'language':
                 i18n_engine.set_language(keys[key])

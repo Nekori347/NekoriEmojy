@@ -102,7 +102,7 @@ class NodeCard(QLabel):
         self._motion.stop()
         self._motion.setStartValue(self._angle)
         self._motion.setEndValue(90.0 if expanded else 0.0)
-        self._motion.start()
+        visual.start_animation(self._motion, visual.MOTION.expand)
         self.update()
 
     def _rotate(self,value):

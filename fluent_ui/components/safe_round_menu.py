@@ -96,7 +96,7 @@ class SafeRoundMenu(RoundMenu):
             self._reveal.stop();self._reveal.setDuration(visual.MOTION.window)
             self._reveal.setEasingCurve(QEasingCurve.OutCubic)
             self._reveal.setStartValue(.92);self._reveal.setEndValue(1.)
-            self._reveal.start()
+            visual.start_animation(self._reveal, visual.MOTION.window)
 
     def _onShowMenuTimeOut(self):
         """定位次级菜单，避免左侧展开时与一级菜单产生异常间隔。"""

@@ -323,7 +323,7 @@ class TagPanelHost(QWidget):
         if animate and target is not None:
             index=0 if self.splitter.widget(0) is self.panel else 1
             self._motion_index=index
-            self._motion.setStartValue(previous[index]);self._motion.setEndValue(target);self._motion.start()
+            self._motion.setStartValue(previous[index]);self._motion.setEndValue(target);visual.start_animation(self._motion, visual.MOTION.expand)
         elif animate:
             self.panel.set_collapsed(not expanded, self.horizontal)
             self.apply_extent()

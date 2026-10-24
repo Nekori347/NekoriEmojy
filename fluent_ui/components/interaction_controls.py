@@ -52,7 +52,7 @@ class ModeSegment(QWidget):
         self.layout().activate();target=QRectF(self.items[key].geometry())
         self.slideAni.stop()
         if self.isVisible() and not self._selection.isEmpty() and changed:
-            self.slideAni.setStartValue(self._selection);self.slideAni.setEndValue(target);self.slideAni.start()
+            self.slideAni.setStartValue(self._selection);self.slideAni.setEndValue(target);visual.start_animation(self.slideAni, visual.MOTION.select)
         else:self._selection=target;self.update()
         if changed:self.currentItemChanged.emit(key)
     def resizeEvent(self,event):

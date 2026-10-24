@@ -842,7 +842,7 @@ class QQScanInterface(QWidget):
         if self._config_anim is not None:
             self._config_anim.stop()
         self._config_anim = QPropertyAnimation(self.configCard, b'maximumHeight', self)
-        from fluent_ui.visual import MOTION
+        from fluent_ui.visual import MOTION, start_animation
         self._config_anim.setDuration(MOTION.expand)
         self._config_anim.setEasingCurve(QEasingCurve.OutCubic)
         self._config_anim.setStartValue(height_from)
@@ -854,7 +854,7 @@ class QQScanInterface(QWidget):
             self._config_anim = None
 
         self._config_anim.finished.connect(_finish)
-        self._config_anim.start()
+        start_animation(self._config_anim, MOTION.expand)
 
     def _update_summary_label(self):
         user_text = self.userComboBox.currentText() or t("未选择账号")

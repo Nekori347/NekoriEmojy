@@ -528,7 +528,7 @@ class SettingSection(QWidget):
         target = max(self.body_layout.sizeHint().height(),self.body_layout.heightForWidth(self.body.width()))
         self._motion.setStartValue(start)
         self._motion.setEndValue(0 if self._collapsed else target)
-        self._motion.start()
+        visual.start_animation(self._motion, visual.MOTION.expand)
         self.toggle.set_expanded(not self._collapsed)
 
     def _finish_collapse(self):

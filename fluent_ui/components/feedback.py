@@ -54,11 +54,11 @@ class Toast(QFrame):
 
     def showEvent(self,event):
         super().showEvent(event)
-        self._motion.stop();self._motion.setStartValue(0.0);self._motion.setEndValue(1.0);self._motion.start()
+        self._motion.stop();self._motion.setStartValue(0.0);self._motion.setEndValue(1.0);visual.start_animation(self._motion, visual.MOTION.feedback)
 
     def _expire(self):
         self._exiting=True
-        self._motion.stop();self._motion.setStartValue(self._opacity.opacity());self._motion.setEndValue(0.0);self._motion.start()
+        self._motion.stop();self._motion.setStartValue(self._opacity.opacity());self._motion.setEndValue(0.0);visual.start_animation(self._motion, visual.MOTION.feedback)
 
     def _finished(self):
         if self._exiting:

@@ -22,6 +22,7 @@ def appearance(job):
 
 
 def motion_enabled():
+    if not visual.animations_enabled():return False
     import sys,ctypes
     if sys.platform=='win32':
         allowed=ctypes.c_int(1)
@@ -172,6 +173,7 @@ class CaptionFeedback(QObject):
         self.actions=self._action_box(host.strip,self.detail,host.action_button,host.close_button)
         window.installEventFilter(self)
         i18n_engine.language_changed.connect(self.refresh)
+        visual.theme.motion_changed.connect(self.reposition)
         self.refresh_theme()
 
     def reparent(self,window):

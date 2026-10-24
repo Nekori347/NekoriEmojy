@@ -17,6 +17,9 @@ except ImportError:
         return True
 
 
+from fluent_ui import visual
+
+
 class _ThumbnailLoadSignals(QObject):
     finished = Signal(str, object, int, int)
 
@@ -420,11 +423,13 @@ class EmojiCard(QLabel):
                 pass
 
         animation.finished.connect(finish)
-        animation.start()
+        visual.start_animation(animation, 180)
 
     def animate_appear(self, delay=0):
         """以轻微淡入显示卡片；delay 用于批次内错峰，避免同时闪现。"""
         self._stop_appear_animation()
+        if not visual.animations_enabled():
+            return
         generation = self._animation_generation
 
         if delay <= 0:

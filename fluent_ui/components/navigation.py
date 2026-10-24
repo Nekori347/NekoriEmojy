@@ -138,7 +138,7 @@ class HierarchyLocationHeader(QWidget):
         if old and self.isVisible() and QApplication.platformName() not in ('offscreen','minimal'):
             self.animation.setStartValue(0.0)
             self.animation.setEndValue(1.0)
-            self.animation.start()
+            visual.start_animation(self.animation, visual.HIERARCHY_DURATION_MS)
         self._layout_counts()
 
     def _rows(self, path, return_item=None):
@@ -327,7 +327,7 @@ class HierarchyLocationHeader(QWidget):
             self._old_path=self.path[:]
             self.animation.setStartValue(0.0)
             self.animation.setEndValue(1.0)
-            self.animation.start()
+            visual.start_animation(self.animation, visual.HIERARCHY_DURATION_MS)
         self._layout_counts()
         self.navigate_requested.emit(target)
 
@@ -419,7 +419,7 @@ class NavigationItem(QStyledItemDelegate):
         else:
             self._selection_motion.setStartValue(self._indicator)
             self._selection_motion.setEndValue(target)
-            self._selection_motion.start()
+            visual.start_animation(self._selection_motion, visual.MOTION.select)
         self.view.viewport().update()
 
     def _paint_indicator(self,painter,rect,selected):
@@ -715,7 +715,7 @@ class TabStrip(QTabBar):
             self._line_state=QPointF(0,1)
         else:
             self._line_state=QPointF(2,0)
-            self._line_motion.start()
+            visual.start_animation(self._line_motion, 250)
         self.update()
 
     def resizeEvent(self,event):

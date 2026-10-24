@@ -17,6 +17,7 @@ class ConfigService:
             "light_theme_key": "nekori",
             "dark_theme_key": "nekori",
             "appearance_mode": "system",
+            "ui_animations_enabled": True,
             "accent_color": "#FFF500",
             "language": "zh",
             "always_on_top": True,   # 默认置顶

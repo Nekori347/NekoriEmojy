@@ -123,7 +123,7 @@ class ButtonPaint:
         self._hover_animation.stop()
         self._hover_animation.setStartValue(self._hover)
         self._hover_animation.setEndValue(target)
-        self._hover_animation.start()
+        visual.start_animation(self._hover_animation, visual.MOTION.hover)
 
     def hideEvent(self,event):
         if hasattr(self,'_hover_animation'):
@@ -413,7 +413,7 @@ class SwitchButton(QAbstractButton):
         self._slide.stop()
         self._slide.setStartValue(self._position)
         self._slide.setEndValue(float(checked))
-        self._slide.start()
+        visual.start_animation(self._slide, visual.MOTION.select)
         self.checkedChanged.emit(checked)
 
     def setChecked(self, checked):

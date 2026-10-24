@@ -82,7 +82,7 @@ class DisclosureButton(QToolButton):
         self._motion.stop()
         self._motion.setStartValue(self._angle)
         self._motion.setEndValue(90.0 if expanded else 0.0)
-        self._motion.start()
+        visual.start_animation(self._motion, visual.MOTION.expand)
 
     def paintEvent(self,event):
         from fluent_ui.icons import Icon
@@ -194,13 +194,14 @@ class SoftframeProgress(QProgressBar):
     def __init__(self,parent=None):
         super().__init__(parent)
         self._pulse=QTimer(self);self._pulse.setInterval(60);self._pulse.timeout.connect(self.update)
+        visual.theme.motion_changed.connect(self._sync_motion)
         self.setTextVisible(False)
         visual.theme.changed.connect(self.update)
         visual.theme.accent_changed.connect(self.update)
 
     def _sync_motion(self):
         self._pulse.setInterval(60)
-        if self.isVisible() and self.maximum()==self.minimum()==0:self._pulse.start()
+        if self.isVisible() and self.maximum()==self.minimum()==0 and visual.animations_enabled():self._pulse.start()
         else:self._pulse.stop()
 
     def setRange(self,minimum,maximum):
@@ -221,7 +222,8 @@ class SoftframeProgress(QProgressBar):
             p.drawLine(x,int(r.bottom()),x+int(r.height()),int(r.top()))
         p.restore()
         if self.minimum()==self.maximum()==0:
-            width=r.width()*.23;offset=(time.monotonic()%1.8)/1.8*(r.width()+width)-width
+            width=r.width()*.23
+            offset=(time.monotonic()%1.8)/1.8*(r.width()+width)-width if visual.animations_enabled() else (r.width()-width)/2
             p.save();p.setClipRect(r);p.fillRect(QRectF(r.left()+offset,r.top(),width,r.height()),QColor(c['accent']));p.restore()
         else:
             fraction=max(0,min(1,(self.value()-self.minimum())/max(1,self.maximum()-self.minimum())))
