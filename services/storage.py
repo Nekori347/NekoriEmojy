@@ -309,9 +309,9 @@ class StorageService:
     def node(self, node_id):
         return self.index.node(node_id or ROOT) or {"id": ROOT, "name": "Library", "icon": "", "parent_id": None}
 
-    def node_path(self, node_id):
+    def node_path(self, node_id, *, nodes=None):
         """Breadcrumb from the root down to this node; the virtual root is included."""
-        return self.index.node_path(node_id or ROOT)
+        return self.index.node_path(node_id or ROOT, nodes=nodes)
 
     def child_nodes(self, node_id):
         return self.index.child_nodes(node_id or ROOT)

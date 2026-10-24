@@ -1411,7 +1411,7 @@ class GalleryInterface(QWidget):
             return
         anchors = tuple(self.renderer.visible_anchors())
         old_scroll = self.scroll_area.verticalScrollBar().value()
-        self.entry_model.sync(parents=parents, paths=paths, nodes=nodes, counts=counts)
+        node_records=self.entry_model.sync(parents=parents, paths=paths, nodes=nodes, counts=counts)
         plain = not getattr(self,'_recent_view',False) and not self.search_keyword.strip() and not self.filter_state.is_active() and not self.active_tags and self.content_sort == 'manual'
         if plain:
             first = self.entry_model.patch_normal(self._entries, self.content_scope_node(), self._expanded_nodes)
@@ -1424,7 +1424,7 @@ class GalleryInterface(QWidget):
             self.renderer.relayout(first, anchor=anchor if old_scroll else None)
         else:
             self.renderer.sync()
-        self._rebuild_context_strip()
+        self._rebuild_context_strip(nodes=node_records)
         self._sync_command_bar()
         self._update_placeholder()
 
@@ -1573,12 +1573,13 @@ class GalleryInterface(QWidget):
                 widget.setParent(None)
                 widget.deleteLater()
 
-    def _rebuild_context_strip(self):
+    def _rebuild_context_strip(self, *, nodes=None):
         self._clear_layout(self.chip_layout)
         path = ([dict(id=ROOT, name=t('全部表情'))] if self.current_node == ROOT
-                else [n for n in self.storage.node_path(self.current_node) if n['id'] != ROOT])
-        return_node = self.storage.index.node(self.return_child_hint) if self.return_child_hint else None
-        if return_node and self.current_node not in {n['id'] for n in self.storage.node_path(self.return_child_hint)[:-1]}:
+                else [n for n in self.storage.node_path(self.current_node,nodes=nodes) if n['id'] != ROOT])
+        return_node = ((self.storage.index.node(self.return_child_hint) if nodes is None else nodes.get(self.return_child_hint))
+                       if self.return_child_hint else None)
+        if return_node and self.current_node not in {n['id'] for n in self.storage.node_path(self.return_child_hint,nodes=nodes)[:-1]}:
             return_node = None
         if not return_node:
             self.return_child_hint = None
@@ -1597,7 +1598,7 @@ class GalleryInterface(QWidget):
                 self.chip_layout.addWidget(self._make_chip(t(label), lambda f=field: self._update_filter(f, False), self.chip_container, active=True))
         self.context_strip.setVisible(self.filter_state.is_active())
 
-        self._rebuild_category_tabs()
+        self._rebuild_category_tabs(nodes=nodes)
         self.chip_layout.addStretch()
         self._rebuild_tag_panel()
 
@@ -1686,14 +1687,16 @@ class GalleryInterface(QWidget):
         self.apply_tags([resource['id'] for resource in
                          (self.storage.resource_of(path) for path in paths) if resource], tags)
 
-    def _rebuild_category_tabs(self):
+    def _rebuild_category_tabs(self, *, nodes=None):
         self.tab_row.setVisible(True)
         self.category_tabs.setVisible(self.current_node != ROOT)
         self.content_pane.setProperty('standalone', self.current_node == ROOT)
         self.content_pane.update()
-        children = self.storage.child_nodes(self.current_node) if self.current_node != ROOT else []
+        children = ((self.storage.child_nodes(self.current_node) if nodes is None else
+                     [n for n in nodes.values() if n['parent_id']==self.current_node]) if self.current_node != ROOT else [])
         self._tab_nodes = [self.current_node]+[node['id'] for node in children]
-        title = t('全部表情') if self.current_node == ROOT else self.storage.node(self.current_node)['name']
+        title = (t('全部表情') if self.current_node == ROOT else
+                 (self.storage.node(self.current_node) if nodes is None else nodes[self.current_node])['name'])
         self.category_tabs.set_tabs([title]+[node['name'] for node in children], self._tab_nodes.index(self.content_scope_node()))
 
     def _on_category_tab(self, index):

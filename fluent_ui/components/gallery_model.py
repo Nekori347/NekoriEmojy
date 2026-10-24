@@ -82,6 +82,7 @@ class GalleryEntryModel:
                                  node=record, position=item['position'])
                 updated.append(value)
             self.direct[parent] = updated
+        return node_records
 
     @staticmethod
     def patch(entries, incoming):

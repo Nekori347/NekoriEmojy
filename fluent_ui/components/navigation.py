@@ -755,6 +755,8 @@ class TabStrip(QTabBar):
 
     def set_tabs(self, labels, current=0):
         if labels == [self.tabText(i) for i in range(self.count())]:
+            if self.currentIndex()==current:
+                return
             self.blockSignals(True)
             self.setCurrentIndex(current)
             self.blockSignals(False)

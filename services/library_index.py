@@ -158,15 +158,17 @@ class LibraryIndex:
             row = db.execute("SELECT * FROM nodes WHERE id=?", (str(node_id),)).fetchone()
             return dict(row) if row else None
 
-    def node_path(self, node_id):
+    def node_path(self, node_id, *, nodes=None):
         """Ancestors from the library root down to this node; ROOT itself is excluded."""
         chain = []
         current = str(node_id)
-        with self.connect() as db:
+        from contextlib import nullcontext
+        with self.connect() if nodes is None else nullcontext() as db:
             seen = set()
             while current and current != ROOT and current not in seen:
                 seen.add(current)
-                row = db.execute("SELECT id,parent_id,name,icon FROM nodes WHERE id=?", (current,)).fetchone()
+                row = (db.execute("SELECT id,parent_id,name,icon FROM nodes WHERE id=?", (current,)).fetchone()
+                       if nodes is None else nodes.get(current))
                 if row is None:
                     break
                 chain.append(dict(row))

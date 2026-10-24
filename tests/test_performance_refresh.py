@@ -154,3 +154,21 @@ def test_directory_nodes_publish_after_commit_before_child_file(management,monke
     assert view.imports.requests[rid].saved==1
     view.set_node(nodes['Nested']['id'])
     assert len(view._entries)==1 and view._entries[0]['name']=='child.png'
+
+
+def test_incremental_context_uses_snapshot_and_keeps_unchanged_tab_motion(management,monkeypatch):
+    from services.library_index import ROOT
+    view,storage,parent,dest,paths,sent=management
+    child=storage.create_node('Tab child',parent)
+    view.sidebar.refresh_list(parent);view.refresh_content()
+    path=storage.index.node_path;paths_read=[];reveals=[]
+    def snapshot_path(node,*,nodes=None):
+        assert nodes is not None,'incremental context re-read the category path'
+        paths_read.append(node);return path(node,nodes=nodes)
+    monkeypatch.setattr(storage.index,'node_path',snapshot_path)
+    def unexpected(*args):raise AssertionError('incremental context re-read children')
+    monkeypatch.setattr(storage,'child_nodes',unexpected)
+    monkeypatch.setattr(view.category_tabs,'_animate_line',lambda *args:reveals.append(True))
+    view._queued_resources_committed([paths[0]],{ROOT,parent})
+    assert paths_read==[parent] and not reveals
+    assert view._tab_nodes==[parent,child]
