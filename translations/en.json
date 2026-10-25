@@ -1671,8 +1671,8 @@
   "默认连接凭据已失效，正在尝试恢复连接…": "The default connection credentials have expired. Trying to restore the connection…",
   "正在检查可用的公开连接配置…": "Checking available public connection settings…",
   "正在验证连接，请稍候…": "Verifying the connection. Please wait…",
-  "连接已恢复，正在继续获取贴纸包…": "Connection restored. Continuing to fetch the sticker pack…",
   "暂时无法恢复默认连接，可稍后重试或使用自定义 Bot Token。": "The default connection could not be restored. Try again later or use a custom Bot Token.",
   "正在恢复连接": "Restoring connection",
-  "连接已恢复": "Connection restored"
+  "连接已恢复": "Connection restored",
+  "连接已恢复，正在继续原操作…": "Connection restored. Continuing the original operation…"
 }
