@@ -1,0 +1,60 @@
+{
+  "tabler": [
+    {
+      "file": "mood-plus.svg",
+      "source": "icons/outline/mood-plus.svg",
+      "commit": "a4ce1404bc6d24d3c365afe7b258d6bf6f48d62d",
+      "blob": "1764560a69edbc60b0987178c4a5dec3a01c5dec"
+    },
+    {
+      "file": "tag-plus.svg",
+      "source": "icons/outline/tag-plus.svg",
+      "commit": "a4ce1404bc6d24d3c365afe7b258d6bf6f48d62d",
+      "blob": "d2d7a0d8eaed017252cf8ecf379bf49c0166c76a"
+    },
+    {
+      "file": "list-tree.svg",
+      "source": "icons/outline/list-tree.svg",
+      "commit": "a4ce1404bc6d24d3c365afe7b258d6bf6f48d62d",
+      "blob": "13b2855decc99300d7009d70a6f3351cf3724240"
+    },
+    {
+      "file": "playlist-add.svg",
+      "source": "icons/outline/playlist-add.svg",
+      "commit": "a4ce1404bc6d24d3c365afe7b258d6bf6f48d62d",
+      "blob": "9ed60f6f070ff3f3609e3d997cf4a058716159bb"
+    },
+    {
+      "file": "menu-order.svg",
+      "source": "icons/outline/menu-order.svg",
+      "commit": "a4ce1404bc6d24d3c365afe7b258d6bf6f48d62d",
+      "blob": "2e97bb1bf91dafb1ab4f2bd321be9c09a115af4b"
+    },
+    {
+      "file": "clock-down.svg",
+      "source": "icons/outline/clock-down.svg",
+      "commit": "a4ce1404bc6d24d3c365afe7b258d6bf6f48d62d",
+      "blob": "7d541cc2f8aedaff11194715543df5a3d07eacc2"
+    },
+    {
+      "file": "clock-up.svg",
+      "source": "icons/outline/clock-up.svg",
+      "commit": "a4ce1404bc6d24d3c365afe7b258d6bf6f48d62d",
+      "blob": "cbd17ac9bc27f67a4a440991de0a85c2cae8a518"
+    },
+    {
+      "file": "LICENSE-Tabler.txt",
+      "source": "LICENSE",
+      "commit": "a4ce1404bc6d24d3c365afe7b258d6bf6f48d62d",
+      "blob": "3e82379dab3fe93d9ee22251949604ed63ddea39"
+    }
+  ],
+  "local_unchanged": [
+    "sort-ascending-letters.svg",
+    "sort-descending-letters.svg"
+  ],
+  "derived": {
+    "playlist-add-mirrored.svg": "playlist-add.svg: entire SVG group translate(24 0) scale(-1 1)",
+    "list-tree-stroke-2.25.svg": "list-tree.svg: stroke-width 2 -> 2.25; review candidate only"
+  }
+}
