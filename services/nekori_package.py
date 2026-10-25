@@ -198,17 +198,36 @@ class NekoriPackageService:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             if manifest.get("format") != FORMAT:
                 raise NekoriPackageError("表情合集格式不受支持")
-            # Validate references before creating any nodes or resources.
+            # Keep safe legacy content, without following external references.
+            warnings = []
+            resources = []
             for entry in manifest.get('resources', []):
-                _package_path(staging, entry.get('package_path'))
+                try:
+                    _package_path(staging, entry.get('package_path'))
+                except NekoriPackageError:
+                    warnings.append('已跳过不安全的包外资源引用')
+                else:
+                    resources.append(entry)
+            skipped = len(manifest.get('resources', [])) - len(resources)
+            manifest['resources'] = resources
             for node in manifest.get('nodes', []):
+                unsafe_icon = False
                 if node.get('icon_asset'):
-                    _package_path(staging, node['icon_asset'])
-                elif node.get('icon'):
+                    try:
+                        _package_path(staging, node['icon_asset'])
+                    except NekoriPackageError:
+                        node.pop('icon_asset')
+                        unsafe_icon = True
+                if not node.get('icon_asset') and node.get('icon'):
                     icon = node['icon']
                     if any(c in icon for c in '/\\:') or Path(icon).suffix.lower() in IMAGE_SUFFIXES:
-                        raise NekoriPackageError('图片图标必须包含在资源包中')
-            return self._restore(manifest, staging, progress)
+                        node['icon'] = ''
+                        unsafe_icon = True
+                if unsafe_icon:
+                    warnings.append('已跳过不安全的分类图片图标引用')
+            result = self._restore(manifest, staging, progress)
+            result.update(skipped=skipped, warnings=warnings, errors=list(warnings))
+            return result
         except zipfile.BadZipFile as exc:
             raise NekoriPackageError(f"压缩包无法读取: {exc}") from exc
         finally:

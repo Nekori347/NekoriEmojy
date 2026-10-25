@@ -22,8 +22,8 @@ def test_native_manifest_cannot_import_an_outside_image(tmp_path, monkeypatch, r
         dict(id='outside', package_path='../private.png' if relative else str(private))])
     with zipfile.ZipFile(package, 'w') as z:
         z.writestr('nekori.json', json.dumps(manifest))
-    with pytest.raises(NekoriPackageError):
-        NekoriPackageService(storage).import_package(package)
+    result = NekoriPackageService(storage).import_package(package)
+    assert result['skipped'] == 1 and result['warnings']
     assert storage.index.resources() == [] and private.is_file()
 
 
@@ -46,9 +46,43 @@ def test_native_icon_reference_cannot_retain_a_local_image_path(tmp_path):
     with zipfile.ZipFile(package, 'w') as z:
         z.writestr('nekori.json', json.dumps(dict(format='nekori-package', resources=[], nodes=[
             dict(id='node', name='Node', icon=str(private))])))
-    with pytest.raises(NekoriPackageError):
-        NekoriPackageService(storage).import_package(package)
-    assert storage.index.nodes() == []
+    result = NekoriPackageService(storage).import_package(package)
+    assert result['warnings'] and result['nodes'] == 1
+    assert not storage.index.nodes()[0]['icon']
+
+
+def test_legacy_unsafe_reference_keeps_safe_resources_and_category(tmp_path):
+    from io import BytesIO
+    storage = _make_storage(tmp_path / 'target')
+    payload = BytesIO(); Image.new('RGB', (12, 10), 'green').save(payload, 'PNG')
+    package = tmp_path / 'mixed.zip'
+    manifest = dict(format='nekori-package', nodes=[dict(id='node',name='Retained',icon_asset='../private.png')],
+                    resources=[dict(id='safe',package_path='images/good.png',memberships=[dict(node_id='node',position=0)]),
+                               dict(id='unsafe',package_path='../private.png')])
+    with zipfile.ZipFile(package,'w') as z:
+        z.writestr('nekori.json',json.dumps(manifest));z.writestr('images/good.png',payload.getvalue())
+    result=NekoriPackageService(storage).import_package(package)
+    assert result['resources']==1 and result['nodes']==1 and result['skipped']==1
+    assert len(result['warnings'])==2 and len(storage.index.resources())==1
+    node=storage.index.nodes()[0]
+    assert node['name']=='Retained' and not node['icon']
+    assert len(storage.index.content(node['id']))==1
+
+
+def test_selected_library_and_preferences_survive_reload(tmp_path, monkeypatch):
+    from services.config import ConfigService
+    from services.storage import StorageService
+    monkeypatch.delenv('NEKORI_LIBRARY', raising=False)
+    config = ConfigService(tmp_path / 'preferences')
+    chosen = tmp_path / 'selected-library'
+    chosen.mkdir()
+    config.set('library_path', str(chosen))
+    storage = StorageService(config=config)
+    source = tmp_path / 'normal.png'; Image.new('RGB', (12, 10), 'red').save(source)
+    saved, _ = storage.save_file(str(source))
+    reloaded = StorageService(config=ConfigService(tmp_path / 'preferences'))
+    assert reloaded.index.root == chosen.resolve()
+    assert len(reloaded.index.resources()) == 1 and Path(saved).is_file() and source.is_file()
 
 
 @pytest.mark.parametrize('limit', ['MAX_PACKAGE_BYTES', 'MAX_PACKAGE_FILES', 'MAX_MANIFEST_BYTES'])
