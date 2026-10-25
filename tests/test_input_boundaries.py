@@ -111,6 +111,23 @@ def test_native_shared_and_same_named_icons_export_without_duplicate_members(tmp
     assert NekoriPackageService(recipient).import_package(package)['nodes'] == 3
 
 
+@pytest.mark.parametrize('same', [True, False])
+def test_legacy_repeated_icons_require_identical_bytes(tmp_path, same):
+    import warnings
+    storage = _make_storage(tmp_path / 'target')
+    package = tmp_path / 'legacy.zip'
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', UserWarning)
+        with zipfile.ZipFile(package, 'w') as z:
+            z.writestr('nekori.json', json.dumps(dict(format='nekori-package', nodes=[], resources=[])))
+            z.writestr('icons/shared.png', b'same bytes')
+            z.writestr('icons/shared.png', b'same bytes' if same else b'other data')
+    if same:
+        assert NekoriPackageService(storage).import_package(package)['resources'] == 0
+    else:
+        with pytest.raises(NekoriPackageError):NekoriPackageService(storage).import_package(package)
+
+
 @pytest.mark.parametrize('declared', [False, True])
 def test_image_url_download_is_bounded_and_cleans_partial_file(tmp_path, monkeypatch, declared):
     from unittest.mock import Mock

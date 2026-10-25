@@ -167,13 +167,28 @@ class NekoriPackageService:
                 entries = archive.infolist()
                 if len(entries) > MAX_PACKAGE_FILES or sum(e.file_size for e in entries) > MAX_PACKAGE_BYTES:
                     raise NekoriPackageError('资源包超过解压大小或文件数量上限')
-                seen = set()
+                seen = {}
                 for entry in entries:
                     target = _package_path(staging, entry.filename)
                     key = str(target).casefold()
-                    if key in seen or ((entry.external_attr >> 16) & 0o170000) == 0o120000:
-                        raise NekoriPackageError('资源包包含重复路径或符号链接')
-                    seen.add(key)
+                    if ((entry.external_attr >> 16) & 0o170000) == 0o120000:
+                        raise NekoriPackageError('资源包包含符号链接')
+                    previous = seen.get(key)
+                    if previous:
+                        # Older native exports repeated shared icon assets. Only
+                        # byte-identical icon members are unambiguous and safe.
+                        if (entry.filename != previous.filename or not entry.filename.startswith('icons/')
+                                or entry.is_dir() or entry.file_size != previous.file_size):
+                            raise NekoriPackageError('资源包包含重复路径')
+                        with archive.open(previous) as first, archive.open(entry) as duplicate:
+                            while True:
+                                chunk = first.read(64 * 1024)
+                                if chunk != duplicate.read(64 * 1024):
+                                    raise NekoriPackageError('资源包包含内容冲突的重复图标')
+                                if not chunk:
+                                    break
+                    else:
+                        seen[key] = entry
                     if str(target).casefold() == str(staging / MANIFEST_NAME).casefold() and entry.file_size > MAX_MANIFEST_BYTES:
                         raise NekoriPackageError('资源包清单超过大小上限')
                 archive.extractall(staging)
