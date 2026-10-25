@@ -134,6 +134,8 @@ class NekoriPackageService:
                 icon = node.get("icon") or ""
                 if icon and Path(icon).suffix.lower() in IMAGE_SUFFIXES:
                     source = Path(resolve_icon_path(self.index.root, icon))
+                    # The package carries its own asset, never the source machine's path.
+                    node['icon'] = ''
                     if source.is_file():
                         archive.write(source, f"icons/{source.name}")
                         node["icon_asset"] = f"icons/{source.name}"

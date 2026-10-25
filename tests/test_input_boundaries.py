@@ -75,6 +75,22 @@ def test_exchange_text_icon_cannot_retain_a_local_image_path(tmp_path):
     assert service._parse_icons(catalog, tmp_path) == {'node': '🙂'}
 
 
+def test_native_export_carries_icon_asset_without_original_absolute_path(tmp_path):
+    storage = _make_storage(tmp_path / 'target')
+    source = tmp_path / 'legacy-icon.png'
+    Image.new('RGB', (10, 10), 'blue').save(source)
+    node = storage.index.create_node('Node')
+    storage.index.update_node(node, icon=str(source))
+    package = tmp_path / 'output.zip'
+    NekoriPackageService(storage).export(package)
+    with zipfile.ZipFile(package) as z:
+        data = json.loads(z.read('nekori.json'))
+        exported = data['nodes'][0]
+        assert exported['icon'] == '' and 'icon_asset' in exported
+        assert z.read(exported['icon_asset']) == source.read_bytes()
+        assert str(source) not in json.dumps(data, ensure_ascii=False)
+
+
 @pytest.mark.parametrize('declared', [False, True])
 def test_image_url_download_is_bounded_and_cleans_partial_file(tmp_path, monkeypatch, declared):
     from unittest.mock import Mock
