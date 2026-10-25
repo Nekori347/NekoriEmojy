@@ -735,9 +735,10 @@ class StorageService:
         self._sync_key_index = None
         return removed
 
-    def delete_images_batch(self, filepaths, progress_callback=None, cancel_check=None):
+    def delete_images_batch(self, filepaths, progress_callback=None, cancel_check=None, *, expected_ids=None):
         from services.recycle_bin import recycle_file
         paths = list(dict.fromkeys(filepaths))
+        expected_ids = set(expected_ids) if expected_ids is not None else None
         result = dict(requested=len(paths), deleted=0, missing_cleaned=0, failed=0,
                       cancelled=0, unprocessed=0, failure_details={})
         for i, path in enumerate(paths):
@@ -749,6 +750,8 @@ class StorageService:
                     resource = self.index.resource(path)
                     if not resource:
                         raise ValueError('Resource is not owned by this library')
+                    if expected_ids is not None and resource['id'] not in expected_ids:
+                        raise ValueError('Resource identity changed after deletion confirmation')
                     absolute = self.index.absolute_path(resource)
                     if self.availability.exists(resource['id'], revalidate=True):
                         recycle_file(absolute, self.library_root)

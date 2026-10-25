@@ -26,7 +26,7 @@ def management(tmp_path,monkeypatch):
     parent=storage.create_node('Source');dest=storage.create_node('Target')
     paths=[]
     for i in range(6):
-        source=tmp_path/f'{i}.png';image=QImage(30,30,QImage.Format_RGB32);image.fill(QColor(20*i,60,90));image.save(str(source))
+        source=tmp_path/f'management-resource-{i}.png';image=QImage(30,30,QImage.Format_RGB32);image.fill(QColor(20*i,60,90));image.save(str(source))
         paths.append(storage.save_file(str(source),target=ImportTarget(parent))[0])
     view=GalleryInterface(storage,ClipboardService(config),config)
     view.resize(1100,760);view.show();view.set_node(parent)
@@ -157,7 +157,7 @@ def test_resource_drag_cancel_surface_consumes_without_writes(management,monkeyp
     QTest.mousePress(card,Qt.LeftButton)
     move=QMouseEvent(QEvent.MouseMove,QPointF(10,10),QPointF(card.mapToGlobal(QPoint(10,10))),Qt.NoButton,Qt.LeftButton,Qt.NoModifier)
     QApplication.sendEvent(card,move)
-    QTest.mouseRelease(view,Qt.LeftButton)
+    QTest.mouseRelease(card,Qt.LeftButton)
     assert observed and not view.drop_cancel_zone.isVisible()
     assert set(view.selected_keys)==selected and not sent
     assert storage.entries_of(parent)==before and storage.index.resources()==records
@@ -185,7 +185,7 @@ def test_mixed_selection_and_current_filtered_projection(management):
     view.active_tags={'focused'};view.refresh_content();QTest.qWait(100)
     QTest.mouseClick(view.btn_select_all,Qt.LeftButton)
     assert set(view.get_selected_paths())==set(paths[:2])
-    view.search_box.setText('0.png');view._search_timer.stop();view._execute_search()
+    view.search_box.setText('management-resource-0.png');view._search_timer.stop();view._execute_search()
     view._drop_selection_only();QTest.mouseClick(view.btn_select_all,Qt.LeftButton)
     assert view.get_selected_paths()==[paths[0]]
     view.search_box.setText('no-such-resource');view._search_timer.stop();view._execute_search()

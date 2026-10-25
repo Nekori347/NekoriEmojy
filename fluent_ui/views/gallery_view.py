@@ -1990,6 +1990,8 @@ class GalleryInterface(QWidget):
             card.entry_id = entry['id']
             card.drag_payload_provider = lambda path, w=card: self._drag_from_entry(w.content_entry, path)
             card.drag_sources_provider = self._resource_sources
+            card.drag_identity_provider = self._resource_drag_snapshot
+            card.recycle_requested.connect(self._recycle_drag_completed)
             card.customContextMenuRequested.connect(lambda pos, w=card: self.show_context_menu(w, pos))
             card.clicked.connect(lambda key, mods, w=card: self._entry_clicked(w.content_entry, mods))
             card.activated.connect(self.use_resource)
@@ -2412,7 +2414,16 @@ class GalleryInterface(QWidget):
         if not entries:
             self.show_error(t("无法执行"), t("请选择要删除的表情"))
             return
-        paths = [e["path"] for e in entries]
+        self._delete_resource_ids([e['id'] for e in entries])
+
+    def _delete_resource_ids(self, resource_ids, *, recycle_drop=False):
+        resource_ids = tuple(dict.fromkeys(resource_ids))
+        def current_paths():
+            records = self.storage.index.resource_records(resource_ids)
+            return [self.storage.index.absolute_path(record) for record in records]
+        paths = current_paths()
+        if not paths:
+            return
         context = self._action_context(paths, revalidate=True)
         if not ActionPolicy.enabled('delete', context):
             return
@@ -2421,18 +2432,40 @@ class GalleryInterface(QWidget):
                 '文件会进入 Windows 系统回收站，索引记录同时移除。' if len(context.existing) == len(paths) else
                 '现有文件进入 Windows 回收站；失效表情只移除索引记录。')
         hint = t(hint) + '\n' + t('此操作影响资源及其所有分类关系，不只是从当前分类移除。')
+        if recycle_drop:
+            hint += '\n' + t('Windows 回收站可能已接收拖放副本。此处确认是否删除图库原件；取消会保留原件，但不会移除回收站中的副本。')
         if not dialogs.confirm(self.window(), t(ActionPolicy.delete_label(context)),
                                t('删除选中的 {value_0} 个表情？').format(value_0=len(paths)),
                                ok_text=t('移除记录' if missing_only else '删除'), danger=True, code="DELETE",
                                hint=hint):
             return
-        result = self.storage.delete_images_batch(paths)
+        # The dialog has its own event loop. Re-resolve the drag's IDs rather
+        # than deleting current selection or stale paths after background work.
+        paths = current_paths()
+        if not paths:
+            return
+        result = self.storage.delete_images_batch(paths, expected_ids=resource_ids)
         self.sidebar.refresh_list(self.current_node)
         self.refresh_content_incremental(reason='delete_resources')
         if result['failed']:
             self.show_error(t("部分删除失败"), t('{value_0} 项未能移入回收站，记录已保留').format(value_0=result['failed']))
         self.show_success(t("删除完成"),
                           t('已删除 {value_0} 项，清理失效记录 {value_1} 项').format(value_0=result['deleted'], value_1=result['missing_cleaned']), quiet=True)
+
+    def _resource_drag_snapshot(self, paths):
+        resource_ids = self.storage.index.resource_ids(paths)
+        if not resource_ids or any(key is None for key in resource_ids):
+            return None
+        return (str(self.storage.index.root), tuple(dict.fromkeys(resource_ids)))
+
+    def _recycle_drag_completed(self, snapshot):
+        library, resource_ids = snapshot
+        if library != str(self.storage.index.root):
+            return
+        # The OLE call and card/feedback cleanup have finished before showing
+        # the existing modal confirmation. QObject context cancels on disposal.
+        QTimer.singleShot(0, self, lambda: self._delete_resource_ids(resource_ids, recycle_drop=True)
+                          if library == str(self.storage.index.root) else None)
 
     def _show_more_menu(self):
         if self._resource_command_entries() is None:return

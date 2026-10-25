@@ -11,6 +11,27 @@ from PySide6.QtCore import QByteArray, QMetaType, QMimeData, QUrl
 from services.app_paths import app_data_dir
 
 
+def execute_resource_drag(drag):
+    """Use target feedback only on a native Windows desktop; keep safe Qt fallback."""
+    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtCore import Qt
+    if os.name == 'nt' and QGuiApplication.platformName() == 'windows':
+        try:
+            from services.windows_resource_drag import execute
+            import pywintypes
+        except ImportError:
+            pass  # no native receiver capability; disposable files remain safe
+        else:
+            try:
+                return execute(drag)
+            except (OSError, pywintypes.error, pywintypes.com_error) as error:
+                # Never restart a failed OLE session or infer a deletion from it.
+                drag.mimeData().error = error
+                return False
+    drag.exec(Qt.CopyAction | Qt.MoveAction, Qt.CopyAction)
+    return False
+
+
 class ResourceDragMimeData(QMimeData):
     """Materialize only when a target requests file URLs/text, not for internal moves.
 

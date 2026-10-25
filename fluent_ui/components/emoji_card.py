@@ -245,6 +245,7 @@ class EmojiCard(QLabel):
     hover_ended = Signal()      # 悬停离开
     drag_started = Signal()
     drag_finished = Signal()
+    recycle_requested = Signal(object)
 
     def __init__(self, image_path, size=120, parent=None, load_image=True, frame=0, availability=None, status=None):
         super().__init__(parent)
@@ -257,6 +258,7 @@ class EmojiCard(QLabel):
         # Set by the gallery: returns every path that should travel with one drag.
         self.drag_payload_provider = None
         self.drag_sources_provider = None
+        self.drag_identity_provider = None
         self._loaded_size = 0  # 记录当前实际加载的图片尺寸
         self._is_loaded = False
         self._is_loading = False
@@ -593,7 +595,11 @@ class EmojiCard(QLabel):
                 return  # keep _is_dragging until release, so this never sends
             payload = list(resolved)
 
-        from services.external_drag import ResourceDragMimeData
+        snapshot = self.drag_identity_provider(payload) if self.drag_identity_provider else None
+        if self.drag_identity_provider and snapshot is None:
+            self._drag_start_pos = None
+            return
+        from services.external_drag import ResourceDragMimeData, execute_resource_drag
         drag = QDrag(self)
         mime_data = ResourceDragMimeData(payload)
         if self.drag_sources_provider is not None:
@@ -607,16 +613,22 @@ class EmojiCard(QLabel):
         drag.setHotSpot(QPoint(30, 30))
 
         self.setCursor(QCursor(Qt.ClosedHandCursor))
+        recycled = False
         try:
             self.drag_started.emit()
             # MOVE remains available to our internal placement contract. Shell
             # receives disposable files, regardless of the reported action.
-            drag.exec(Qt.CopyAction | Qt.MoveAction, Qt.CopyAction)
+            if snapshot is not None:
+                recycled = execute_resource_drag(drag)
+            else:
+                drag.exec(Qt.CopyAction | Qt.MoveAction, Qt.CopyAction)
         finally:
             self._is_dragging = False
             self.setCursor(QCursor(Qt.PointingHandCursor))
             self._drag_start_pos = None
             self.drag_finished.emit()
+        if recycled:
+            self.recycle_requested.emit(snapshot)
         if mime_data.error:
             from fluent_ui.components import dialogs
             from services.i18n import t
@@ -625,7 +637,10 @@ class EmojiCard(QLabel):
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
-            if not self._is_dragging:
+            # OLE cancellation may return before the physical button release.
+            # A completed drag has already cleared its press position, so that
+            # later release cannot become a fresh selection/send click.
+            if not self._is_dragging and self._drag_start_pos is not None:
                 modifiers = QApplication.keyboardModifiers()
                 if self.is_selectable and not modifiers:
                     self.set_selected(not self.is_selected)

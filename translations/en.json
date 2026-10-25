@@ -1,4 +1,5 @@
 {
+  "Windows 回收站可能已接收拖放副本。此处确认是否删除图库原件；取消会保留原件，但不会移除回收站中的副本。": "Windows Recycle Bin may already contain the exported copies. Confirm whether to delete the library originals. Cancel keeps the originals, but does not remove copies from the Recycle Bin.",
   "来源已改变，无法安全继续": "The source has changed; continuation is unsafe.",
   "来源不可用，请连接原设备后继续": "Source unavailable. Reconnect the original device to continue.",
   "不能导入资源库或其上级目录": "Cannot import the library or its parent folder.",
