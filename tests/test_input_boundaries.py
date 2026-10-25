@@ -91,6 +91,26 @@ def test_native_export_carries_icon_asset_without_original_absolute_path(tmp_pat
         assert str(source) not in json.dumps(data, ensure_ascii=False)
 
 
+def test_native_shared_and_same_named_icons_export_without_duplicate_members(tmp_path):
+    storage = _make_storage(tmp_path / 'target')
+    first = tmp_path / 'one' / 'icon.png'; first.parent.mkdir()
+    second = tmp_path / 'two' / 'icon.png'; second.parent.mkdir()
+    Image.new('RGB', (10, 10), 'blue').save(first)
+    Image.new('RGB', (10, 10), 'green').save(second)
+    for name, source in [('First',first),('Shared',first),('Other',second)]:
+        node = storage.index.create_node(name); storage.index.update_node(node, icon=str(source))
+    package = tmp_path / 'output.zip'
+    NekoriPackageService(storage).export(package)
+    with zipfile.ZipFile(package) as z:
+        assert len(z.namelist()) == len(set(z.namelist()))
+        nodes = {n['name']:n for n in json.loads(z.read('nekori.json'))['nodes']}
+        assert nodes['First']['icon_asset'] == nodes['Shared']['icon_asset']
+        assert z.read(nodes['First']['icon_asset']) == first.read_bytes()
+        assert z.read(nodes['Other']['icon_asset']) == second.read_bytes()
+    recipient = _make_storage(tmp_path / 'recipient')
+    assert NekoriPackageService(recipient).import_package(package)['nodes'] == 3
+
+
 @pytest.mark.parametrize('declared', [False, True])
 def test_image_url_download_is_bounded_and_cleans_partial_file(tmp_path, monkeypatch, declared):
     from unittest.mock import Mock

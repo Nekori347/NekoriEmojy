@@ -127,6 +127,7 @@ class NekoriPackageService:
                 if progress:
                     progress(step, total, '写入资源（工作单元）: ' + entry["display_name"])
 
+            icon_assets = {}
             for node in manifest["nodes"]:
                 check_export_cancelled(cancel_check)
                 if progress:
@@ -137,8 +138,12 @@ class NekoriPackageService:
                     # The package carries its own asset, never the source machine's path.
                     node['icon'] = ''
                     if source.is_file():
-                        archive.write(source, f"icons/{source.name}")
-                        node["icon_asset"] = f"icons/{source.name}"
+                        key = source.resolve()
+                        if key not in icon_assets:
+                            asset = f"icons/{node['id']}{source.suffix.lower()}"
+                            archive.write(source, asset)
+                            icon_assets[key] = asset
+                        node["icon_asset"] = icon_assets[key]
                 step += 1
                 if progress:
                     progress(step, total, '处理分类图标（工作单元）: ' + node["name"])
