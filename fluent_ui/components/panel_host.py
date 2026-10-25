@@ -5,7 +5,7 @@ from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath, QMouseEvent, QRe
 from PySide6.QtWidgets import QAbstractButton, QApplication, QSplitter, QSplitterHandle, QVBoxLayout, QWidget, QSizePolicy
 from fluent_ui.icons import Icon as FIF
 from fluent_ui import visual
-from fluent_ui.components.controls import ButtonPaint, pointer_hits
+from fluent_ui.components.controls import ButtonPaint, pointer_hits, focus_input
 from services.i18n import t, i18n_engine
 
 
@@ -111,6 +111,7 @@ class ResizeHandle(QSplitterHandle):
         self._ear_press = None
         self._dragging = False
         self._keyboard_focus = False
+        self._focus_input = focus_input()
         self.setCursor(Qt.SplitHCursor if orientation == Qt.Horizontal else Qt.SplitVCursor)
 
     @property
@@ -225,7 +226,7 @@ class ResizeHandle(QSplitterHandle):
             c = visual.colors()
             # The command is discoverable at rest. Hover only emphasizes it.
             paint_dock_chevron(painter, self.chevron_points(), active)
-            if self.hasFocus() and self._keyboard_focus:
+            if self.hasFocus() and self._keyboard_focus and self._focus_input.keyboard:
                 painter.setPen(QPen(QColor(c['accent']), 1, Qt.DotLine))
                 painter.setBrush(Qt.NoBrush)
                 painter.drawRoundedRect(self.ear_rect().adjusted(2, 0, -2, -1), 3, 3)

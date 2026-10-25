@@ -54,8 +54,18 @@ class _ButtonFocusInput(QObject):
             self.keyboard=not pointer
             focused=QApplication.focusWidget()
             if isinstance(focused,ButtonPaint):
-                focused._focus_visible=self.keyboard;focused.update()
+                focused._focus_visible=self.keyboard
+            if focused is not None:
+                focused.update()
         return False
+
+
+def focus_input():
+    """One existing input-origin tracker for buttons and splitter cues."""
+    app = QApplication.instance()
+    if not hasattr(app, '_button_focus_input'):
+        app._button_focus_input = _ButtonFocusInput(app)
+    return app._button_focus_input
 
 
 class ButtonPaint:
@@ -67,9 +77,7 @@ class ButtonPaint:
         self.setFont(visual.font())
         self.setCursor(Qt.PointingHandCursor)
         self.setFocusPolicy(Qt.TabFocus)
-        app=QApplication.instance()
-        if not hasattr(app,'_button_focus_input'):app._button_focus_input=_ButtonFocusInput(app)
-        self._focus_input=app._button_focus_input;self._focus_visible=False
+        self._focus_input=focus_input();self._focus_visible=False
         self._hover = 0.0
         self._hover_animation = QVariantAnimation(self)
         self._hover_animation.setDuration(visual.MOTION.hover)

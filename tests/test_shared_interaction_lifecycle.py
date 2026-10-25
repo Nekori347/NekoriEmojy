@@ -151,3 +151,33 @@ def test_dock_rule_and_chevron_use_one_neutral_color(scene, monkeypatch):
     monkeypatch.setattr(panel_host, 'paint_dock_chevron', observe)
     handle.grab()
     assert colors[-1] == (visual.colors()['text_secondary'], False)
+
+
+def test_splitter_keyboard_cue_ends_when_pointer_input_keeps_qt_focus(scene, monkeypatch):
+    from types import SimpleNamespace
+    from fluent_ui.components.panel_host import PanelSplitter
+    app, panel = scene
+    split = PanelSplitter(Qt.Vertical, panel)
+    split.dock_host = SimpleNamespace(expanded=True, placement=TagPanelPlacement.BOTTOM)
+    split.addWidget(QWidget())
+    split.addWidget(QWidget())
+    split.setGeometry(0, 0, 300, 120)
+    split.setHandleWidth(8)
+    split.show()
+    handle = split.handle(1)
+    handle.setFocusPolicy(Qt.StrongFocus)
+    other = PushButton('Pointer action', panel)
+    other.setGeometry(305, 40, 110, 32)
+    other.setFocusPolicy(Qt.NoFocus)
+    other.show()
+    app.processEvents()
+    monkeypatch.setattr(QCursor, 'pos', lambda: panel.mapToGlobal(QPoint(500, 500)))
+    handle.clearFocus()
+    baseline = handle.grab().toImage()
+    handle.setFocus(Qt.TabFocusReason)
+    QTest.keyClick(handle, Qt.Key_Right)
+    assert handle.hasFocus() and handle.grab().toImage() != baseline
+    QTest.mouseClick(other, Qt.LeftButton)
+    app.processEvents()
+    assert handle.hasFocus()  # Qt focus intentionally remains; only input origin changes.
+    assert handle.grab().toImage() == baseline
