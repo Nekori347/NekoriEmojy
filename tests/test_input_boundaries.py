@@ -27,7 +27,7 @@ def test_native_manifest_cannot_import_an_outside_image(tmp_path, monkeypatch, r
     assert storage.index.resources() == [] and private.is_file()
 
 
-@pytest.mark.parametrize('name', ['../outside.png', '/outside.png', 'C:/outside.png', 'images/../../outside.png'])
+@pytest.mark.parametrize('name', ['../outside.png', '/outside.png', 'C:/outside.png', 'images/../../outside.png', '.. /outside.png', 'NUL'])
 def test_native_archive_rejects_unsafe_members_before_restore(tmp_path, name):
     storage = _make_storage(tmp_path / 'target')
     package = tmp_path / 'input.zip'
@@ -49,6 +49,20 @@ def test_native_icon_reference_cannot_retain_a_local_image_path(tmp_path):
     with pytest.raises(NekoriPackageError):
         NekoriPackageService(storage).import_package(package)
     assert storage.index.nodes() == []
+
+
+@pytest.mark.parametrize('limit', ['MAX_PACKAGE_BYTES', 'MAX_PACKAGE_FILES', 'MAX_MANIFEST_BYTES'])
+def test_native_limits_reject_before_any_restore(tmp_path, monkeypatch, limit):
+    import services.nekori_package as native
+    monkeypatch.setattr(native, limit, 1)
+    storage = _make_storage(tmp_path / 'target')
+    package = tmp_path / 'input.zip'
+    with zipfile.ZipFile(package, 'w') as z:
+        z.writestr('./nekori.json', json.dumps(dict(format='nekori-package', nodes=[], resources=[])))
+        z.writestr('images/empty.png', b'')
+    with pytest.raises(NekoriPackageError):
+        NekoriPackageService(storage).import_package(package)
+    assert storage.index.resources() == [] and storage.index.nodes() == []
 
 
 @pytest.mark.parametrize('declared', [False, True])

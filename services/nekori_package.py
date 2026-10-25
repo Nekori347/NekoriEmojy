@@ -32,7 +32,8 @@ def _package_path(root, name):
     if not isinstance(name, str) or not name or '\x00' in name:
         raise NekoriPackageError('资源包包含无效路径')
     path = PurePosixPath(name.replace('\\', '/'))
-    if path.is_absolute() or PureWindowsPath(name).drive or '..' in path.parts or any(':' in p for p in path.parts):
+    if (path.is_absolute() or PureWindowsPath(name).drive or PureWindowsPath(name).is_reserved()
+            or '..' in path.parts or any(':' in p or p.endswith((' ', '.')) for p in path.parts)):
         raise NekoriPackageError('资源包路径必须位于包内')
     target = (root / Path(*path.parts)).resolve()
     if not target.is_relative_to(root.resolve()):
