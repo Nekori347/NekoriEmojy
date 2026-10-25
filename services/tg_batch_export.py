@@ -78,6 +78,9 @@ class TGPackageBatchRunner:
             self.progress(index, "parse", 0, 0, "")
             try:
                 item.downloader = self.downloader_factory()
+                if hasattr(item.downloader, 'recovery_callback'):
+                    item.downloader.recovery_callback = lambda stage, row=index: self.progress(row, 'recovery', 0, 0, stage)
+                    item.downloader.cancel_check = self.cancel_event.is_set
                 self._downloaders.append(item.downloader)
                 item.pack = item.downloader.get_sticker_set(link)
                 self.progress(index, "parsed", 0, item.pack.total_count, item.pack.title)

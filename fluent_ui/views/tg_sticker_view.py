@@ -14,7 +14,7 @@ from services.resource_import import ImportSkipped
 
 from PySide6.QtCore import (
     Qt, QSize, Signal, QCoreApplication, QRect, QThread,
-    QEasingCurve, QPropertyAnimation
+    QEasingCurve, QPropertyAnimation, Slot
 )
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QSplitter, QFrame, QLayout,
@@ -42,6 +42,7 @@ from services.tg_downloader import (
     TG_DIRECT_API
 )
 from services.i18n import t, i18n_engine, bind_text, translated
+from services.tg_public_config import RECOVERY_MESSAGES
 from fluent_ui.views.setting_view import disable_wheel_scroll_adjustment
 from fluent_ui.components.rotating_chevron_button import RotatingChevronButton
 from fluent_ui.components.state_tool_tip_manager import StateToolTipManager
@@ -254,16 +255,25 @@ class TGLogDialog(dialogs.NekoriDialog):
 
 # ==================== 后台工作线程 ====================
 
+def _bind_recovery_feedback(worker):
+    if isinstance(worker.downloader, TGStickerDownloader):
+        worker.downloader.recovery_callback = worker.recovery_status.emit
+        worker.downloader.cancel_check = (worker._cancelled if hasattr(worker, '_cancelled')
+                                         else lambda: worker._is_cancelled)
+
+
 class ParsePackThread(QThread):
     """解析贴纸包元数据线程"""
     success = Signal(object)  # StickerPackInfo
     failed = Signal(str)
+    recovery_status = Signal(str)
 
     def __init__(self, downloader: TGStickerDownloader, link_or_name: str, parent=None):
         super().__init__(parent)
         self.downloader = downloader
         self.link_or_name = link_or_name
         self._is_cancelled = False
+        _bind_recovery_feedback(self)
 
     def cancel(self):
         self._is_cancelled = True
@@ -281,11 +291,22 @@ class ParsePackThread(QThread):
                 self.failed.emit(str(e))
 
 
+class ConnectionTestThread(ParsePackThread):
+    def __init__(self, downloader, parent=None):
+        super().__init__(downloader, '', parent)
+
+    def run(self):
+        result = self.downloader.test_connection()
+        if not self._is_cancelled:
+            self.success.emit(result)
+
+
 class BatchThumbnailThread(QThread):
     """
     分批异步下载缩略图线程
     在后台线程内部使用轻量并发池并行获取当前批次图片
     """
+    recovery_status = Signal(str)
     item_loaded = Signal(int, bytes, str)  # sticker_index, png_bytes, badge_text
     batch_done = Signal()
 
@@ -294,6 +315,7 @@ class BatchThumbnailThread(QThread):
         self.downloader = downloader
         self.stickers_batch = stickers_batch
         self._is_cancelled = False
+        _bind_recovery_feedback(self)
 
     def cancel(self):
         self._is_cancelled = True
@@ -338,6 +360,7 @@ class DetailPreviewThread(QThread):
     """
     单张贴纸大图 / 动图后台异步下载与转换线程
     """
+    recovery_status = Signal(str)
     preview_ready = Signal(int, str, bool)  # sticker_index, file_path, is_gif
     preview_failed = Signal(int, str)
 
@@ -346,6 +369,7 @@ class DetailPreviewThread(QThread):
         self.downloader = downloader
         self.sticker = sticker
         self._is_cancelled = False
+        _bind_recovery_feedback(self)
 
     def cancel(self):
         self._is_cancelled = True
@@ -374,6 +398,7 @@ class DetailPreviewThread(QThread):
 
 class DownloadPackThread(QThread):
     """批量下载贴纸包线程"""
+    recovery_status = Signal(str)
     progress = Signal(int, int, str)
     finished_all = Signal(dict)
     failed = Signal(str)
@@ -398,6 +423,7 @@ class DownloadPackThread(QThread):
         self.selected_indices = selected_indices
         self.max_workers = max_workers
         self._is_cancelled = False
+        _bind_recovery_feedback(self)
 
     def cancel(self):
         self._is_cancelled = True
@@ -435,6 +461,7 @@ class ImportPackThread(QThread):
     彻底释放 GUI 主线程，避免界面卡死
     全部由 storage.save_file 统一魔数识别与清洗转码入库
     """
+    recovery_status = Signal(str)
     progress = Signal(int, int, str)  # done, total, msg
     finished_all = Signal(int, int, int, str)  # imported, duplicated, failed, category_name
     failed = Signal(str)
@@ -467,6 +494,7 @@ class ImportPackThread(QThread):
         self.category_name = category_name
         self.max_workers = max_workers
         self._is_cancelled = False
+        _bind_recovery_feedback(self)
 
     def cancel(self):
         self._is_cancelled = True
@@ -661,6 +689,8 @@ class TGStickerInterface(QWidget):
         self._download_thread: Optional[DownloadPackThread] = None
         self._import_thread: Optional[ImportPackThread] = None
         self._parse_thread: Optional[ParsePackThread] = None
+        self._connection_thread = None
+        self._recovery_owner = None
         self.detail_movie: Optional[QMovie] = None
         self.last_download_result: Optional[Dict[str, Any]] = None
         self._batch_package_dialog = None
@@ -1063,6 +1093,7 @@ class TGStickerInterface(QWidget):
     def _set_busy(self, busy: bool):
         """统一设置后台操作期间的控件状态，避免重复提交。"""
         self._busy = busy
+        if not busy:self._recovery_owner = None
         self.parseButton.setEnabled(not busy)
         self.batchPackageButton.setEnabled(not busy)
         self.selectDirButton.setEnabled(not busy)
@@ -1078,6 +1109,7 @@ class TGStickerInterface(QWidget):
             thread is not None and thread.isRunning()
             for thread in (
                 self._parse_thread,
+                self._connection_thread,
                 self._download_thread,
                 self._import_thread,
             )
@@ -1107,6 +1139,7 @@ class TGStickerInterface(QWidget):
         self.log(t("💬 用户关闭了任务状态提示"))
         self._cancelActiveThreads()
         self._set_busy(False)
+        self.tooltip.cancel()
 
     def shutdown(self):
         """应用退出时取消任务并等待线程收尾，避免销毁运行中的 QThread。"""
@@ -1116,6 +1149,7 @@ class TGStickerInterface(QWidget):
             thread
             for thread in (
                 self._parse_thread,
+                self._connection_thread,
                 self._download_thread,
                 self._import_thread,
                 self._batch_thread,
@@ -1235,6 +1269,32 @@ class TGStickerInterface(QWidget):
         if len(self.log_history) > 2000:
             self.log_history = self.log_history[-1000:]
 
+    def _current_worker_signal(self, name):
+        worker = self.sender()
+        return worker is None or (worker is getattr(self, name) and not worker._is_cancelled)
+
+    def _watch_recovery(self, worker, *, foreground=False):
+        worker.recovery_status.connect(self._on_recovery_status)
+        if foreground:
+            self._recovery_owner = worker
+
+    @Slot(str)
+    def _on_recovery_status(self, stage):
+        worker = self.sender()
+        current = (self._parse_thread,self._connection_thread,self._download_thread,
+                   self._import_thread,self._batch_thread,self._detail_thread)
+        if worker not in current or worker._is_cancelled or stage not in RECOVERY_MESSAGES:
+            return
+        if self._busy and worker is not self._recovery_owner:
+            return
+        message = t(RECOVERY_MESSAGES[stage])
+        self.log(message)
+        if self._busy:
+            if not self.tooltip.is_active():
+                self.tooltip.show(t('正在恢复连接'), message)
+            else:
+                self.tooltip.update(message, title=t('连接已恢复') if stage == 'success' else t('正在恢复连接'), current=0, total=0)
+
     def showHelpDialog(self):
         """弹出说明书与高级配置教程弹窗"""
         dlg = TGHelpDialog(self)
@@ -1298,10 +1358,20 @@ class TGStickerInterface(QWidget):
         )
 
     def testNetworkConnection(self):
+        if self._has_running_task():return
         self.log(t("💬 正在测试 Telegram API 连通性与 Token 有效性..."))
-        downloader = self._get_configured_downloader()
+        self._set_busy(True)
+        self.tooltip.show(t('连通性测试'), t('正在验证连接，请稍候…'))
+        worker = self._connection_thread = ConnectionTestThread(self._get_configured_downloader(), self)
+        worker.success.connect(self._onConnectionResult)
+        self._watch_recovery(worker, foreground=True)
+        worker.start()
+
+    @Slot(object)
+    def _onConnectionResult(self, res):
+        if not self._current_worker_signal('_connection_thread'):return
+        self._set_busy(False)
         try:
-            res = downloader.test_connection()
             if res["bot_ok"]:
                 msg = t("✅ 连接成功!\n\n通道: {channel}\nBot 名称: @{bot}").format(
                     channel=res.get("channel"), bot=res.get("bot_username")
@@ -1311,16 +1381,16 @@ class TGStickerInterface(QWidget):
                         channel=res.get("channel"), bot=res.get("bot_username")
                     )
                 )
-                notify(self, t("连通性测试"), msg)
+                self.tooltip.finish(t("连通性测试"), msg)
             else:
                 msg = t("❌ 连接失败: {error}").format(
-                    error=res.get("error", t("未知错误"))
+                    error=t(res.get("error", t("未知错误")))
                 )
                 self.log(msg)
-                notify(self, t("连通性测试"), msg)
+                self.tooltip.fail(t("连通性测试"), t(msg))
         except Exception as e:
             self.log(t("❌ 测试出错: {error}").format(error=e))
-            notify(self, t("测试出错"), t("发生异常: {error}").format(error=e), kind='error')
+            self.tooltip.fail(t("测试出错"), t("发生异常: {error}").format(error=e))
 
     # ==========================================
     # 解析贴纸包逻辑与懒加载体系
@@ -1357,40 +1427,22 @@ class TGStickerInterface(QWidget):
         self._parse_thread = ParsePackThread(self.downloader, link, self)
         self._parse_thread.success.connect(self._onParseSuccess)
         self._parse_thread.failed.connect(self._onParseFailed)
+        self._watch_recovery(self._parse_thread, foreground=True)
         self._parse_thread.start()
 
     def _cancelActiveThreads(self):
-        """协作式取消当前页面的全部后台任务。"""
-        if self._parse_thread and self._parse_thread.isRunning():
-            self._parse_thread.cancel()
-            self._parse_thread.wait(200)
-
-        if self._download_thread and self._download_thread.isRunning():
-            self._download_thread.cancel()
-            self._download_thread.wait(200)
-
-        if self._batch_thread and self._batch_thread.isRunning():
-            self._batch_thread.cancel()
-            self._batch_thread.wait(200)
-            self._batch_thread = None
-
-        if self._detail_thread and self._detail_thread.isRunning():
-            self._detail_thread.cancel()
-            self._detail_thread.wait(200)
-            self._detail_thread = None
-
-        if self._import_thread and self._import_thread.isRunning():
-            self._import_thread.cancel()
-            self._import_thread.wait(200)
-
+        """Cancel existing owners, including their in-flight credential recovery."""
+        for thread in (self._parse_thread,self._connection_thread,self._download_thread,
+                       self._batch_thread,self._detail_thread,self._import_thread):
+            if thread is not None:
+                thread.cancel()
+                if thread.isRunning():thread.wait(200)
         if self.detail_movie:
-            try:
-                self.detail_movie.stop()
-            except Exception:
-                pass
+            self.detail_movie.stop()
             self.detail_movie = None
 
     def _onParseSuccess(self, pack: StickerPackInfo):
+        if not self._current_worker_signal('_parse_thread'):return
         self.current_pack = pack
         self._set_busy(False)
         self.all_stickers = pack.stickers
@@ -1418,6 +1470,8 @@ class TGStickerInterface(QWidget):
         self.loadMoreThumbnails()
 
     def _onParseFailed(self, error_msg: str):
+        if not self._current_worker_signal('_parse_thread'):return
+        error_msg = t(error_msg)
         self.current_pack = None
         self._set_busy(False)
         bind_text(self.previewTitleLabel, t('表情预览区 (解析失败)'))
@@ -1483,6 +1537,7 @@ class TGStickerInterface(QWidget):
         self._batch_thread = BatchThumbnailThread(self.downloader, batch_stickers, self)
         self._batch_thread.item_loaded.connect(self._onThumbnailLoaded)
         self._batch_thread.batch_done.connect(self._onBatchDone)
+        self._watch_recovery(self._batch_thread, foreground=False)
         self._batch_thread.start()
 
     def _onThumbnailLoaded(self, index: int, png_bytes: bytes, badge_text: str):
@@ -1634,6 +1689,7 @@ class TGStickerInterface(QWidget):
         self._detail_thread = DetailPreviewThread(self.downloader, sticker, self)
         self._detail_thread.preview_ready.connect(self._onDetailPreviewReady)
         self._detail_thread.preview_failed.connect(self._onDetailPreviewFailed)
+        self._watch_recovery(self._detail_thread, foreground=False)
         self._detail_thread.start()
 
     def _onDetailPreviewReady(self, sticker_index: int, file_path: str, is_gif: bool):
@@ -1754,9 +1810,11 @@ class TGStickerInterface(QWidget):
         self._download_thread.progress.connect(self._onDownloadProgress)
         self._download_thread.finished_all.connect(self._onDownloadFinished)
         self._download_thread.failed.connect(self._onDownloadFailed)
+        self._watch_recovery(self._download_thread, foreground=True)
         self._download_thread.start()
 
     def _onDownloadProgress(self, done: int, total: int, msg: str):
+        if not self._current_worker_signal('_download_thread'):return
         progress_message = t("导出进度 [{done}/{total}]: {message}").format(
             done=done, total=total, message=msg
         )
@@ -1764,6 +1822,7 @@ class TGStickerInterface(QWidget):
         self.tooltip.update(progress_message, current=done, total=total)
 
     def _onDownloadFinished(self, result: Dict[str, Any]):
+        if not self._current_worker_signal('_download_thread'):return
         self._set_busy(False)
         self.last_download_result = result
 
@@ -1789,6 +1848,8 @@ class TGStickerInterface(QWidget):
 
 
     def _onDownloadFailed(self, error_msg: str):
+        if not self._current_worker_signal('_download_thread'):return
+        error_msg = t(error_msg)
         self._set_busy(False)
         self.log(t("❌ 导出过程中出现错误: {error}").format(error=error_msg))
         self.tooltip.fail(t("导出失败"), str(error_msg))
@@ -1807,7 +1868,8 @@ class TGStickerInterface(QWidget):
         from fluent_ui.components.tg_batch_dialog import TGBatchPackageDialog
         downloader = self._get_configured_downloader()
         config = dict(
-            bot_token=downloader.bot_token, cf_proxy=downloader.cf_proxy,
+            bot_token=downloader.bot_token if downloader._custom_token else None,
+            cf_proxy=downloader.cf_proxy if downloader._custom_cf_proxy else None,
             network_proxy=dict(downloader.session.proxies), timeout=downloader.timeout,
             retries=downloader.retries, prefer_direct=downloader.prefer_direct,
         )
@@ -1861,12 +1923,14 @@ class TGStickerInterface(QWidget):
             source_url=self.current_pack.source_url,
         )
         self._import_thread = worker
+        self._watch_recovery(worker, foreground=True)
         worker.progress.connect(self._onImportProgress)
         worker.finished_all.connect(self._onPackageFinished)
         worker.failed.connect(self._onPackageFailed)
         worker.start()
 
     def _onPackageFinished(self, imported, duplicated, failed, category_name):
+        if not self._current_worker_signal('_import_thread'):return
         self._set_busy(False)
         path = self._import_thread.export_path
         refresh = getattr(self.window(), "refresh_library", None)
@@ -1881,6 +1945,8 @@ class TGStickerInterface(QWidget):
         self.tooltip.finish(t("表情合集导出完成"), summary + "\n" + path + "\n" + details, outcome="partial" if failed or self._import_thread.skipped_count else "success")
 
     def _onPackageFailed(self, message):
+        if not self._current_worker_signal('_import_thread'):return
+        message = t(message)
         self._set_busy(False)
         refresh = getattr(self.window(), "refresh_library", None)
         if callable(refresh):
@@ -1955,7 +2021,14 @@ class TGStickerInterface(QWidget):
         def operation(progress):
             worker=ImportPackThread(downloader,storage,stickers,category_name,max_workers=4)
             errors=[];worker.failed.connect(errors.append)
-            worker.progress.connect(lambda done,total,*_:progress(done,total))
+            counts=[0,len(stickers)]
+            def update(done,total,message=''):
+                counts[:]=[done,total]
+                progress(done,total,message)
+            worker.progress.connect(update, Qt.DirectConnection)
+            # Reuse ImportThread.stage -> ImportQueue task identity/feedback.
+            downloader.recovery_callback=lambda stage:progress(*counts,RECOVERY_MESSAGES[stage])
+            downloader.cancel_check=getattr(storage.import_context,'cancelled',None)
             worker.run()
             if errors:raise RuntimeError('\n'.join(errors))
             return {'skipped':getattr(worker,'failed_count',0)+worker.skipped_count,
@@ -1965,6 +2038,7 @@ class TGStickerInterface(QWidget):
         return import_queue(storage).submit([s.file_id for s in stickers],ImportTarget(),self,operation=operation)
 
     def _onImportProgress(self, done: int, total: int, msg: str):
+        if not self._current_worker_signal('_import_thread'):return
         self.log(msg)
         self.tooltip.update(
             t("入库进度 [{done}/{total}]: {message}").format(

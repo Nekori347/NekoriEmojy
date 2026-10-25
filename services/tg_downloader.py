@@ -121,6 +121,8 @@ class TGStickerDownloader:
         timeout: int = 15,
         retries: int = 2,
         prefer_direct: bool = True,
+        recovery_callback=None,
+        cancel_check=None,
     ):
         """
         初始化下载器
@@ -138,6 +140,8 @@ class TGStickerDownloader:
         self.bot_token = (bot_token if self._custom_token else cached_public_token() or DEF_TOKEN).strip()
         self._public_recovery_attempted = False
         self._recovery_lock = threading.Lock()
+        self.recovery_callback = recovery_callback
+        self.cancel_check = cancel_check
         self.cf_proxy = (cf_proxy or DEF_CF_PROXY).strip().rstrip("/")
         self.timeout = timeout
         self.retries = retries
@@ -243,16 +247,35 @@ class TGStickerDownloader:
         if self._custom_token:
             return False
         with self._recovery_lock:
+            callback, cancelled = self.recovery_callback, self.cancel_check
+            phase = None
+            def report(stage):
+                nonlocal phase
+                if cancelled and cancelled():
+                    raise InterruptedError()
+                if callback and phase != stage:
+                    callback(stage)
+                phase = stage
+            report_cancel = lambda: bool(cancelled and cancelled())
+            if report_cancel():
+                raise InterruptedError()
             if self.bot_token != failed_token:
                 return True  # Another download worker already recovered this batch.
             if self._public_recovery_attempted:
                 return False
             self._public_recovery_attempted = True
+            report('start')
             for source in SOURCES:
-                candidate = read_public_token(self.session, source)
+                report('fetch')
+                candidate = read_public_token(self.session, source, report_cancel)
+                if report_cancel():
+                    raise InterruptedError()
                 if not candidate or candidate == failed_token:
                     continue
+                report('verify')
                 for base in self.candidate_bases:
+                    if report_cancel():
+                        raise InterruptedError()
                     if not base.startswith('https://'):
                         continue
                     try:
@@ -260,6 +283,7 @@ class TGStickerDownloader:
                                                     timeout=self.timeout, allow_redirects=False)
                         try:
                             if response.status_code == 429:
+                                report('failed')
                                 return False  # Never try another public bot to evade a limit.
                             data = response.json()
                             valid = (response.status_code == 200 and isinstance(data, dict) and data.get('ok') is True
@@ -270,6 +294,8 @@ class TGStickerDownloader:
                     except (requests.RequestException, ValueError):
                         continue
                     if valid:
+                        if report_cancel():
+                            raise InterruptedError()
                         self.bot_token = candidate
                         self._active_base_url = base
                         self._path_cache.clear()
@@ -277,20 +303,30 @@ class TGStickerDownloader:
                             remember_public_token(candidate)
                         except (OSError, ValueError):
                             logger.warning('Public Telegram default recovered; local cache could not be saved')
+                        report('success')
                         return True
+            report('failed')
             return False
 
+    def _check_cancelled(self):
+        if self.cancel_check and self.cancel_check():
+            raise InterruptedError()
+
     def _request_api(self, method: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        self._check_cancelled()
         token = self.bot_token
         try:
             return self._request_api_once(method, params)
         except _InvalidToken:
             if self._recover_public_token(token):
+                self._check_cancelled()
                 try:
                     return self._request_api_once(method, params)
                 except _InvalidToken:
                     pass
-            raise RuntimeError('Telegram Token 无效，请在高级配置中填写有效 Token') from None
+            from services.tg_public_config import RECOVERY_MESSAGES
+            raise RuntimeError('Telegram Token 无效，请在高级配置中填写有效 Token' if self._custom_token
+                               else RECOVERY_MESSAGES['failed']) from None
 
     def _request_api_once(self, method: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """带直连优先与自动反代回退重试的 API 请求封装"""
@@ -424,16 +460,20 @@ class TGStickerDownloader:
         return fp
 
     def download_file_bytes(self, file_path_or_id: str) -> bytes:
+        self._check_cancelled()
         token = self.bot_token
         try:
             return self._download_file_bytes_once(file_path_or_id)
         except _InvalidToken:
             if self._recover_public_token(token):
+                self._check_cancelled()
                 try:
                     return self._download_file_bytes_once(file_path_or_id)
                 except _InvalidToken:
                     pass
-            raise RuntimeError('Telegram Token 无效，请在高级配置中填写有效 Token') from None
+            from services.tg_public_config import RECOVERY_MESSAGES
+            raise RuntimeError('Telegram Token 无效，请在高级配置中填写有效 Token' if self._custom_token
+                               else RECOVERY_MESSAGES['failed']) from None
 
     def _download_file_bytes_once(self, file_path_or_id: str) -> bytes:
         """

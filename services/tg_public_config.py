@@ -10,19 +10,28 @@ SOURCES = (
 )
 MAX_SOURCE_BYTES = 256 * 1024
 TOKEN_PATTERN = re.compile(r'[0-9]{5,15}:[A-Za-z0-9_-]{20,100}')
+RECOVERY_MESSAGES = {
+    'start': '默认连接凭据已失效，正在尝试恢复连接…',
+    'fetch': '正在检查可用的公开连接配置…',
+    'verify': '正在验证连接，请稍候…',
+    'success': '连接已恢复，正在继续获取贴纸包…',
+    'failed': '暂时无法恢复默认连接，可稍后重试或使用自定义 Bot Token。',
+}
 
 
 def valid_token(value):
     return isinstance(value, str) and TOKEN_PATTERN.fullmatch(value) is not None
 
 
-def read_public_token(session, source):
+def read_public_token(session, source, cancel_check=None):
     """Fixed HTTPS URLs, bounded redirects/body, one literal assignment only."""
     if source not in SOURCES:
         return None
     try:
         url = source
         for _ in range(3):
+            if cancel_check and cancel_check():
+                raise InterruptedError()
             with session.get(url, timeout=(4, 8), stream=True, allow_redirects=False) as response:
                 if response.status_code in (301, 302, 303, 307, 308):
                     url = urljoin(url, response.headers.get('Location', ''))
@@ -35,6 +44,8 @@ def read_public_token(session, source):
                     return None
                 body = bytearray()
                 for chunk in response.iter_content(16 * 1024):
+                    if cancel_check and cancel_check():
+                        raise InterruptedError()
                     body.extend(chunk)
                     if len(body) > MAX_SOURCE_BYTES:
                         return None
