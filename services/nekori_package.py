@@ -10,7 +10,7 @@ import shutil
 import tempfile
 import zipfile
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from services.exchange_icons import IMAGE_SUFFIXES, resolve_icon_path
 from services.library_index import ROOT
@@ -19,10 +19,25 @@ from services.export_control import check_export_cancelled, staged_export_path
 FORMAT = "nekori-package"
 FORMAT_VERSION = 1
 MANIFEST_NAME = "nekori.json"
+MAX_PACKAGE_FILES = 50000
+MAX_PACKAGE_BYTES = 8 * 1024 ** 3
+MAX_MANIFEST_BYTES = 16 * 1024 ** 2
 
 
 class NekoriPackageError(RuntimeError):
     pass
+
+
+def _package_path(root, name):
+    if not isinstance(name, str) or not name or '\x00' in name:
+        raise NekoriPackageError('资源包包含无效路径')
+    path = PurePosixPath(name.replace('\\', '/'))
+    if path.is_absolute() or PureWindowsPath(name).drive or '..' in path.parts or any(':' in p for p in path.parts):
+        raise NekoriPackageError('资源包路径必须位于包内')
+    target = (root / Path(*path.parts)).resolve()
+    if not target.is_relative_to(root.resolve()):
+        raise NekoriPackageError('资源包路径必须位于包内')
+    return target
 
 
 class NekoriPackageService:
@@ -141,6 +156,18 @@ class NekoriPackageService:
         staging = Path(tempfile.mkdtemp(prefix="nekori-package-"))
         try:
             with zipfile.ZipFile(package_path) as archive:
+                entries = archive.infolist()
+                if len(entries) > MAX_PACKAGE_FILES or sum(e.file_size for e in entries) > MAX_PACKAGE_BYTES:
+                    raise NekoriPackageError('资源包超过解压大小或文件数量上限')
+                seen = set()
+                for entry in entries:
+                    target = _package_path(staging, entry.filename)
+                    key = str(target).casefold()
+                    if key in seen or ((entry.external_attr >> 16) & 0o170000) == 0o120000:
+                        raise NekoriPackageError('资源包包含重复路径或符号链接')
+                    seen.add(key)
+                    if str(target).casefold() == str(staging / MANIFEST_NAME).casefold() and entry.file_size > MAX_MANIFEST_BYTES:
+                        raise NekoriPackageError('资源包清单超过大小上限')
                 archive.extractall(staging)
             manifest_path = staging / MANIFEST_NAME
             if not manifest_path.is_file():
@@ -148,6 +175,16 @@ class NekoriPackageService:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             if manifest.get("format") != FORMAT:
                 raise NekoriPackageError("表情合集格式不受支持")
+            # Validate references before creating any nodes or resources.
+            for entry in manifest.get('resources', []):
+                _package_path(staging, entry.get('package_path'))
+            for node in manifest.get('nodes', []):
+                if node.get('icon_asset'):
+                    _package_path(staging, node['icon_asset'])
+                elif node.get('icon'):
+                    icon = node['icon']
+                    if any(c in icon for c in '/\\:') or Path(icon).suffix.lower() in IMAGE_SUFFIXES:
+                        raise NekoriPackageError('图片图标必须包含在资源包中')
             return self._restore(manifest, staging, progress)
         except zipfile.BadZipFile as exc:
             raise NekoriPackageError(f"压缩包无法读取: {exc}") from exc
@@ -198,7 +235,7 @@ class NekoriPackageService:
         imported = duplicates = 0
         step = len(nodes)
         for entry in resources:
-            source = staging / entry["package_path"]
+            source = _package_path(staging, entry["package_path"])
             if source.is_file():
                 from services.resource_import import ImportSkipped
                 try:
@@ -258,8 +295,10 @@ class NekoriPackageService:
 
     def _apply_node_icon(self, node_id, node, staging):
         asset = node.get("icon_asset")
-        if asset and (staging / asset).is_file():
-            self.storage.set_node_icon(node_id, str(staging / asset))
+        if asset:
+            source = _package_path(staging, asset)
+            if source.is_file():
+                self.storage.set_node_icon(node_id, str(source))
         elif node.get("icon"):
             self.index.update_node(node_id, icon=node["icon"])
 

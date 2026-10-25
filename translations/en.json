@@ -1665,5 +1665,6 @@
   "控制窗口及界面的过渡动画，不影响表情动图播放。": "Control window and interface transitions without affecting animated emoji playback.",
   "窗口毛玻璃": "Window blur",
   "控制窗口背景的毛玻璃效果；关闭后使用不透明背景。": "Control frosted window backgrounds; turn off to use an opaque background.",
-  "窗口毛玻璃设置将在重启后生效。": "The window blur setting will take effect after restarting."
+  "窗口毛玻璃设置将在重启后生效。": "The window blur setting will take effect after restarting.",
+  "图片下载超过大小上限": "Image download exceeds the size limit."
 }

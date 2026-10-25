@@ -51,6 +51,7 @@ from services.send_target import SendTargetService, SendResult
 
 FAILED_RETENTION_DAYS = 7
 CLEANUP_THROTTLE_HOURS = 1
+MAX_IMAGE_DOWNLOAD_BYTES = 256 * 1024 ** 2
 
 
 class DownloadThread(QThread):
@@ -65,6 +66,7 @@ class DownloadThread(QThread):
         import urllib.error
         import tempfile
         import os
+        temp_path = None
         try:
             req = urllib.request.Request(self.url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
             with urllib.request.urlopen(req, timeout=10) as response:
@@ -82,14 +84,21 @@ class DownloadThread(QThread):
                     self.finished.emit(False, "", t("该链接不是有效的表情"), self.url)
                     return
 
-                content = response.read()
-
+                if int(response.headers.get('Content-Length', '0')) > MAX_IMAGE_DOWNLOAD_BYTES:
+                    raise ValueError(t('图片下载超过大小上限'))
                 fd, temp_path = tempfile.mkstemp(suffix=".tmp")
                 with os.fdopen(fd, 'wb') as f:
-                    f.write(content)
+                    total = 0
+                    while chunk := response.read(64 * 1024):
+                        total += len(chunk)
+                        if total > MAX_IMAGE_DOWNLOAD_BYTES:
+                            raise ValueError(t('图片下载超过大小上限'))
+                        f.write(chunk)
 
                 self.finished.emit(True, temp_path, "", self.url)
         except Exception as e:
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
             self.finished.emit(False, "", str(e), self.url)
 
 

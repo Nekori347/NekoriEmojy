@@ -263,6 +263,8 @@ class ExchangeImportService:
         with zipfile.ZipFile(archive) as zip_file:
             names: set[str] = set()
             infolist = zip_file.infolist()
+            if len(infolist) > 50000 or sum(info.file_size for info in infolist) > 8 * 1024 ** 3:
+                raise ExchangeImportError('资源包超过解压大小或文件数量上限')
             total = len(infolist)
             for idx, info in enumerate(infolist):
                 if progress_callback:
