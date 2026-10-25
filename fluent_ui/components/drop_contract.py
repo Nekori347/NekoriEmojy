@@ -33,6 +33,7 @@ from fluent_ui import visual
 # -- drag payloads ----------------------------------------------------------
 NODE_MIME = "application/x-emojy-node"
 RESOURCE_MIME = "application/x-emojy-resources"
+RESOURCE_SOURCES_MIME = "application/x-emojy-resource-sources"
 TAG_MIME = "application/x-emojy-tags"
 
 # -- placement --------------------------------------------------------------
@@ -110,6 +111,17 @@ class DragSession:
         parser = parse_node_payload if self.kind == NODE_MIME else parse_list_payload
         self.payload = tuple(parser(mime.data(self.kind))) if self.kind not in (None, 'urls') else ()
         self.parents = dict(parents or {})
+        # Membership origins travel with the drag, not the current projection:
+        # a dwell navigation may clear selection before the eventual release.
+        self.sources = {}
+        if self.kind == RESOURCE_MIME and mime.hasFormat(RESOURCE_SOURCES_MIME):
+            try:
+                sources = json.loads(payload_text(mime.data(RESOURCE_SOURCES_MIME)))
+                if isinstance(sources, dict):
+                    self.sources = {path: parent for path, parent in sources.items()
+                                    if path in self.payload and isinstance(parent, str)}
+            except ValueError:
+                pass
         self.streams = {}
         self.target = INVALID_TARGET
         self.committed = False

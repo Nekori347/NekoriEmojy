@@ -63,6 +63,7 @@ class NodeCard(QLabel):
     disclosure_toggled = Signal(str)
     selection_changed = Signal(str, bool)
     context_requested = Signal(object, QPoint)
+    drag_finished = Signal()
 
     def __init__(self, entry, storage, size=120, parent=None):
         super().__init__(parent)
@@ -271,6 +272,7 @@ class NodeCard(QLabel):
         finally:
             self._drag_start=None;self._dragging=False;self._pressed=False
             self.sync_pointer_state();self.update()
+            self.drag_finished.emit()
 
     def mouseReleaseEvent(self, event):
         self._pressed=False;self.update()

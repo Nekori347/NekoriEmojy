@@ -256,6 +256,7 @@ class EmojiCard(QLabel):
         self.frame = int(frame or 0)
         # Set by the gallery: returns every path that should travel with one drag.
         self.drag_payload_provider = None
+        self.drag_sources_provider = None
         self._loaded_size = 0  # 记录当前实际加载的图片尺寸
         self._is_loaded = False
         self._is_loading = False
@@ -595,6 +596,10 @@ class EmojiCard(QLabel):
         from services.external_drag import ResourceDragMimeData
         drag = QDrag(self)
         mime_data = ResourceDragMimeData(payload)
+        if self.drag_sources_provider is not None:
+            import json
+            from fluent_ui.components.drop_contract import RESOURCE_SOURCES_MIME
+            mime_data.setData(RESOURCE_SOURCES_MIME, json.dumps(self.drag_sources_provider(payload)).encode('utf-8'))
         drag.setMimeData(mime_data)
 
         pixmap = self.grab()

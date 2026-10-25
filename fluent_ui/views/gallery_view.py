@@ -25,7 +25,7 @@ from fluent_ui.components.safe_round_menu import SafeRoundMenu as RoundMenu
 from fluent_ui.components.emoji_card import EmojiCard
 from fluent_ui.components.node_card import NodeCard, NODE_MIME, RESOURCE_MIME
 from fluent_ui.components.gallery_model import occurrence_id
-from fluent_ui.components.library_tree import LibraryTree, ALL_RESOURCES
+from fluent_ui.components.library_tree import LibraryTree, ALL_RESOURCES, HOVER_EXPAND_MS
 from fluent_ui.components.hover_preview import HoverPreviewPopup
 from fluent_ui.components.hover_preview_controller import HoverPreviewController
 from fluent_ui.components.keycap_label import KeycapLabel
@@ -507,9 +507,9 @@ class CategorySidebar(Surface):
         self.gallery_view.refresh_content_incremental(reason='structure', parents=old_parents | {parent_id})
         return True
 
-    def _on_resources_dropped(self, node_id, paths, global_pos):
+    def _on_resources_dropped(self, node_id, paths, global_pos, sources=None):
         if self.gallery_view:
-            self.gallery_view.request_resource_drop(paths, node_id, global_pos=global_pos)
+            self.gallery_view.request_resource_drop(paths, node_id, global_pos=global_pos, sources=sources)
 
     def _on_files_dropped(self, node_id, paths):
         if self.gallery_view:
@@ -823,6 +823,15 @@ class GalleryInterface(QWidget):
         self.download_threads = []
         self.import_thread = None
         self.setAcceptDrops(True)
+        self.category_tabs.setAcceptDrops(True)
+        self.category_tabs.installEventFilter(self)
+        self._tab_drop_feedback = DropFeedback(self.category_tabs)
+        self._tab_drag_session = None
+        self._tab_hover_node = None
+        self._tab_hover_timer = QTimer(self)
+        self._tab_hover_timer.setSingleShot(True)
+        self._tab_hover_timer.setInterval(HOVER_EXPAND_MS)
+        self._tab_hover_timer.timeout.connect(self._activate_drag_tab)
 
         self._lazy_load_timer = QTimer(self)
         self._lazy_load_timer.setSingleShot(True)
@@ -1704,10 +1713,15 @@ class GalleryInterface(QWidget):
         self.content_pane.update()
         children = ((self.storage.child_nodes(self.current_node) if nodes is None else
                      [n for n in nodes.values() if n['parent_id']==self.current_node]) if self.current_node != ROOT else [])
-        self._tab_nodes = [self.current_node]+[node['id'] for node in children]
+        tab_nodes = [self.current_node]+[node['id'] for node in children]
         title = (t('全部表情') if self.current_node == ROOT else
                  (self.storage.node(self.current_node) if nodes is None else nodes[self.current_node])['name'])
-        self.category_tabs.set_tabs([title]+[node['name'] for node in children], self._tab_nodes.index(self.content_scope_node()))
+        labels = [title]+[node['name'] for node in children]
+        if hasattr(self, '_tab_hover_timer') and (tab_nodes != getattr(self, '_tab_nodes', []) or
+                labels != [self.category_tabs.tabText(i) for i in range(self.category_tabs.count())]):
+            self._cancel_tab_hover()
+        self._tab_nodes = tab_nodes
+        self.category_tabs.set_tabs(labels, self._tab_nodes.index(self.content_scope_node()))
 
     def _on_category_tab(self, index):
         if 0 <= index < len(self._tab_nodes):
@@ -1968,12 +1982,14 @@ class GalleryInterface(QWidget):
             # against one contract, so a node card is a drag source and nothing
             # else -- it no longer decides placements or paints its own hint.
             card.drag_payload_provider = lambda node_id: self._drag_node_payload(node_id)
+            card.drag_finished.connect(self._hide_drag_cancel)
         else:
             frame = int(json.loads(entry.get('resource', {}).get('metadata_json') or '{}').get('thumb_frame', 0) or 0)
             card = EmojiCard(entry['path'], size=size, frame=frame, load_image=False,
                              availability=self.storage.availability,status=entry.get('status'))
             card.entry_id = entry['id']
             card.drag_payload_provider = lambda path, w=card: self._drag_from_entry(w.content_entry, path)
+            card.drag_sources_provider = self._resource_sources
             card.customContextMenuRequested.connect(lambda pos, w=card: self.show_context_menu(w, pos))
             card.clicked.connect(lambda key, mods, w=card: self._entry_clicked(w.content_entry, mods))
             card.activated.connect(self.use_resource)
@@ -2107,6 +2123,27 @@ class GalleryInterface(QWidget):
         self._schedule_responsive_layout()
 
     def eventFilter(self, obj, event):
+        if obj is getattr(self, 'category_tabs', None):
+            kind = event.type()
+            if kind in (QEvent.DragEnter, QEvent.DragMove, QEvent.Drop):
+                if kind == QEvent.DragEnter:
+                    self._clear_tab_drop()
+                    tree = self.sidebar.tree
+                    tree.begin_drag_session(event.mimeData())
+                    self._tab_drag_session = tree._drag_session
+                    session = self._tab_drag_session
+                    if session.kind == RESOURCE_MIME and not session.sources:
+                        session.sources = self._resource_sources(session.payload)
+                self._track_tab_drop(event, commit=kind == QEvent.Drop)
+                return True
+            if kind == QEvent.DragLeave:
+                self._clear_tab_drop()
+                event.accept()
+                return True
+            if kind in (QEvent.Resize, QEvent.Wheel):
+                self._cancel_tab_hover()
+            elif kind == QEvent.Hide:
+                self._clear_tab_drop()
         if (obj in (self.scroll_area.viewport(),self.grid_container)
                 and event.type()==QEvent.MouseButtonPress and event.button()==Qt.LeftButton
                 and not getattr(self,'_gallery_drag_session',None)):
@@ -3027,6 +3064,70 @@ class GalleryInterface(QWidget):
     # ==================================================================
     # Drag & drop in the content area
     # ==================================================================
+    def _cancel_tab_hover(self):
+        self._tab_hover_timer.stop()
+        self._tab_hover_node = None
+        self._tab_drop_feedback.clear()
+
+    def _clear_tab_drop(self):
+        self._cancel_tab_hover()
+        if self._tab_drag_session is not None and self.sidebar.tree._drag_session is self._tab_drag_session:
+            self.sidebar.tree.end_drag_session()
+        self._tab_drag_session = None
+
+    def _tab_drop_target(self, point, mime):
+        tabs = self.category_tabs
+        index = tabs.tabAt(point)
+        if (not tabs._tab_viewport().contains(point) or not 0 <= index < len(self._tab_nodes)
+                or not tabs.content_tab_rect(index).contains(point)
+                or self._dragged_kind(mime)[0] not in (RESOURCE_MIME, NODE_MIME)):
+            return INVALID_TARGET, None
+        node_id = self._tab_nodes[index]
+        # Use the tree's existing category identity, order-mode and whole-block
+        # ancestry checks. An invalid node target cannot navigate on dwell.
+        target = self.sidebar.tree.resolve_category_target(node_id, .5, mime)
+        return target, tabs.content_tab_rect(index)
+
+    def _track_tab_drop(self, event, *, commit=False):
+        session = self._tab_drag_session
+        target, rect = self._tab_drop_target(event.position().toPoint(), event.mimeData())
+        if session is None or not session.supported or not target.valid:
+            self._cancel_tab_hover()
+            event.ignore()
+            if commit:
+                self._clear_tab_drop()
+            return
+        self.preview_controller.cancel()
+        if commit:
+            try:
+                if self.sidebar.tree.commit_target(target, event.mimeData(),
+                        self.category_tabs.mapToGlobal(event.position().toPoint())):
+                    event.acceptProposedAction()
+                else:
+                    event.ignore()
+            finally:
+                self._clear_tab_drop()
+            return
+        self._tab_drop_feedback.show_target(INTO, rect)
+        if self._tab_hover_node != target.container_id:
+            self._tab_hover_timer.stop()
+            self._tab_hover_node = target.container_id
+            if target.container_id != self.content_scope_node():
+                self._tab_hover_timer.start()
+        event.acceptProposedAction()
+
+    def _activate_drag_tab(self):
+        session = self._tab_drag_session
+        node_id = self._tab_hover_node
+        if session is None or session.committed or node_id not in self._tab_nodes:
+            return
+        from PySide6.QtCore import QMimeData
+        mime = QMimeData()
+        mime.setData(session.kind, json.dumps(session.payload).encode('utf-8'))
+        target = self.sidebar.tree.resolve_category_target(node_id, .5, mime)
+        if target.valid:
+            self._on_category_tab(self._tab_nodes.index(node_id))
+
     def _over_content(self, position):
         """Whether a GalleryInterface point is inside the gallery itself.
 
@@ -3184,6 +3285,12 @@ class GalleryInterface(QWidget):
     def _begin_drop(self, event, position=None):
         from fluent_ui.components.drop_contract import DragSession
         self._clear_drop()
+        position = position if position is not None else event.position().toPoint()
+        if not self._over_content(position):
+            # A rejected tab/tree drop can propagate to this parent. Admit
+            # gaps inside the gallery, never claim a sibling navigation area.
+            event.ignore()
+            return
         self._gallery_drag_session = DragSession(event.mimeData())
         self.renderer.sticky.hide()
         if not self._gallery_drag_session.supported:
@@ -3200,8 +3307,10 @@ class GalleryInterface(QWidget):
         self.drop_cancel_zone.begin()
 
     def _hide_drag_cancel(self):
+        self._clear_tab_drop()
         self.drop_cancel_zone.end()
         self._clear_drop()
+        self.renderer.sync()
 
     def dragEnterEvent(self, event):
         self._begin_drop(event)
@@ -3230,14 +3339,14 @@ class GalleryInterface(QWidget):
             target,_rect,_vertical=self._resolve_drop(position,event.mimeData())
             if session and self._over_content(position) and session.commit(target,
                     lambda resolved,block:self._commit_drop_payload(
-                        resolved,event.mimeData(),block,self.mapToGlobal(position))):
+                        resolved,event.mimeData(),block,self.mapToGlobal(position), sources=session.sources)):
                 event.acceptProposedAction()
             else:
                 event.ignore()
         finally:
             self._clear_drop()
 
-    def _commit_drop_payload(self, target, mime, block, global_pos=None):
+    def _commit_drop_payload(self, target, mime, block, global_pos=None, sources=None):
         if mime.hasFormat(TAG_MIME):
             self._commit_tag_drop(target, block)
         elif target.effect == IMPORT:
@@ -3245,7 +3354,7 @@ class GalleryInterface(QWidget):
         elif mime.hasFormat(NODE_MIME):
             self._apply_node_drop(block, target)
         elif mime.hasFormat(RESOURCE_MIME):
-            self._reorder_by_drop(block, target, global_pos=global_pos)
+            self._reorder_by_drop(block, target, global_pos=global_pos, sources=sources)
 
     def _apply_node_drop(self, node_ids, target):
         """Category blocks keep their internal order wherever they land."""
@@ -3258,13 +3367,13 @@ class GalleryInterface(QWidget):
                  if target.placement in (INSERT_BEFORE, INSERT_AFTER) else target.index)
         return self.sidebar._on_nodes_dropped(node_ids, parent, index)
 
-    def _reorder_by_drop(self, paths, target, global_pos=None):
+    def _reorder_by_drop(self, paths, target, global_pos=None, sources=None):
         if not paths:
             return
         parent = target.container_id or self.content_scope_node()
-        sources = self._resource_sources(paths)
+        sources = sources or self._resource_sources(paths)
         if any(source != parent for source in sources.values()):
-            self.request_resource_drop(paths, parent, position=target.index, global_pos=global_pos)
+            self.request_resource_drop(paths, parent, position=target.index, global_pos=global_pos, sources=sources)
             return
         with self.storage.lock:
             stream = self.storage.entries_of(parent)
@@ -3663,9 +3772,9 @@ class GalleryInterface(QWidget):
         visible = {e['path']: e['_parent'] for e in self._selected_entries() if e['kind']=='resource'}
         return {path: visible.get(path, self._selection_parents.get(path, self.content_scope_node())) for path in paths}
 
-    def request_resource_drop(self, paths, target, position=None, global_pos=None):
+    def request_resource_drop(self, paths, target, position=None, global_pos=None, sources=None):
         """After dropping, ask for the membership action before writing data."""
-        sources = self._resource_sources(paths)
+        sources = sources or self._resource_sources(paths)
         pos = global_pos if global_pos is not None else self.top_bar.mapToGlobal(self.top_bar.rect().center())
         def show_menu():
             menu = RoundMenu(parent=self)

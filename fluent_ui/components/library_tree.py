@@ -31,7 +31,7 @@ HOVER_EXPAND_MS = 700
 class LibraryTree(QTreeWidget):
     node_selected = Signal(str)
     node_reparented = Signal(str, str, object)     # node_id, parent_id, position
-    resources_dropped = Signal(str, list, QPoint)    # node_id, paths, global drop position
+    resources_dropped = Signal(str, list, QPoint, object)  # plus original membership parents
     files_dropped = Signal(str, list)              # node_id, local paths
     node_menu_requested = Signal(str, QPoint, str)   # node_id, global pos, 'into' / 'before' / 'after'
     blank_menu_requested = Signal(QPoint)
@@ -687,7 +687,7 @@ class LibraryTree(QTreeWidget):
             paths = parse_list_payload(mime.data(RESOURCE_MIME))
             if paths:
                 self.resources_dropped.emit(target.container_id or ALL_RESOURCES, paths,
-                                            global_pos)
+                                            global_pos, self._drag_session.sources)
             return
         if mime.hasUrls():
             local = [url.toLocalFile() for url in mime.urls() if url.isLocalFile()]

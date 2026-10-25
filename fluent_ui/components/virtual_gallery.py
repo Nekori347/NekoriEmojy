@@ -222,8 +222,13 @@ class VirtualGallery:
         wanted = {occurrence_id(g._entries[i]): i for i in rows}
         for key in list(self.active):
             card = self.active[key]
-            if key not in wanted and not getattr(card, '_is_dragging', False):
-                self.retire(self.active.pop(key))
+            if key not in wanted:
+                if getattr(card, '_is_dragging', False) or getattr(card, '_dragging', False):
+                    # Keep QDrag's source alive and bound until exec returns,
+                    # but don't paint the old projection over the new page.
+                    card._renderer.hide()
+                else:
+                    self.retire(self.active.pop(key))
         ordered = sorted(wanted, key=lambda key: (
             max(top-self.index.rects[wanted[key]].bottom(),
                 self.index.rects[wanted[key]].top()-(top+height), 0), wanted[key]))
