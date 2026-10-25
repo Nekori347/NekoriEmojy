@@ -30,6 +30,17 @@ def draw_icon(icon, painter, rect, color):
         icon.paint(painter, rect.toRect())
 
 
+def pointer_hits(widget, rect=None):
+    """Current hit relation, including covers; never business selection/focus."""
+    if not widget.isVisible() or not widget.isEnabled() or not widget.window().isActiveWindow():
+        return False
+    position = QCursor.pos()
+    if rect is not None and not rect.contains(widget.mapFromGlobal(position)):
+        return False
+    hit = QApplication.widgetAt(position)
+    return hit is widget or (hit is not None and widget.isAncestorOf(hit))
+
+
 class _ButtonFocusInput(QObject):
     """Track input origin without changing Qt focus or business selection."""
     def __init__(self,app):
@@ -77,6 +88,17 @@ class ButtonPaint:
             self._hover_owner.removeEventFilter(self)
             self._hover_owner=owner;owner.installEventFilter(self)
         super().showEvent(event)
+        self._hover_settle_timer.start(0)
+
+    def event(self, event):
+        result = super().event(event)
+        if hasattr(self, '_hover_settle_timer') and event.type() in (
+                QEvent.Move, QEvent.Resize, QEvent.ParentChange, QEvent.EnabledChange,
+                QEvent.UngrabMouse):
+            if event.type() == QEvent.UngrabMouse:
+                self.setDown(False)
+            self._hover_settle_timer.start(0)
+        return result
 
     def eventFilter(self, obj, event):
         if obj is self.window() and event.type() in (QEvent.WindowDeactivate, QEvent.WindowActivate):
@@ -100,8 +122,7 @@ class ButtonPaint:
 
     def _settle_hover(self):
         # An owned window can cover the trigger without delivering Leave.
-        hit = QApplication.widgetAt(QCursor.pos())
-        real_hover = self.isVisible() and self.window().isActiveWindow() and (hit is self or self.isAncestorOf(hit) if hit else False)
+        real_hover = pointer_hits(self)
         self._hover_animation.stop()
         self._set_hover(1.0 if real_hover else 0.0)
         if not real_hover:
@@ -127,6 +148,7 @@ class ButtonPaint:
 
     def hideEvent(self,event):
         if hasattr(self,'_hover_animation'):
+            self._hover_settle_timer.stop()
             self._hover_animation.stop();self._hover=0.0;self.setDown(False)
         super().hideEvent(event)
 

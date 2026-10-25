@@ -5,6 +5,7 @@ from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath, QMouseEvent, QRe
 from PySide6.QtWidgets import QAbstractButton, QApplication, QSplitter, QSplitterHandle, QVBoxLayout, QWidget, QSizePolicy
 from fluent_ui.icons import Icon as FIF
 from fluent_ui import visual
+from fluent_ui.components.controls import ButtonPaint, pointer_hits
 from services.i18n import t, i18n_engine
 
 
@@ -43,10 +44,11 @@ def paint_dock_chevron(painter, points, active=False):
     painter.drawPath(path)
 
 
-class EdgeDockPanelChrome(QAbstractButton):
+class EdgeDockPanelChrome(ButtonPaint, QAbstractButton):
     """Collapsed identity: the entire available rail is one expand action."""
     def __init__(self, panel):
         super().__init__(panel)
+        self._init_surface()
         self.panel = panel
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setFocusPolicy(Qt.TabFocus)
@@ -70,7 +72,7 @@ class EdgeDockPanelChrome(QAbstractButton):
     def paintEvent(self, event):
         p = QPainter(self)
         c = visual.colors()
-        hovered = self.rect().contains(self.mapFromGlobal(QCursor.pos()))
+        hovered = pointer_hits(self)
         if hovered or self.isDown():
             p.fillRect(self.rect(), QColor(c['surface_selected'] if self.isDown() else c['surface_hover']))
         side = self.panel.collapsed_metrics.icon_size
@@ -88,7 +90,7 @@ class EdgeDockPanelChrome(QAbstractButton):
             else:
                 p.drawLine(4,r.top(),4,r.bottom())
         paint_dock_chevron(p, self.chevron_points(), hovered)
-        if self.hasFocus():
+        if self.keyboard_focus_visible():
             p.setPen(QPen(QColor(c['accent']), visual.LINE_WIDTH))
             p.drawRect(self.rect().adjusted(1, 1, -2, -2))
 
@@ -131,9 +133,10 @@ class ResizeHandle(QSplitterHandle):
     def ear_hovered(self):
         # Splitter geometry can move beneath a stationary cursor without a
         # mouse/leave event. The current position, not an event cache, owns hover.
-        return self.isVisible() and self.ear_rect(True).contains(self.mapFromGlobal(QCursor.pos()))
+        return pointer_hits(self, self.ear_rect(True))
 
     def mousePressEvent(self, event):
+        self._keyboard_focus = False
         self._dragging = False
         if self.dock_host and event.button() == Qt.LeftButton and self.ear_rect(True).contains(event.position().toPoint()):
             self._ear_press = QMouseEvent(event)
@@ -200,7 +203,7 @@ class ResizeHandle(QSplitterHandle):
         if self.dock_host and not self.dock_host.expanded:
             return
         painter = QPainter(self)
-        active = self.isEnabled() and self.underMouse()
+        active = pointer_hits(self)
         if not self.dock_host:
             painter.setPen(QPen(QColor(visual.accent() if active else visual.colors()['border_soft']),1))
             if self.orientation()==Qt.Horizontal:
@@ -209,7 +212,7 @@ class ResizeHandle(QSplitterHandle):
                 painter.drawLine(0,self.height()//2,self.width(),self.height()//2)
             return
         active=self.isEnabled() and not self._dragging and self.ear_hovered()
-        painter.setPen(QPen(QColor(visual.accent() if active else visual.colors()['border']),
+        painter.setPen(QPen(QColor(visual.accent() if active else visual.colors()['text_secondary']),
                            2 if self.isEnabled() else visual.LINE_WIDTH))
         middle=self.rect().center()
         if self.orientation() == Qt.Horizontal:
