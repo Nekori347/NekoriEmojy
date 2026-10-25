@@ -24,6 +24,7 @@ import time
 import shutil
 import zipfile
 import tempfile
+import threading
 from typing import Optional, List, Dict, Any, Callable, Union, Set
 from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -49,13 +50,17 @@ except Exception:
 
 # ===== 默认内置常量 =====
 TG_DIRECT_API = "https://api.telegram.org"
-DEF_CF_PROXY = "http://suzu-tg-proxy.1491503128lgz.workers.dev/"
+DEF_CF_PROXY = "https://suzu-tg-proxy.1491503128lgz.workers.dev/"
 DEF_PROXY = DEF_CF_PROXY
 DEF_TOKEN = "8946472903:AAHSjf3nWYbhJxIHEgzCO_ko05vEZE5lDwA"
 
 
 class StickerUnavailableError(RuntimeError):
     """Telegram 明确报告源贴纸文件不存在，可跳过而不取消整个资源包。"""
+
+
+class _InvalidToken(RuntimeError):
+    pass
 
 
 @dataclass
@@ -127,7 +132,12 @@ class TGStickerDownloader:
         :param retries: 请求重试次数
         :param prefer_direct: 是否优先尝试官方直连 (默认 True，直连失败自动回退到反代)
         """
-        self.bot_token = (bot_token or DEF_TOKEN).strip()
+        from services.tg_public_config import cached_public_token
+        self._custom_token = bool(bot_token and bot_token.strip())
+        self._custom_cf_proxy = bool(cf_proxy and cf_proxy.strip())
+        self.bot_token = (bot_token if self._custom_token else cached_public_token() or DEF_TOKEN).strip()
+        self._public_recovery_attempted = False
+        self._recovery_lock = threading.Lock()
         self.cf_proxy = (cf_proxy or DEF_CF_PROXY).strip().rstrip("/")
         self.timeout = timeout
         self.retries = retries
@@ -150,6 +160,8 @@ class TGStickerDownloader:
     @property
     def candidate_bases(self) -> List[str]:
         """获取候选 API 基础 URL 列表 (直连优先或反代优先)"""
+        if self._custom_token and not self._custom_cf_proxy:
+            return [TG_DIRECT_API]
         if self._active_base_url:
             # 若已确定有效 base_url，优先使用，备选为另一方
             alt = self.cf_proxy if self._active_base_url == TG_DIRECT_API else TG_DIRECT_API
@@ -210,7 +222,77 @@ class TGStickerDownloader:
         """根据 base_url 构建 Telegram 文件下载 URL"""
         return f"{base_url.rstrip('/')}/file/bot{self.bot_token}/{file_path.lstrip('/')}"
 
+    def _safe_error(self, error):
+        text = str(error).replace(self.bot_token, '<token>')
+        text = re.sub(r'[0-9]{5,15}:[A-Za-z0-9_-]{20,100}', '<token>', text)
+        return re.sub(r'https?://[^\s<>"\')]+', '<network-url>', text)[:500]
+
+    @staticmethod
+    def _invalid_token_response(response, base):
+        # A proxy's status/body is not authoritative evidence of invalid credentials.
+        if base != TG_DIRECT_API or response.status_code != 401:
+            return False
+        try:
+            data = response.json()
+            return data.get('ok') is False and data.get('error_code') == 401
+        except (ValueError, AttributeError):
+            return False
+
+    def _recover_public_token(self, failed_token):
+        from services.tg_public_config import SOURCES, read_public_token, remember_public_token
+        if self._custom_token:
+            return False
+        with self._recovery_lock:
+            if self.bot_token != failed_token:
+                return True  # Another download worker already recovered this batch.
+            if self._public_recovery_attempted:
+                return False
+            self._public_recovery_attempted = True
+            for source in SOURCES:
+                candidate = read_public_token(self.session, source)
+                if not candidate or candidate == failed_token:
+                    continue
+                for base in self.candidate_bases:
+                    if not base.startswith('https://'):
+                        continue
+                    try:
+                        response = self.session.get(f'{base.rstrip("/")}/bot{candidate}/getMe',
+                                                    timeout=self.timeout, allow_redirects=False)
+                        try:
+                            if response.status_code == 429:
+                                return False  # Never try another public bot to evade a limit.
+                            data = response.json()
+                            valid = (response.status_code == 200 and isinstance(data, dict) and data.get('ok') is True
+                                     and isinstance(data.get('result'), dict)
+                                     and data['result'].get('is_bot') is True)
+                        finally:
+                            response.close()
+                    except (requests.RequestException, ValueError):
+                        continue
+                    if valid:
+                        self.bot_token = candidate
+                        self._active_base_url = base
+                        self._path_cache.clear()
+                        try:
+                            remember_public_token(candidate)
+                        except (OSError, ValueError):
+                            logger.warning('Public Telegram default recovered; local cache could not be saved')
+                        return True
+            return False
+
     def _request_api(self, method: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        token = self.bot_token
+        try:
+            return self._request_api_once(method, params)
+        except _InvalidToken:
+            if self._recover_public_token(token):
+                try:
+                    return self._request_api_once(method, params)
+                except _InvalidToken:
+                    pass
+            raise RuntimeError('Telegram Token 无效，请在高级配置中填写有效 Token') from None
+
+    def _request_api_once(self, method: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """带直连优先与自动反代回退重试的 API 请求封装"""
         bases = self.candidate_bases
         last_err = None
@@ -220,7 +302,9 @@ class TGStickerDownloader:
             url = self._api_url_for_base(base, method)
             for attempt in range(self.retries):
                 try:
-                    resp = self.session.get(url, params=params, timeout=self.timeout)
+                    resp = self.session.get(url, params=params, timeout=self.timeout, allow_redirects=False)
+                    if self._invalid_token_response(resp, base):
+                        raise _InvalidToken()
                     if resp.status_code == 429:
                         retry_after = int(resp.headers.get("Retry-After", 2))
                         time.sleep(max(retry_after, 2))
@@ -234,13 +318,15 @@ class TGStickerDownloader:
                                 "file not found", "file_id not found", "file_id_invalid",
                                 "invalid file_id", "file has been deleted",
                             )) and "temporar" not in description:
-                                raise StickerUnavailableError(err_desc)
+                                raise StickerUnavailableError(self._safe_error(err_desc))
                         raise RuntimeError(err_desc)
                     # 请求成功，记录当前有效线路
                     self._active_base_url = base
                     return data["result"]
+                except _InvalidToken:
+                    raise
                 except Exception as e:
-                    last_err = e
+                    last_err = self._safe_error(e)
                     if isinstance(e, StickerUnavailableError):
                         missing_error = e
                     if attempt < self.retries - 1:
@@ -248,7 +334,7 @@ class TGStickerDownloader:
 
         if missing_error is not None:
             raise missing_error
-        raise RuntimeError(f"请求 Telegram API [{method}] 失败: {last_err}")
+        raise RuntimeError(f"请求 Telegram API [{method}] 失败: {last_err}") from None
 
     def test_connection(self) -> Dict[str, Any]:
         """
@@ -265,33 +351,14 @@ class TGStickerDownloader:
             "error": "",
         }
 
-        # 1. 测试官方直连
         try:
-            r = self.session.get(self._api_url_for_base(TG_DIRECT_API, "getMe"), timeout=6)
-            if r.status_code == 200 and r.json().get("ok"):
-                result["direct_ok"] = True
-                result["bot_ok"] = True
-                result["channel"] = "Telegram 官方直连 (api.telegram.org)"
-                result["bot_username"] = r.json()["result"].get("username", "")
-                self._active_base_url = TG_DIRECT_API
-                return result
-        except Exception as e:
-            result["error"] = f"直连失败 ({e}); "
-
-        # 2. 测试备用反代
-        try:
-            r = self.session.get(self._api_url_for_base(self.cf_proxy, "getMe"), timeout=8)
-            if r.status_code == 200 and r.json().get("ok"):
-                result["proxy_ok"] = True
-                result["bot_ok"] = True
-                result["channel"] = f"备用反向代理通道 ({self.cf_proxy})"
-                result["bot_username"] = r.json()["result"].get("username", "")
-                self._active_base_url = self.cf_proxy
-                return result
-            else:
-                result["error"] += f"反代返回异常: {r.text}"
-        except Exception as e:
-            result["error"] += f"反代失败 ({e})"
+            bot = self._request_api("getMe")
+            direct = self._active_base_url == TG_DIRECT_API
+            result.update(direct_ok=direct, proxy_ok=not direct, bot_ok=True,
+                          channel="Telegram 官方直连" if direct else "已配置的反向代理",
+                          bot_username=bot.get("username", ""))
+        except Exception as error:
+            result["error"] = self._safe_error(error)
 
         return result
 
@@ -357,6 +424,18 @@ class TGStickerDownloader:
         return fp
 
     def download_file_bytes(self, file_path_or_id: str) -> bytes:
+        token = self.bot_token
+        try:
+            return self._download_file_bytes_once(file_path_or_id)
+        except _InvalidToken:
+            if self._recover_public_token(token):
+                try:
+                    return self._download_file_bytes_once(file_path_or_id)
+                except _InvalidToken:
+                    pass
+            raise RuntimeError('Telegram Token 无效，请在高级配置中填写有效 Token') from None
+
+    def _download_file_bytes_once(self, file_path_or_id: str) -> bytes:
         """
         下载指定文件的原始二进制数据 (带线路自动切换)
 
@@ -376,7 +455,9 @@ class TGStickerDownloader:
             url = self._file_url_for_base(base, file_path)
             for attempt in range(self.retries):
                 try:
-                    resp = self.session.get(url, timeout=self.timeout)
+                    resp = self.session.get(url, timeout=self.timeout, allow_redirects=False)
+                    if self._invalid_token_response(resp, base):
+                        raise _InvalidToken()
                     if resp.status_code == 429:
                         retry_after = int(resp.headers.get("Retry-After", 2))
                         time.sleep(max(retry_after, 2))
@@ -384,13 +465,17 @@ class TGStickerDownloader:
                     # 反代自身的 404 可能只是路由故障，不能据此认定贴纸丢失。
                     if base == TG_DIRECT_API and resp.status_code in (404, 410):
                         raise StickerUnavailableError(
-                            f"Telegram 源文件不存在 (HTTP {resp.status_code}): {file_path}"
+                            f"Telegram 源文件不存在 (HTTP {resp.status_code})"
                         )
+                    if 300 <= resp.status_code < 400:
+                        raise RuntimeError("Telegram 文件通道不接受重定向")
                     resp.raise_for_status()
                     self._active_base_url = base
                     return resp.content
+                except _InvalidToken:
+                    raise
                 except Exception as e:
-                    last_err = e
+                    last_err = self._safe_error(e)
                     if isinstance(e, StickerUnavailableError):
                         missing_error = e
                     if attempt < self.retries - 1:
@@ -398,7 +483,7 @@ class TGStickerDownloader:
 
         if missing_error is not None:
             raise missing_error
-        raise RuntimeError(f"下载文件 [{file_path}] 失败: {last_err}")
+        raise RuntimeError(f"下载文件失败: {last_err}") from None
 
     # ===== 格式转换工具 =====
 

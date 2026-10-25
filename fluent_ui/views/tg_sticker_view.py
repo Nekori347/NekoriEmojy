@@ -830,6 +830,7 @@ class TGStickerInterface(QWidget):
         self.tokenLabel = add_advanced_row("Bot Token:", self.tokenEdit, self.toggleTokenBtn)
 
         self.cfProxyEdit = LineEdit(self.advWidget)
+        bind_text(self.cfProxyEdit, '第三方代理运营者可见 Bot Token。自定义 Token 不会自动发送到内置代理。', 'setToolTip')
         bind_text(self.cfProxyEdit, t('如: {proxy}').format(proxy=DEF_CF_PROXY), 'setPlaceholderText')
         self.cfProxyLabel = add_advanced_row("CF 代理 URL:", self.cfProxyEdit)
 

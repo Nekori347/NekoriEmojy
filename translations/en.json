@@ -1666,5 +1666,6 @@
   "窗口毛玻璃": "Window blur",
   "控制窗口背景的毛玻璃效果；关闭后使用不透明背景。": "Control frosted window backgrounds; turn off to use an opaque background.",
   "窗口毛玻璃设置将在重启后生效。": "The window blur setting will take effect after restarting.",
-  "图片下载超过大小上限": "Image download exceeds the size limit."
+  "图片下载超过大小上限": "Image download exceeds the size limit.",
+  "第三方代理运营者可见 Bot Token。自定义 Token 不会自动发送到内置代理。": "Third-party proxy operators can see the Bot Token. Custom tokens are not automatically sent to the built-in proxy."
 }
