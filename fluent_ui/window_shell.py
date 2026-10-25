@@ -139,6 +139,18 @@ class NekoriTitleBar(StandardTitleBar):
                 return False
         return super().canDrag(pos)
 
+    def mouseDoubleClickEvent(self, event):
+        if (event.button() == Qt.LeftButton and self._isDoubleClickEnabled
+                and QApplication.platformName() == 'windows'):
+            capture = win32gui.GetCapture()
+            host = int(self.window().internalWinId())
+            if capture and capture != host and win32gui.GetAncestor(capture, win32con.GA_ROOT) == host:
+                # Qt's native caption child still owns the implicit grab here.
+                # The library posts SC_MAXIMIZE before its synthetic release;
+                # Windows ignores that command while this child has capture.
+                win32gui.ReleaseCapture()
+        super().mouseDoubleClickEvent(event)
+
 
 class AccentDecoration(QWidget):
     def __init__(self, parent):
@@ -203,6 +215,8 @@ class NekoriWindow(FramelessWindow):
         # switching the backing-store path and freezing maximized content.
         self.setAutoFillBackground(False)
         self._title_bar_buttons = []
+        from fluent_ui.components.native_resize import install_native_child_edges
+        install_native_child_edges()
         self._reveal=QPropertyAnimation(self,b'windowOpacity',self)
         self._reveal.setDuration(visual.MOTION.window)
         self._reveal.setEasingCurve(visual.MOTION.easing)
@@ -319,27 +333,8 @@ class NekoriWindow(FramelessWindow):
                 style.new |= win32con.WS_CAPTION | win32con.WS_THICKFRAME
         if (event_code == win32con.WM_NCHITTEST and self._isResizeEnabled
                 and not self.isMaximized() and not self.isFullScreen()):
-            # One DPI-aware hit-test owns all eight directions. Use the event's
-            # screen point, not the cursor's newer position while messages queue.
-            frame = win32gui.GetWindowRect(hwnd)
-            x = ctypes.c_short(msg.lParam & 0xffff).value - frame[0]
-            y = ctypes.c_short((msg.lParam >> 16) & 0xffff).value - frame[1]
-            corner = round(visual.WINDOW_RADIUS * self.devicePixelRatioF())
-            width, height = frame[2]-frame[0], frame[3]-frame[1]
-            left, right = 0 <= x < corner, width-corner <= x < width
-            top, bottom = 0 <= y < corner, height-corner <= y < height
-            hit = (win32con.HTTOPLEFT if left and top else
-                   win32con.HTTOPRIGHT if right and top else
-                   win32con.HTBOTTOMLEFT if left and bottom else
-                   win32con.HTBOTTOMRIGHT if right and bottom else None)
-            edge = max(1, round(self.BORDER_WIDTH * self.devicePixelRatioF()))
-            if hit is None:
-                hit = (win32con.HTLEFT if 0 <= x < edge else
-                       win32con.HTRIGHT if width-edge <= x < width else
-                       win32con.HTTOP if 0 <= y < edge else
-                       win32con.HTBOTTOM if height-edge <= y < height else
-                       win32con.HTCLIENT)
-            return True, hit
+            from fluent_ui.components.native_resize import resize_hit
+            return True, resize_hit(self, hwnd, msg.lParam)
         result = super().nativeEvent(event_type, message)
         if (event_code == win32con.WM_NCCALCSIZE and msg.wParam
                 and not self.isMaximized() and not self.isFullScreen()
