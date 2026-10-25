@@ -414,7 +414,7 @@ class NavigationItem(QStyledItemDelegate):
     def _selection_changed(self,*_):
         target=self._indicator_target()
         self._selection_motion.stop()
-        if target.isEmpty() or self._indicator.isEmpty():
+        if target.isEmpty() or self._indicator.isEmpty() or not visual.animations_enabled():
             self._indicator=target
         else:
             self._selection_motion.setStartValue(self._indicator)
@@ -711,7 +711,9 @@ class TabStrip(QTabBar):
         target=self._target_line()
         self._line_target=target
         self._line_motion.stop()
-        if target.isEmpty() or not self.isVisible():
+        if target.isEmpty() or not self.isVisible() or not visual.animations_enabled():
+            # The selected tab owns the static line. A zero-duration keyed
+            # QVariantAnimation need not evaluate its final reveal keyframe.
             self._line_state=QPointF(0,1)
         else:
             self._line_state=QPointF(2,0)

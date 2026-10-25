@@ -1,5 +1,25 @@
 # GUI 长尾、视觉开关与缓存效率
 
+## 人工回归补充：关闭动效后标签装饰线消失（2026-10-25）
+
+基线 `18c0d69`。实际 TabStrip 使用 `_line_state`（偏移、透明度）和
+`_line_target`，没有旧的 `_line_rect`。真实控件复现确认：目标矩形有效，
+但多段关键帧 QVariantAnimation 经 `visual.start_animation` 的零时长路径后，
+`currentValue()` 仍为首帧 `(2,0)`，导致绘制透明；并非目标几何丢失或颜色错误。
+
+`TabStrip._animate_line` 关闭动效时直接提交 `(0,1)` 并沿原路径 update，
+不启动动画；开启时保留现有原位呼出关键帧。图库相对标签与设置标签共用修复。
+`NavigationItem._selection_changed` 同样在关闭动效时直接提交原有目标矩形。
+未改变顶部位置、8px 内缩、颜色、选中模型、全局动画辅助函数或窗口宿主。
+当前其它 UI 过渡没有这套多段关键帧；既有端点/完成信号验证继续通过。
+
+定向命令：`python -m pytest tests/test_tab_overflow.py tests/test_visual_performance_settings.py tests/test_tree_collapsed_selection.py -q`，
+18 项通过。新增测试在修前对两类标签均失败，修后直接校验实际控件绘制中的
+Accent 像素及所选 Tab 范围；覆盖关闭时首次显示、反复切换、重建、缩放、
+深浅主题、保存配置重新加载后的新控件、重新开启动效和导航选中终态。
+配置重载是机制级重启验证，不冒称完整外部应用验收。固定 Demo 重启后待人工体验。
+七处 W-01 实验、未启用 W-03 候选、T-06/T-07 和持续数据均不修改。
+
 2026-10-25；接管 `dfbd3e4`，分支 `dev/post-0.2.1`。延续
 [真实库调查](REAL_LIBRARY_PERFORMANCE.md)和[三阶段修复](REAL_LIBRARY_PERFORMANCE_FIXES.md)，
 不重开安全审计，不改窗口移动、T-06、T-07、QMovie 策略或指定帧算法。

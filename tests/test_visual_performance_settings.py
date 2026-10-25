@@ -18,6 +18,20 @@ def test_animation_switch_pending_discard_save_and_persistence(surface,settings)
     row.switch.click();assert c.save()
     assert not visual.animations_enabled()
     assert ConfigService(surface.config.base_dir).get('ui_animations_enabled') is False
+    # A fresh widget must render from the persisted preference as on restart.
+    from fluent_ui.components.navigation import TabStrip
+    from test_tab_overflow import check_paint
+    visual.theme.configure(ConfigService(surface.config.base_dir))
+    fresh=TabStrip();fresh.resize(400,43);fresh.set_tabs(['First','Second']);fresh.show()
+    settle(surface.app)
+    try:
+        assert check_paint(fresh)
+        for tabs in (fresh,c.tab_bar,surface.g.category_tabs):
+            for index in (0,1,0):
+                tabs.setCurrentIndex(min(index,tabs.count()-1))
+                assert check_paint(tabs)
+    finally:
+        fresh.close();fresh.deleteLater();visual.theme.configure(surface.config)
     row.switch.click();assert c.save() and visual.animations_enabled()
 
 

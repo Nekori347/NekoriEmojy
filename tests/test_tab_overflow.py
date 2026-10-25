@@ -2,7 +2,7 @@
 import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import pytest
-from PySide6.QtCore import Qt, QPoint, QPointF
+from PySide6.QtCore import Qt, QPoint, QPointF, QAbstractAnimation
 from PySide6.QtGui import QImage, QPainter, QColor, QRegion, QCursor, QEnterEvent, QWheelEvent
 from PySide6.QtWidgets import QApplication, QToolButton, QWidget
 from PySide6.QtTest import QTest, QSignalSpy
@@ -31,6 +31,71 @@ def own_paint(tabs):
     tabs.render(painter, QPoint(), QRegion(), QWidget.RenderFlag(0))
     painter.end()
     return image
+
+
+@pytest.mark.parametrize('location_divider', [False, True])
+def test_disabled_motion_keeps_selected_line_on_repeated_changes(monkeypatch, location_divider):
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(visual.theme, 'config', {'ui_animations_enabled': False})
+    tabs = TabStrip(location_divider=location_divider)
+    tabs.resize(460, 43)
+    tabs.set_tabs(['Location', 'First', 'Second'])
+    tabs.show()
+    app.processEvents()
+    try:
+        assert check_paint(tabs)
+        for current in (0, 1, 2, 1, 0, 2):
+            tabs.setCurrentIndex(current)
+            app.processEvents()
+            assert not tabs._target_line().isEmpty()
+            assert tabs._line_state == QPointF(0, 1)
+            assert check_paint(tabs), 'selected decoration must remain visible without motion'
+        tabs.set_tabs(['Rebuilt', 'Other'], 1)
+        app.processEvents()
+        assert check_paint(tabs)
+        for width in (260, 650):
+            tabs.resize(width, 43)
+            app.processEvents()
+            assert check_paint(tabs)
+        from qfluentwidgets import Theme, setTheme
+        for theme in (Theme.DARK, Theme.LIGHT):
+            setTheme(theme)
+            visual.theme.refresh()
+            assert check_paint(tabs)
+        monkeypatch.setattr(visual.theme, 'config', {'ui_animations_enabled': True})
+        tabs.setCurrentIndex(0)
+        assert tabs._line_motion.state() == QAbstractAnimation.Running
+        tabs._line_motion.setCurrentTime(125)
+        assert check_paint(tabs)
+        tabs._line_motion.setCurrentTime(250)
+        assert tabs._line_state == QPointF(0, 1) and check_paint(tabs)
+    finally:
+        tabs.close()
+        tabs.deleteLater()
+        app.processEvents()
+
+
+def test_disabled_navigation_indicator_tracks_selection_directly(monkeypatch):
+    from PySide6.QtWidgets import QListWidget
+    from fluent_ui.components.navigation import NavigationItem
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(visual.theme, 'config', {'ui_animations_enabled': False})
+    view = QListWidget()
+    view.addItems(['One', 'Two', 'Three'])
+    delegate = NavigationItem(view)
+    view.setItemDelegate(delegate)
+    view.show()
+    try:
+        for row in (0, 1, 2, 0):
+            view.setCurrentRow(row)
+            app.processEvents()
+            assert delegate._indicator == delegate._indicator_target()
+            assert not delegate._indicator.isEmpty()
+            assert delegate._selection_motion.state() == QAbstractAnimation.Stopped
+    finally:
+        view.close()
+        view.deleteLater()
+        app.processEvents()
 
 
 def check_paint(tabs):
