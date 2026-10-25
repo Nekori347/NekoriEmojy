@@ -1,3 +1,57 @@
+# 窗口与共享状态回归收敛（2026-10-26）
+
+接管 `69e0aa0` / dev/post-0.2.1。#9 已按真实回归重新 Open；保留旧人工验收历史。本轮源码：**W-02 `5d784f3`；共享状态 `aa0da3a` / `bee0e5f`；HSV调查 `36454ea`**。机器验证后仍待维护者体验，不Push/发布。
+
+## W-02：真正接收消息的窗口与顶层不是同一个
+
+- 初次、未原生化的隔离 Main/Settings/Tool 三个窗口24次实拖全部成功；不能代表长期运行实例。
+- 运行中 Demo 的顶层 HWND 有 WS_THICKFRAME，四边返回10/11/12/15；但 WindowFromPoint 指向内容/标题栏子 HWND。它们覆盖宿主边缘，子窗口返回 HTCLIENT=1，所以只测试顶层会假绿。正式版用户反馈保留，采样时其主窗口隐藏，未注入代码或操作真实数据。
+- 隔离窗口调用现有 Qt winId 原生化后稳定重现。Qt 明确说明 winId 可使 alien widget 取得 native handle；不能凭此推断某个具体业务入口创建了运行中子窗口，本轮未将创建来源猜为 G-27、Tooltip 或T-07。
+- `native_resize.resize_hit` 直接提取原有八方向/DPI几何，不改变尺寸或判定规格。一个局部 Qt native filter 仅让 **自有子 HWND、宿主边缘、正常可缩放状态**返回 HTTRANSPARENT；Windows继续同线程下层命中，最终宿主负责系统缩放。内容、菜单、最大化/全屏不拦截。无全局鼠标Hook/定时器/重建HWND/新窗口模型。
+- 相邻回归发现标题栏原生子 HWND 的隐式鼠标捕获令双击中先发送的SC_MAXIMIZE不生效。捕获释放前/后A/B及独立失败测试确认；共享标题栏仅在有效双击时释放本宿主所属子捕获，再执行原库行为。没有重写拖动或最大化算法。
+- 官方依据：[Qt QWidget::winId](https://doc.qt.io/qt-6/qwidget.html#winId)、[Microsoft WM_NCHITTEST / HTTRANSPARENT](https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-nchittest)。T-07原观察链不改；新filter是输入路由而非第二条诊断链。
+
+## 已完成验证与明确边界
+
+| 范围 | 实际证据 |
+|---|---|
+| Windows机制/生命周期 | `test_native_child_resize` + `test_window_host_native` + `test_window_maximize_lifecycle`：16项通过；覆盖真正子接收者、内容不拦截、双击捕获、flags/关闭重开及#57。新用例先出现1 != -1及双击不最大化的失败，修后转绿。 |
+| Acrylic | Main、Settings、ToolWindow各8方向实拖，**24/24**改变正确边界尺寸；不是仅查询HT。 |
+| Opaque | 三个宿主各右下角实拖通过，另核对全部HT结果；不称为48次全方向实拖。 |
+| 六组共享行为 | 首次/关闭重开的最大化还原、标题拖动/双击、最小化与隐藏恢复；共42个尺寸快照通过Qt/Win32客户区、标题宽度、Alpha及layered检查。主窗口隐藏恢复沿实际窗口组/托盘恢复入口。 |
+| 内部交互 | 原生补验管理按钮切换、导入菜单显示并取消、收起标签条点击展开通过。早期脚本错读manage_mode而中止，修正为mode后只补内部组；原失败记录保留，不隐藏成整组绿灯。 |
+| 视觉 | 查看生成样本的真实桌面截图，未发现新的圆角、Acrylic/Opaque、背景/客户区错位。未修改任何圆角/材质规格或资源外框。 |
+| 邻接数据/拖放 | 管理、Windows OLE、顶部标签拖放组合37项通过（含共享用例），未将模拟网络/Qt事件冒充真实聊天发送。 |
+| 基础冒烟 | 复用 main.py --smoke-test，独立空Library/配置、无自动网络/全局快捷键，输出NEKORI_STARTUP_OK。 |
+
+环境：Win11、DPR1.0、主屏可用3392×1440。**Win10、150%/混合DPI、正式安装版运行形态未验收**。发布端及原始Library未修改；不能宣称已修复用户当前运行中的旧exe。
+
+私有证据：`DevData/host-regression/{acrylic,opaque}/native.json`、`controls.json`、`running-readonly.json`、`demo-restored-readonly.json`。鼠标验证一次超出预估，未将该问题掩盖为数据结论；后续不重复通过组。持续Demo以重启前的真实表行与排序快照为准，不从历史120项数量回填资源。
+
+## 共享 Hover / Focus：复用现有状态入口
+
+#60：`ButtonPaint`在Show、几何、重设父级、EnabledChange、UngrabMouse等既有生命周期节点，使用原单次合并计时器校准实际命中，隐藏清理瞬态；不轮询。`pointer_hits`排除覆盖、隐藏、禁用和非活动窗口。
+
+标签收起条原先独立用几何判断Hover、hasFocus画框；现接入既有ButtonPaint/输入来源跟踪，鼠标焦点不再冒充持续键盘提示。分隔柄也复用**同一个**输入来源；即使鼠标操作不移走Qt焦点，也结束旧键盘提示。Checked/Expanded业务状态不被清理。
+
+横线与Chevron统一读取text_secondary/Accent，既有线段及折线几何不变。七个针对性绘制/控件用例通过；四停靠/颜色取消保存相邻用例通过。Tooltip过滤器未发现吞Enter/Leave或修改业务选择的证据，本轮不归因或重写Tooltip。
+
+实时预览开关的Checked底色与Hover是两件事；开关/更多均32px但位于不同行。弱线框及同一基准作为后续UI-A事实依据，本轮不擅自重做设置栏或实装待确认图标。HSV #61仅调查，见 [详细测量](HSV_INTERACTION_INVESTIGATION.md)。
+
+## 为什么原回归漏检，今后如何收敛
+
+原窗口测试偏重冷启动、顶层HT和右下角，未覆盖内容原生化后真正接收消息的子 HWND，也未覆盖该状态下的捕获/双击。控件各自判断geometry/focus/hover，缺少共享生命周期与输入来源；这不证明所有旧症状都只有同一个原因。
+
+统一规则已写入README“维护回归门槛”：基础冒烟 + 依赖范围相邻回归 + 阶段候选集成，显式区分offscreen/windows、工作树/已审阅宿主、机器/人工。新native child测试复用既有#57 fixture装载审阅index模块，避免W-01实验假绿。没有新测试框架或重复台账。
+
+一次19项旧组合出现2失败/2错误：窗口类offscreen测试使用Win32句柄导致1400；另有既有工具栏3px对齐断言。加载修改前controls/panel_host后，选取的两个失败仍复现，属于基线/平台问题，未删除断言或更改无关布局。真正窗口门槛改用windows运行并通过16项；不能把旧组合说成全部通过。
+
+七处原实验在扣除#9的必要新增后逐字节内容一致，暂存区检查未夹带实验；W-03原补丁对新提交git apply --check通过，仍未启用、未改写。#57、T-06/T-07及其它源码保护不变。只更新#9/#60/#61/#37及必要引用，均不关闭。
+
+---
+
+## 以下为2026-10-25历史快照（不作为当前验收状态）
+
 # WP-A 责任层与项目状态收尾
 
 2026-10-25；接管 `dev/post-0.2.1` / `3f6bdb1`。本轮仅记录、状态同步和有限窗口回归，**没有新增业务源码修复，也没有吸收七处实验**。已发布版本仍为 v0.2.1。

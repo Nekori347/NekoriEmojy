@@ -5,29 +5,25 @@ import win32gui
 from PySide6.QtCore import Qt, QEvent, QPointF
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QWidget
-from fluent_ui.window_shell import NekoriWindow, NekoriTitleBar
+from PySide6.QtWidgets import QApplication
+from test_window_maximize_lifecycle import host as committed_host
 
 
 @pytest.fixture
-def native_children():
-    app = QApplication.instance() or QApplication([])
-    if app.platformName() != 'windows':
-        pytest.skip('requires Windows HWNDs')
-    host = NekoriWindow()
+def native_children(committed_host):
+    # Match the fixed Demo: reuse the #57 fixture's reviewed index modules,
+    # rather than silently exercising the protected W-01 worktree experiments.
+    host, body = committed_host
+    app = QApplication.instance()
     host.setAttribute(Qt.WA_ShowWithoutActivating)
-    host.setTitleBar(NekoriTitleBar(host))
     host.setGeometry(80, 100, 680, 440)
-    body = QWidget(host)
-    body.setGeometry(0, 34, 680, 406)
+    host.layout().setContentsMargins(0, 34, 0, 0)
+    host.layout().activate()
     body.winId()
     host.titleBar.winId()
     host.show()
     app.processEvents()
     yield app, host, body
-    host.close()
-    host.deleteLater()
-    app.processEvents()
 
 
 @pytest.mark.parametrize('fx,fy,expected', [
