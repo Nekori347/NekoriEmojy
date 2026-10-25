@@ -7,6 +7,7 @@ manual order; the left tree is a projection of the same node tree.
 from services.i18n import t, bind_text, translated
 import json
 import os
+from bisect import bisect_right
 
 from PySide6.QtWidgets import (
     QWidget, QGridLayout, QApplication, QHBoxLayout, QVBoxLayout, QLabel,
@@ -3053,6 +3054,15 @@ class GalleryInterface(QWidget):
         because the pointer can only be over a place the layout knows about.
         """
         point = self.grid_container.mapFrom(self, position)
+        # The whole visible gap before a full-width category belongs to its
+        # sibling boundary, including the half nearest an expanded child's
+        # final resource row. Horizontal proximity must not change the parent.
+        next_row = bisect_right(self.renderer.index.tops, point.y())
+        if next_row < len(self._entries):
+            rect = self.renderer.index.rects[next_row]
+            entry = self._entries[next_row]
+            if entry['kind'] == 'node' and 0 < rect.top()-point.y() <= 4:
+                return entry, next_row, rect, False
         best, best_index, best_rect, distance, after = None, -1, None, float('inf'), False
         for index, rect in enumerate(self.renderer.index.rects):
             d = (max(rect.left()-point.x(), 0, point.x()-rect.right())
@@ -3067,9 +3077,6 @@ class GalleryInterface(QWidget):
         entry, _index, _rect, after = self._hit_test(pos)
         return entry, after
 
-    def _subtree_ids(self, node_id):
-        return {node['id'] for node in self.storage.index.subtree(node_id)}
-
     def _node_insert_index(self, parent, target_node, placement, moving):
         """Canonical slot next to `target_node` once the moving block is out."""
         stream = [entry for entry in self.storage.entries_of(parent)
@@ -3078,6 +3085,24 @@ class GalleryInterface(QWidget):
             if entry['id'] == target_node:
                 return index + (1 if placement == INSERT_AFTER else 0)
         return len(stream)
+
+    def _category_insertion_rect(self, index, placement, rect):
+        """Keep the existing line painter at the actual mixed-flow boundary."""
+        rect = QRect(rect)
+        rects = self.renderer.index.rects
+        if placement == INSERT_BEFORE:
+            previous = rects[index-1].bottom() if index else rect.top()-5
+            line = (previous+rect.top())//2
+            rect.moveTop(line+5)  # shared indicator_rect draws at top-5
+        else:
+            end = index+1
+            depth = self._entries[index].get('_depth', 0)
+            while end < len(self._entries) and self._entries[end].get('_depth', 0) > depth:
+                end += 1
+            bottom = rects[end-1].bottom()
+            line = (bottom+rects[end].top())//2 if end < len(rects) else bottom+3
+            rect.setBottom(line-3)  # shared indicator_rect draws at bottom+3
+        return rect
 
     def _resolve_drop(self, position, mime):
         """One contract for every drag that reaches the gallery.
@@ -3106,26 +3131,37 @@ class GalleryInterface(QWidget):
             # The empty area under the last row means "at the end of this
             # location", not "next to whichever card happens to be closest".
             last = self.renderer.index.rects[-1] if self.renderer.index.rects else None
+            if any(self.sidebar.tree._is_descendant(self.content_scope_node(), source) for source in moving_nodes):
+                return INVALID_TARGET, None, False
             return (DropTarget(APPEND, effect, None, self.content_scope_node(),
                                len(self.storage.entries_of(self.content_scope_node()))), last, False)
 
         if entry['kind'] == 'node':
             point = self.grid_container.mapFrom(self, position)
             placement = edge_placement(axis_ratio(rect, point, horizontal=False))
+            parent = entry['id'] if placement == INTO else entry['_parent']
+            if (entry['id'] in moving_nodes or
+                    any(self.sidebar.tree._is_descendant(parent, source) for source in moving_nodes)):
+                return INVALID_TARGET, None, False
             if placement == INTO:
-                if kind == NODE_MIME and (entry['id'] in moving_nodes or self._subtree_ids(entry['id']) & moving_nodes):
-                    # Dropping a category into itself or its own subtree would
-                    # make a cycle.
-                    return INVALID_TARGET, None, False
                 return DropTarget(INTO, effect, entry['id'], entry['id']), rect, False
             parent = entry['_parent']
             index = self._node_insert_index(parent, entry['id'], placement, moving_nodes)
+            rect = self._category_insertion_rect(_index, placement, rect)
             return DropTarget(placement, effect, entry['id'], parent, index), rect, False
 
         parent = entry['_parent']
+        if any(self.sidebar.tree._is_descendant(parent, source) for source in moving_nodes):
+            return INVALID_TARGET, None, False
+        point = self.grid_container.mapFrom(self, position)
+        outside_row = point.y() < rect.top() or point.y() > rect.bottom()
+        if outside_row:
+            after = point.y() > rect.bottom()
         placement = INSERT_AFTER if after else INSERT_BEFORE
+        index = (self._node_insert_index(parent, entry['id'], placement, moving_nodes)
+                 if moving_nodes else entry['position']+bool(after))
         return (DropTarget(placement, effect, entry['id'], parent,
-                           entry['position']+bool(after)), rect, True)
+                           index), rect, not outside_row)
 
     def _track_drop(self, event, position=None):
         position = position if position is not None else event.position().toPoint()
@@ -3216,7 +3252,11 @@ class GalleryInterface(QWidget):
         if not node_ids:
             return
         parent = target.container_id
-        return self.sidebar._on_nodes_dropped(node_ids, parent, target.index)
+        # Match the resource commit's stable-anchor rule when concurrent
+        # imports changed the numeric slot after the last dragMove event.
+        index = (self._node_insert_index(parent, target.target_id, target.placement, set(node_ids))
+                 if target.placement in (INSERT_BEFORE, INSERT_AFTER) else target.index)
+        return self.sidebar._on_nodes_dropped(node_ids, parent, index)
 
     def _reorder_by_drop(self, paths, target, global_pos=None):
         if not paths:
