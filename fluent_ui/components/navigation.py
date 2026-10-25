@@ -354,9 +354,10 @@ class AttachedTabRow(QWidget):
 
 
 class NavigationItem(QStyledItemDelegate):
-    def __init__(self, view):
+    def __init__(self, view, *, show_focus=True):
         super().__init__(view)
         self.view = view
+        self._show_focus = show_focus
         self._indicator = QRectF()
         self._selection_motion = QVariantAnimation(self)
         self._selection_motion.setDuration(visual.MOTION.select)
@@ -489,7 +490,7 @@ class NavigationItem(QStyledItemDelegate):
                 painter.setBrush(QColor(c['selected'] if selected else c['hover']))
                 painter.drawRoundedRect(rect, 4, 4)
             self._paint_indicator(painter,rect,selected)
-            if option.state & QStyle.State_HasFocus:
+            if self._show_focus and option.state & QStyle.State_HasFocus:
                 painter.setPen(QPen(QColor(c['border']),1,Qt.DotLine))
                 painter.setBrush(Qt.NoBrush)
                 painter.drawRoundedRect(rect,6,6)

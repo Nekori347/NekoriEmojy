@@ -45,7 +45,7 @@ def build_settings(c):
     title=translated(QLabel,'设置',nav_surface);title.setObjectName('SettingsPageTitle')
     title.setProperty('role','title');navigation.addWidget(title)
     c.nav=QListWidget(nav_surface);c.nav.setObjectName('SettingsNav')
-    c.nav.setItemDelegate(NavigationItem(c.nav));c.nav.setMouseTracking(True)
+    c.nav.setItemDelegate(NavigationItem(c.nav,show_focus=False));c.nav.setMouseTracking(True)
     c.nav.currentRowChanged.connect(c._select_page);navigation.addWidget(c.nav,1)
     c.btn_back=TransparentToolButton(Icon.LEFT_ARROW,nav_surface);c.btn_back.clicked.connect(c._go_back);c.btn_back.hide()
     lower=QHBoxLayout();lower.setContentsMargins(4,0,4,0)
