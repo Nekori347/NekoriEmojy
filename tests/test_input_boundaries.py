@@ -65,6 +65,16 @@ def test_native_limits_reject_before_any_restore(tmp_path, monkeypatch, limit):
     assert storage.index.resources() == [] and storage.index.nodes() == []
 
 
+def test_exchange_text_icon_cannot_retain_a_local_image_path(tmp_path):
+    from services.exchange_import import ExchangeImportService
+    service = ExchangeImportService(storage=_make_storage(tmp_path / 'target'))
+    catalog = {'categories': [dict(ref='node', name='Node',
+                                   icon=dict(type='text', text=str(tmp_path / 'private.png')))]}
+    assert service._parse_icons(catalog, tmp_path) == {} and service.warnings
+    catalog['categories'][0]['icon']['text'] = '🙂'
+    assert service._parse_icons(catalog, tmp_path) == {'node': '🙂'}
+
+
 @pytest.mark.parametrize('declared', [False, True])
 def test_image_url_download_is_bounded_and_cleans_partial_file(tmp_path, monkeypatch, declared):
     from unittest.mock import Mock
