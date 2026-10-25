@@ -1674,5 +1674,6 @@
   "暂时无法恢复默认连接，可稍后重试或使用自定义 Bot Token。": "The default connection could not be restored. Try again later or use a custom Bot Token.",
   "正在恢复连接": "Restoring connection",
   "连接已恢复": "Connection restored",
-  "连接已恢复，正在继续原操作…": "Connection restored. Continuing the original operation…"
+  "连接已恢复，正在继续原操作…": "Connection restored. Continuing the original operation…",
+  "确认导出后，昵称缓存过期或缺失时会向第三方 uapis.cn 发送所选 QQ 号码，用于获取昵称并生成导出文件夹名；结果在本地缓存 24 小时。账号发现、扫描和导入不发起此查询。": "After you confirm export, if the nickname cache is missing or expired, the selected QQ number is sent to the third-party service uapis.cn to obtain a nickname for the export folder name. Results are cached locally for 24 hours. Account discovery, scanning and importing do not make this request."
 }

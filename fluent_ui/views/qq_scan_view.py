@@ -32,6 +32,8 @@ from fluent_ui.components.state_tool_tip_manager import StateToolTipManager
 from fluent_ui.components.feedback import feedback_for, notify
 from fluent_ui.visual import colors
 
+NICKNAME_NOTICE = "确认导出后，昵称缓存过期或缺失时会向第三方 uapis.cn 发送所选 QQ 号码，用于获取昵称并生成导出文件夹名；结果在本地缓存 24 小时。账号发现、扫描和导入不发起此查询。"
+
 
 def _tf(text, **kwargs):
     """翻译并格式化动态文本。"""
@@ -1384,7 +1386,7 @@ class QQScanInterface(QWidget):
             notify(self, t("提示"), t("请先在预览区选中表情后再导出！"))
             return
 
-        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导出选中"), _tf("确定导出当前选中的 {count} 个表情？", count=len(selected_items))) else QMessageBox.No)
+        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导出选中"), _tf("确定导出当前选中的 {count} 个表情？", count=len(selected_items)), hint=t(NICKNAME_NOTICE)) else QMessageBox.No)
         if reply == QMessageBox.No:
             self.log(t("💬 用户取消了导出操作"))
             return
@@ -1432,7 +1434,7 @@ class QQScanInterface(QWidget):
         reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导出全部"), _tf(
                 "当前不管界面是否完全加载，将直接导出扫描到的该分类下所有 {count} 个表情？",
                 count=len(self.emoji_file_paths)
-            )) else QMessageBox.No)
+            ), hint=t(NICKNAME_NOTICE)) else QMessageBox.No)
         if reply == QMessageBox.No:
             self.log(t("💬 用户取消了导出操作"))
             return
@@ -1610,4 +1612,4 @@ class QQScanInterface(QWidget):
             "  可以尝试手动指定聊天数据文件夹的所在位置"
         )
 
-        notify(self, t("使用帮助"), help_text)
+        notify(self, t("使用帮助"), help_text + "\n\n" + t(NICKNAME_NOTICE))
