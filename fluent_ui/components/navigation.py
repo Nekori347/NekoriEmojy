@@ -631,8 +631,11 @@ class TabStrip(QTabBar):
         self._line_motion = QVariantAnimation(self)
         self._line_motion.setDuration(250)
         self._line_motion.setEasingCurve(QEasingCurve.Linear)
-        for time,state in ((0,QPointF(2,0)),(.16,QPointF(1.2,1)),
-                           (.68,QPointF(-.45,1)),(.84,QPointF(.12,1)),(1,QPointF(0,1))):
+        # A local upward reveal inside y=7..15, not a slide between tabs.
+        # Let the emergence remain visible before the small settling rebound.
+        for time,state in ((0,QPointF(3,0)),(.12,QPointF(2.95,.15)),
+                           (.32,QPointF(2.1,.7)),(.60,QPointF(-.75,1)),
+                           (.80,QPointF(.25,1)),(1,QPointF(0,1))):
             self._line_motion.setKeyValueAt(time,state)
         self._line_motion.valueChanged.connect(self._move_line)
         self.currentChanged.connect(self._animate_line)
@@ -716,7 +719,7 @@ class TabStrip(QTabBar):
             # QVariantAnimation need not evaluate its final reveal keyframe.
             self._line_state=QPointF(0,1)
         else:
-            self._line_state=QPointF(2,0)
+            self._line_state=QPointF(3,0)
             visual.start_animation(self._line_motion, 250)
         self.update()
 

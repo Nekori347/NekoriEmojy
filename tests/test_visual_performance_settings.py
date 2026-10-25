@@ -109,3 +109,36 @@ def test_visual_rows_follow_themes_and_four_languages(surface,settings):
                 row=settings._rows[key][0]
                 assert row.title_label.text()==t(title) and not row.grab().isNull()
     i18n_engine.set_language('zh');setTheme(Theme.LIGHT);visual.theme.refresh()
+
+
+def test_live_tab_reveal_preserves_content_switch_and_intermediate_frames(surface,settings):
+    from PySide6.QtCore import QEventLoop,QTimer
+    from qfluentwidgets import Theme,setTheme
+    from test_tab_overflow import own_paint,check_paint
+    surface.config.config['ui_animations_enabled']=True
+    settings._select_page(1)
+    settle(surface.app)
+    try:
+        for theme in (Theme.LIGHT,Theme.DARK):
+            setTheme(theme);visual.theme.refresh()
+            for tabs in (surface.g.category_tabs,settings.tab_bar):
+                for index in (1,0):
+                    tabs.setCurrentIndex(index)
+                    # Selection/content commits synchronously, not on animation.finished.
+                    if tabs is settings.tab_bar:assert settings._current_tab==index
+                    else:assert surface.g.content_scope_node()==surface.g._tab_nodes[index]
+                    samples=[]
+                    def sample():
+                        image=own_paint(tabs)
+                        samples.append((tabs._line_state.x(),tabs._line_state.y(),
+                                        tabs._target_line().center().x(),image.isNull()))
+                    timer=QTimer();timer.setInterval(16);timer.timeout.connect(sample)
+                    loop=QEventLoop();timer.start();QTimer.singleShot(340,loop.quit);loop.exec();timer.stop()
+                    visible=[s for s in samples if 0<s[1]<1]
+                    assert len(visible)>=2 and not any(s[3] for s in samples)
+                    assert len({s[2] for s in samples})==1
+                    assert min(s[0] for s in samples)<0<max(s[0] for s in samples)
+                    assert tabs._line_state.x()==0 and tabs._line_state.y()==1
+                    assert check_paint(tabs)
+    finally:
+        setTheme(Theme.LIGHT);visual.theme.refresh()

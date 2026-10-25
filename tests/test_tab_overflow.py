@@ -65,7 +65,7 @@ def test_disabled_motion_keeps_selected_line_on_repeated_changes(monkeypatch, lo
         monkeypatch.setattr(visual.theme, 'config', {'ui_animations_enabled': True})
         tabs.setCurrentIndex(0)
         assert tabs._line_motion.state() == QAbstractAnimation.Running
-        tabs._line_motion.setCurrentTime(125)
+        tabs._line_motion.setCurrentTime(150)
         assert check_paint(tabs)
         tabs._line_motion.setCurrentTime(250)
         assert tabs._line_state == QPointF(0, 1) and check_paint(tabs)
@@ -282,4 +282,28 @@ def test_selected_tab_reveal_is_local_bounded_and_interruptible(strip):
         tabs.setCurrentIndex(index)
         assert tabs._line_target==tabs._target_line() and tabs._line_state.y()==0
     tabs._line_motion.setCurrentTime(250)
+    assert tabs._line_state==QPointF(0,1)
+
+
+def test_reveal_paints_visible_upward_motion_and_rebound_in_reserved_band(strip):
+    tabs=strip
+    tabs.set_tabs(['One','Two','Three'],2)
+    target=tabs._target_line()
+    tabs._move_line(QPointF(0,0))
+    baseline=own_paint(tabs)
+    offsets=[];opacities=[]
+    # Render every phase, including partial opacity, rather than just endpoints.
+    for ms in (20,40,80,110,150,180,200,230,250):
+        tabs._line_motion.setCurrentTime(ms)
+        offsets.append(tabs._line_state.x());opacities.append(tabs._line_state.y())
+        image=own_paint(tabs)
+        changed=[QPoint(x,y) for y in range(image.height()) for x in range(image.width())
+                 if image.pixel(x,y)!=baseline.pixel(x,y)]
+        assert changed, 'an intermediate reveal frame must actually be painted'
+        assert all(target.left()<=p.x()<=target.right() and 7<=p.y()<15 for p in changed)
+        assert abs((min(p.x() for p in changed)+max(p.x() for p in changed))/2-target.center().x())<=1
+        assert tabs._line_target==target and tabs.currentIndex()==2
+    assert 0<opacities[1]<.8  # the entrance is not already fully opaque at 40ms
+    assert offsets[1]>offsets[3]>offsets[4]  # rising from below the final line
+    assert offsets[4]<0<offsets[6]  # bounded, visible settling rebound
     assert tabs._line_state==QPointF(0,1)
