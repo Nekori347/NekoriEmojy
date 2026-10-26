@@ -97,10 +97,10 @@
       "ja": "ライブラリに保存して書き出す…"
     },
     "222": {
-      "zh": "输入表情合集 ID（用于分类名称和 ZIP 文件名）。\n表情会先保存到库中；若使用已有分类，也会导出其中原有表情。中途取消或失败不会撤销已保存的内容。",
-      "zh_TW": "輸入表情合集 ID（用於分類名稱及 ZIP 檔名）。\n表情會先儲存至表情庫；若使用現有分類，也會一併匯出其中的表情。中途取消或失敗不會撤銷已儲存的內容。",
-      "en": "Enter a collection ID (used for the category name and ZIP filename).\nEmotes are saved to the library first. If an existing category is reused, its current emotes are included. Canceling or failing does not undo items already saved.",
-      "ja": "コレクション ID を入力してください（カテゴリ名と ZIP ファイル名に使用します）。\nスタンプは先にライブラリに保存されます。既存のカテゴリを使用する場合、そのカテゴリ内のスタンプも書き出されます。途中でキャンセルまたは失敗しても、保存済みの内容は元に戻りません。"
+      "zh": "输入表情合集 ID\nID 将用作分类名称和 ZIP 文件名。表情会先保存到库中；若使用已有分类，也会导出其中原有表情。中途取消或失败不会撤销已保存的内容。",
+      "zh_TW": "輸入表情合集 ID\nID 將用作分類名稱與 ZIP 檔名。表情會先儲存至表情庫；若使用現有分類，也會一併匯出其中原有的表情。中途取消或失敗不會撤銷已儲存的內容。",
+      "en": "Enter a collection ID\nThe ID is used as the category name and ZIP filename. Emotes are saved to the library first. If an existing category is reused, its existing emotes are also included in the ZIP. Canceling or failing does not undo items already saved.",
+      "ja": "コレクション ID を入力\nID はカテゴリ名と ZIP ファイル名に使用します。スタンプは先にライブラリに保存されます。既存のカテゴリを使用する場合、そのカテゴリにある以前のスタンプも ZIP に含まれます。途中でキャンセルまたは失敗しても、保存済みの内容は元に戻りません。"
     },
     "225": {
       "zh": "正在下载并保存表情…",
@@ -129,6 +129,18 @@
     "073": {
       "source": "现有文件进入 Windows 回收站；失效表情只移除索引记录。",
       "zh_TW": "現有檔案會移至 Windows 資源回收筒；找不到檔案的表情僅移除索引記錄。"
+    }
+  },
+  "history": {
+    "222": {
+      "source_commit": "11b8451",
+      "status": "旧两段分配，b75ac96因首行裁剪保持未接入",
+      "approved": {
+        "zh": "输入表情合集 ID（用于分类名称和 ZIP 文件名）。\n表情会先保存到库中；若使用已有分类，也会导出其中原有表情。中途取消或失败不会撤销已保存的内容。",
+        "zh_TW": "輸入表情合集 ID（用於分類名稱及 ZIP 檔名）。\n表情會先儲存至表情庫；若使用現有分類，也會一併匯出其中的表情。中途取消或失敗不會撤銷已儲存的內容。",
+        "en": "Enter a collection ID (used for the category name and ZIP filename).\nEmotes are saved to the library first. If an existing category is reused, its current emotes are included. Canceling or failing does not undo items already saved.",
+        "ja": "コレクション ID を入力してください（カテゴリ名と ZIP ファイル名に使用します）。\nスタンプは先にライブラリに保存されます。既存のカテゴリを使用する場合、そのカテゴリ内のスタンプも書き出されます。途中でキャンセルまたは失敗しても、保存済みの内容は元に戻りません。"
+      }
     }
   }
 }

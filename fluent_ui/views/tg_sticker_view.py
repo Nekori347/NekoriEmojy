@@ -1900,8 +1900,9 @@ class TGStickerInterface(QWidget):
             return
         package_id, accepted = dialogs.prompt_text(
             self, t("导出为表情合集"),
-            t("请输入表情合集 ID（同时作为收藏夹名称和 ZIP 文件名）："),
+            t("输入表情合集 ID"),
             initial=self.current_pack.title,
+            hint=t("ID 将用作分类名称和 ZIP 文件名。表情会先保存到库中；若使用已有分类，也会导出其中原有表情。中途取消或失败不会撤销已保存的内容。"),
         )
         if not accepted:
             return

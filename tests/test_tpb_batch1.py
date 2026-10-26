@@ -129,3 +129,32 @@ def test_telegram_partial_import_keeps_specific_reason_in_locked_error(surface):
         assert 'Generated failure' in errors[0]
         worker._export_resource_package.assert_not_called()
     i18n_engine.load_language('zh')
+
+
+@pytest.mark.parametrize('lang',LANGS)
+def test_tpb222_final_fields_keep_cancel_empty_and_directory_boundaries(surface,monkeypatch,lang):
+    from fluent_ui.views.tg_sticker_view import TGStickerInterface
+    from fluent_ui.components import dialogs
+    monkeypatch.setattr('requests.sessions.Session.request',Mock(side_effect=AssertionError('No network in prompt tests')))
+    i18n_engine.load_language(lang)
+    view=TGStickerInterface();view.storage=surface.storage
+    view.current_pack=SimpleNamespace(title='Generated collection',source_url='')
+    view.all_stickers=[SimpleNamespace(index=0)]
+    prompt=Mock();directory=Mock(return_value='');notice=Mock()
+    monkeypatch.setattr(dialogs,'prompt_text',prompt)
+    monkeypatch.setattr('fluent_ui.views.tg_sticker_view.QFileDialog.getExistingDirectory',directory)
+    monkeypatch.setattr('fluent_ui.views.tg_sticker_view.notify',notice)
+    try:
+        for result in [('',False),('   ',True),('  Generated ID  ',True)]:
+            prompt.return_value=result;directory.reset_mock();notice.reset_mock()
+            view.exportPackage()
+            call=prompt.call_args
+            assert call.args[2]==pieces('222',lang)[0]
+            assert call.kwargs['hint']==pieces('222',lang)[1]
+            assert call.kwargs['initial']=='Generated collection'
+            assert directory.call_count==(1 if result[0].strip() else 0)
+            assert notice.call_count==(1 if result[1] and not result[0].strip() else 0)
+            assert view._import_thread is None
+    finally:
+        view.shutdown();view.close();view.deleteLater();settle(surface.app)
+        i18n_engine.load_language('zh')

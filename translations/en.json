@@ -1698,5 +1698,7 @@
   "输入表情合集 ID（用于分类名称和 ZIP 文件名）。": "Enter a collection ID (used for the category name and ZIP filename).",
   "表情会先保存到库中；若使用已有分类，也会导出其中原有表情。中途取消或失败不会撤销已保存的内容。": "Emotes are saved to the library first. If an existing category is reused, its current emotes are included. Canceling or failing does not undo items already saved.",
   "图库分类图标大小": "Gallery category icon size",
-  "调整右侧图库中分类节点的图标大小，不影响左侧分类树。": "Adjust category icon size in the gallery without changing the category tree icons."
+  "调整右侧图库中分类节点的图标大小，不影响左侧分类树。": "Adjust category icon size in the gallery without changing the category tree icons.",
+  "输入表情合集 ID": "Enter a collection ID",
+  "ID 将用作分类名称和 ZIP 文件名。表情会先保存到库中；若使用已有分类，也会导出其中原有表情。中途取消或失败不会撤销已保存的内容。": "The ID is used as the category name and ZIP filename. Emotes are saved to the library first. If an existing category is reused, its existing emotes are also included in the ZIP. Canceling or failing does not undo items already saved."
 }
