@@ -348,20 +348,20 @@ def workspace_edge_color():
     return color
 
 
-class WorkspaceTools(QWidget):
-    """Static, input-neutral open contour around the existing tools."""
-    def __init__(self,parent=None):
-        super().__init__(parent)
-        visual.theme.changed.connect(self.update)
+def open_ear_path(left,right,top,baseline):
+    """The same real lower flare and rounded upper corners for both ears."""
+    radius=7
+    path=QPainterPath();path.moveTo(left-radius,baseline)
+    path.quadTo(left,baseline,left,baseline-radius)
+    path.lineTo(left,top+radius);path.quadTo(left,top,left+radius,top)
+    path.lineTo(right-radius,top);path.quadTo(right,top,right,top+radius)
+    path.lineTo(right,baseline-radius);path.quadTo(right,baseline,right+radius,baseline)
+    return path
 
-    def paintEvent(self,event):
-        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
-        r=QRectF(self.rect()).adjusted(.75,.75,-.75,0);radius=7
-        path=QPainterPath();path.moveTo(r.left(),r.bottom())
-        path.lineTo(r.left(),r.top()+radius);path.quadTo(r.left(),r.top(),r.left()+radius,r.top())
-        path.lineTo(r.right()-radius,r.top());path.quadTo(r.right(),r.top(),r.right(),r.top()+radius)
-        path.lineTo(r.right(),r.bottom())
-        p.setPen(QPen(workspace_edge_color(),1.4));p.setBrush(Qt.NoBrush);p.drawPath(path)
+
+class WorkspaceTools(QWidget):
+    """Static layout container; the attached row owns its open contour."""
+    pass
 
 
 class AttachedTabRow(QWidget):
@@ -380,25 +380,44 @@ class AttachedTabRow(QWidget):
         if event.type() in (QEvent.Move,QEvent.Resize,QEvent.Show,QEvent.Hide,QEvent.LayoutRequest):self.update()
         return super().eventFilter(obj,event)
 
-    def boundary_gaps(self):
-        gaps=[]
+    def _selected_body(self):
         if self.tabs is not None and self.tabs.isVisible() and self.tabs.currentIndex()>=0:
-            tabs=self.tabs;body=tabs.content_tab_rect(tabs.currentIndex())
-            # Use Qt's visible tab projection, including clipping by its arrows.
-            visible=tabs._tab_viewport().intersected(QRegion(body.adjusted(-7,0,7,0))).boundingRect()
-            if not visible.isEmpty():gaps.append((tabs.x()+visible.left(),tabs.x()+visible.right()+1))
+            return self.tabs.content_tab_rect(self.tabs.currentIndex())
+        return None
+
+    def boundary_gaps(self):
+        gaps=[];body=self._selected_body()
+        if body is not None:
+            tabs=self.tabs
+            visible=tabs._tab_viewport().boundingRect()
+            start=max(body.left()+.5-7,visible.left())+tabs.x()
+            end=min(body.right()+.5+7,visible.right()+1)+tabs.x()
+            if end>start:gaps.append((start,end))
         if self.tools is not None and self.tools.isVisible():
-            gaps.append((self.tools.x(),self.tools.x()+self.tools.width()))
+            gaps.append((self.tools.x()+.75-7,self.tools.x()+self.tools.width()-.75+7))
         return sorted((max(0,a),min(self.width(),b)) for a,b in gaps if b>0 and a<self.width())
 
     def paintEvent(self,event):
         painter=QPainter(self);painter.setRenderHint(QPainter.Antialiasing)
-        painter.setPen(QPen(workspace_edge_color(),1.4))
-        y=self.height()-.7;left=0
+        y=self.height()-.5;body=self._selected_body()
+        if body is not None:
+            tabs=self.tabs
+            painter.save();painter.setClipRegion(tabs._tab_viewport().translated(tabs.pos()))
+            path=open_ear_path(tabs.x()+body.left()+.5,tabs.x()+body.right()+.5,tabs.y()+5.5,y)
+            fill=QPainterPath(path);fill.closeSubpath()
+            painter.fillPath(fill,QColor(visual.colors()['surface']))
+            painter.setPen(QPen(workspace_edge_color(),1.4,Qt.SolidLine,Qt.FlatCap));painter.drawPath(path)
+            painter.restore()
+        # Exactly one paint owner, baseline and contours share y/width/caps.
+        painter.setPen(QPen(workspace_edge_color(),1.4,Qt.SolidLine,Qt.FlatCap))
+        left=0
         for start,end in self.boundary_gaps():
             if start>left:painter.drawLine(QPointF(left,y),QPointF(start,y))
             left=max(left,end)
         if left<self.width():painter.drawLine(QPointF(left,y),QPointF(self.width(),y))
+        if self.tools is not None and self.tools.isVisible():
+            r=self.tools.geometry()
+            painter.drawPath(open_ear_path(r.left()+.75,r.right()+.25,r.top()+.75,y))
 
 
 class NavigationItem(QStyledItemDelegate):
@@ -636,7 +655,14 @@ class ContentPane(QWidget):
         radius=getattr(self,'corner_radius',12);w=self.width();h=self.height()
         path=QPainterPath();path.moveTo(0,0);path.lineTo(w,0);path.lineTo(w,h-radius)
         path.quadTo(w,h,w-radius,h);path.lineTo(radius,h);path.quadTo(0,h,0,h-radius);path.closeSubpath()
-        self.setMask(QRegion(path.toFillPolygon().toPolygon()))
+        mask=QRegion(path.toFillPolygon().toPolygon())
+        if self.property('gallery_workspace'):
+            # QRegion is integer/binary; leave the painted contour's AA fringe
+            # intact instead of clipping its partially covered corner pixels.
+            mask=mask.united(mask.translated(-1,0)).united(mask.translated(1,0))
+            mask=mask.united(mask.translated(0,-1)).united(mask.translated(0,1))
+            mask=mask.intersected(QRegion(self.rect()))
+        self.setMask(mask)
 
     def paintEvent(self, event):
         p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);c=visual.colors()
@@ -861,7 +887,8 @@ class TabStrip(QTabBar):
             else:
                 painter.drawLine(0, int(y), self.width(), int(y))
         boundary = QPainterPath()
-        if selected:
+        external=isinstance(self.parentWidget(),AttachedTabRow) and self.parentWidget().tabs is self
+        if selected and not external:
             left, right = selected.left()+0.5, selected.right()+0.5
             radius, top = 7, 5.5
             boundary.moveTo(max(0, left-radius), y)

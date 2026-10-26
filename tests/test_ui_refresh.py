@@ -95,8 +95,9 @@ def test_open_sheet_gaps_follow_tabs_clip_and_static_tools(surface):
             if not visible.isEmpty():
                 x=tabs.x()+visible.center().x()
                 assert any(a<=x<=b for a,b in gaps)
-                assert image.pixelColor(x,row.height()-1).alpha()==0
-            assert (tools.x(),tools.x()+tools.width()) in gaps
+                actual=image.pixelColor(x,row.height()-1);expected=QColor(visual.colors()['surface'])
+                assert max(abs(a-b) for a,b in zip(actual.getRgb()[:3],expected.getRgb()[:3]))<=2  # premultiplied AA rounding
+            assert any(a<=tools.x() and b>=tools.x()+tools.width() for a,b in gaps)
             assert image.pixelColor(tools.x()+tools.width()//2,row.height()-1).alpha()==0
             assert g.btn_recent.geometry().left()>=5
             assert g.btn_recent.geometry().top()>=4
@@ -104,7 +105,7 @@ def test_open_sheet_gaps_follow_tabs_clip_and_static_tools(surface):
         before=tools.geometry();QTest.mouseClick(g.btn_recent,Qt.LeftButton);settle(surface.app)
         assert tools.geometry()==before
     tabs.hide();settle(surface.app)
-    assert row.boundary_gaps()==[(tools.x(),tools.x()+tools.width())]
+    assert len(row.boundary_gaps())==1 and row.boundary_gaps()[0][0]<tools.x()
 
 
 def test_title_double_rule_and_dock_nonoverlap(surface):
