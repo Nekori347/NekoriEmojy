@@ -72,17 +72,23 @@ def build_workbench(g):
     g.top_bar_layout.addWidget(g.location_rail,0,Qt.AlignTop)
     g.right_layout.addWidget(g.top_bar)
 
-    g.tab_row=AttachedTabRow(g.right_container)
+    # One shared sheet, including the transparent tool ear. The ContentPane
+    # keeps its contour/clip, but delegates its fill to this existing Surface.
+    g.sheet_surface=Surface('raised',g.right_container,radius=10,edge=False)
+    sheet=QVBoxLayout(g.sheet_surface);sheet.setContentsMargins(0,0,0,0);sheet.setSpacing(0)
+    g.right_layout.addWidget(g.sheet_surface,1)
+    g.tab_row=AttachedTabRow(g.sheet_surface)
     tab_layout=QHBoxLayout(g.tab_row);tab_layout.setContentsMargins(0,0,0,0);tab_layout.setSpacing(0)
     g.category_tabs=TabStrip(g.tab_row,location_divider=True)
     g.category_tabs.currentChanged.connect(g._on_category_tab)
     tab_layout.addWidget(g.category_tabs,1)
     g.tab_row.setFixedHeight(g.category_tabs.height())
-    g.right_layout.addWidget(g.tab_row)
-    g.content_pane=ContentPane(g.right_container)
+    sheet.addWidget(g.tab_row)
+    g.content_pane=ContentPane(g.sheet_surface)
     g.content_pane.setProperty('gallery_workspace',True)
+    g.content_pane.setProperty('shared_surface',True)
     g.content_pane.content_layout.setContentsMargins(1,0,1,1)
-    g.right_layout.addWidget(g.content_pane,1)
+    sheet.addWidget(g.content_pane,1)
 
     from fluent_ui.components.softframe import SoftframeSlider
     from fluent_ui.presentation.glyphs import ClipboardImportIcon,ToolboxIcon

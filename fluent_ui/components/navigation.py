@@ -684,7 +684,7 @@ class ContentPane(QWidget):
         path=QPainterPath();path.moveTo(r.left(),0);path.lineTo(r.right(),0)
         path.lineTo(r.right(),r.bottom()-radius);path.quadTo(r.right(),r.bottom(),r.right()-radius,r.bottom())
         path.lineTo(r.left()+radius,r.bottom());path.quadTo(r.left(),r.bottom(),r.left(),r.bottom()-radius);path.closeSubpath()
-        p.fillPath(path,QColor(c['surface']))
+        if not self.property('shared_surface'):p.fillPath(path,QColor(c['surface']))
         # Top boundary is owned by the attached tabs, never doubled here.
         path=QPainterPath();path.moveTo(r.left(),0);path.lineTo(r.left(),r.bottom()-radius)
         path.quadTo(r.left(),r.bottom(),r.left()+radius,r.bottom());path.lineTo(r.right()-radius,r.bottom())
