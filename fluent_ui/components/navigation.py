@@ -1,5 +1,5 @@
 """Shared primary navigation and engineering secondary tabs."""
-from PySide6.QtCore import Qt, QSize, QRectF, QPointF, QEvent, Signal, Property, QPropertyAnimation, QEasingCurve, QVariantAnimation, QTimer
+from PySide6.QtCore import Qt, QSize, QRect, QRectF, QPointF, QEvent, Signal, Property, QPropertyAnimation, QEasingCurve, QVariantAnimation, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen, QPainterPath, QFontMetrics, QFont, QRegion, QCursor
 from PySide6.QtWidgets import QStyledItemDelegate, QStyle, QTabBar, QWidget, QVBoxLayout, QToolButton, QApplication, QLabel, QSizePolicy
 from fluent_ui import visual
@@ -348,14 +348,14 @@ def workspace_edge_color():
     return color
 
 
-def open_ear_path(left,right,top,baseline):
+def open_ear_path(left,right,top,baseline,right_limit):
     """The same real lower flare and rounded upper corners for both ears."""
     radius=7
-    path=QPainterPath();path.moveTo(left-radius,baseline)
+    path=QPainterPath();path.moveTo(max(.5,left-radius),baseline)
     path.quadTo(left,baseline,left,baseline-radius)
     path.lineTo(left,top+radius);path.quadTo(left,top,left+radius,top)
     path.lineTo(right-radius,top);path.quadTo(right,top,right,top+radius)
-    path.lineTo(right,baseline-radius);path.quadTo(right,baseline,right+radius,baseline)
+    path.lineTo(right,baseline-radius);path.quadTo(right,baseline,min(right_limit,right+radius),baseline)
     return path
 
 
@@ -365,7 +365,7 @@ class WorkspaceTools(QWidget):
 
 
 class AttachedTabRow(QWidget):
-    """One sheet boundary with real gaps for the selected tab and tool group."""
+    """Continuous sheet/ear contour; only the inner separator ends are open."""
     def __init__(self,parent=None):
         super().__init__(parent);self.tabs=None;self.tools=None
         visual.theme.changed.connect(self.update)
@@ -385,39 +385,52 @@ class AttachedTabRow(QWidget):
             return self.tabs.content_tab_rect(self.tabs.currentIndex())
         return None
 
+    def _contour_clip(self):
+        tabs=self.tabs;viewport=tabs._tab_viewport();visible=viewport.boundingRect()
+        # Scroll arrows clip tab labels/body, not the lower flare that joins
+        # the sheet. Its feet need the existing 7px outside the body bounds.
+        feet=QRegion(QRect(visible.left()-7,tabs.height()-8,visible.width()+14,8))
+        return viewport.united(feet).translated(tabs.pos()).intersected(QRegion(self.rect()))
+
     def boundary_gaps(self):
         gaps=[];body=self._selected_body()
         if body is not None:
             tabs=self.tabs
             visible=tabs._tab_viewport().boundingRect()
-            start=max(body.left()+.5-7,visible.left())+tabs.x()
-            end=min(body.right()+.5+7,visible.right()+1)+tabs.x()
+            start=max(body.left()+.5-7,visible.left()-7)+tabs.x()
+            end=min(body.right()+.5+7,visible.right()+1+7)+tabs.x()
             if end>start:gaps.append((start,end))
         if self.tools is not None and self.tools.isVisible():
             gaps.append((self.tools.x()+.75-7,self.tools.x()+self.tools.width()-.75+7))
-        return sorted((max(0,a),min(self.width(),b)) for a,b in gaps if b>0 and a<self.width())
+        return sorted((max(.5,a),min(self.width()-.5,b)) for a,b in gaps if b>.5 and a<self.width()-.5)
 
     def paintEvent(self,event):
         painter=QPainter(self);painter.setRenderHint(QPainter.Antialiasing)
         y=self.height()-.5;body=self._selected_body()
         if body is not None:
             tabs=self.tabs
-            painter.save();painter.setClipRegion(tabs._tab_viewport().translated(tabs.pos()))
-            path=open_ear_path(tabs.x()+body.left()+.5,tabs.x()+body.right()+.5,tabs.y()+5.5,y)
+            painter.save();painter.setClipRegion(self._contour_clip())
+            path=open_ear_path(tabs.x()+body.left()+.5,tabs.x()+body.right()+.5,tabs.y()+5.5,y,self.width()-.5)
             fill=QPainterPath(path);fill.closeSubpath()
             painter.fillPath(fill,QColor(visual.colors()['surface']))
             painter.setPen(QPen(workspace_edge_color(),1.4,Qt.SolidLine,Qt.FlatCap));painter.drawPath(path)
             painter.restore()
         # Exactly one paint owner, baseline and contours share y/width/caps.
         painter.setPen(QPen(workspace_edge_color(),1.4,Qt.SolidLine,Qt.FlatCap))
-        left=0
+        left=.5
         for start,end in self.boundary_gaps():
             if start>left:painter.drawLine(QPointF(left,y),QPointF(start,y))
             left=max(left,end)
-        if left<self.width():painter.drawLine(QPointF(left,y),QPointF(self.width(),y))
+        if left<self.width()-.5:painter.drawLine(QPointF(left,y),QPointF(self.width()-.5,y))
+        # The internal horizontal rules remain; only their two ends are open.
+        if body is not None:
+            painter.save();painter.setClipRegion(self.tabs._tab_viewport().translated(self.tabs.pos()))
+            painter.drawLine(QPointF(self.tabs.x()+body.left()+6,y),QPointF(self.tabs.x()+body.right()-6,y))
+            painter.restore()
         if self.tools is not None and self.tools.isVisible():
             r=self.tools.geometry()
-            painter.drawPath(open_ear_path(r.left()+.75,r.right()+.25,r.top()+.75,y))
+            painter.drawPath(open_ear_path(r.left()+.75,r.right()+.25,r.top()+.75,y,self.width()-.5))
+            painter.drawLine(QPointF(r.left()+6,y),QPointF(r.right()-6,y))
 
 
 class NavigationItem(QStyledItemDelegate):

@@ -95,10 +95,9 @@ def test_open_sheet_gaps_follow_tabs_clip_and_static_tools(surface):
             if not visible.isEmpty():
                 x=tabs.x()+visible.center().x()
                 assert any(a<=x<=b for a,b in gaps)
-                actual=image.pixelColor(x,row.height()-1);expected=QColor(visual.colors()['surface'])
-                assert max(abs(a-b) for a,b in zip(actual.getRgb()[:3],expected.getRgb()[:3]))<=2  # premultiplied AA rounding
-            assert any(a<=tools.x() and b>=tools.x()+tools.width() for a,b in gaps)
-            assert image.pixelColor(tools.x()+tools.width()//2,row.height()-1).alpha()==0
+                assert image.pixelColor(x,row.height()-1).alpha()>0  # retained inner divider
+            assert any(a<=tools.x() and b>=tools.x()+tools.width()-.5 for a,b in gaps)
+            assert image.pixelColor(tools.x()+tools.width()//2,row.height()-1).alpha()>0
             assert g.btn_recent.geometry().left()>=5
             assert g.btn_recent.geometry().top()>=4
             assert g.size_slider.geometry().right()<=tools.width()-6

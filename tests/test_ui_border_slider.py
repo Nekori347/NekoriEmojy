@@ -65,3 +65,27 @@ def test_slider_release_hover_capture_and_values(surface,monkeypatch,orientation
     s.setEnabled(False);assert not s.isSliderDown() and not s._handle_hover
     s.setEnabled(True);s.hide();assert not s._handle_drag and not s._handle_hover
     s.deleteLater();settle(surface.app)
+
+
+def test_ears_keep_inner_separator_with_open_ends_and_connected_feet(surface):
+    g=surface.g;row=g.tab_row;tabs=g.category_tabs;tools=g.size_slider.parentWidget();settle(surface.app)
+    image=own_paint(row);y=row.height()-1
+    body=tabs.content_tab_rect(tabs.currentIndex());left=tabs.x()+body.left();right=tabs.x()+body.right()
+    # An actual internal divider, not the former complete omission below an ear.
+    center=image.pixelColor((left+right)//2,y);gap=image.pixelColor(left+2,y)
+    assert max(abs(a-b) for a,b in zip(center.getRgb()[:3],gap.getRgb()[:3]))>10
+    assert image.pixelColor(tools.x()+tools.width()//2,y).alpha()>50
+    assert image.pixelColor(tools.x()+2,y).alpha()==0
+    assert image.pixelColor(tools.x()+tools.width()-3,y).alpha()==0
+    # The right outer contour must reach the sheet, not be clipped mid-flare.
+    assert image.pixelColor(row.width()-1,y).alpha()>0
+    assert abs(row.boundary_gaps()[0][0]-max(.5,left+.5-7))<.01
+
+
+def test_relative_tabs_have_no_underlying_gallery_projection(surface):
+    from PySide6.QtCore import QRect
+    g=surface.g;row=g.tab_row
+    row_rect=QRect(row.mapTo(g,QPoint()),row.size())
+    content_rect=QRect(g.scroll_area.viewport().mapTo(g,QPoint()),g.scroll_area.viewport().size())
+    assert not row_rect.intersects(content_rect)
+    assert row_rect.bottom()<content_rect.top()
