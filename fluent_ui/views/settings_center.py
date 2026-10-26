@@ -239,7 +239,7 @@ class SettingsCenter(QWidget):
         section = self._section("WINDOW")
         for title, hint, key, default in (
             ("主窗口始终置顶", "让 Nekori 始终显示在其他窗口之上。", "always_on_top", True),
-            ("粘贴后自动隐藏主面板", "复制并尝试粘贴后隐藏主面板，仍可用快捷键呼出。",
+            ("发送后自动隐藏主面板", "表情发送成功后隐藏主面板，仍可使用快捷键重新呼出。",
              "hide_main_after_paste", False),
             ("在任务栏显示应用图标", "关闭后不再占用任务栏入口，仍驻留托盘；下次显示主窗口或重启后生效。",
              "show_taskbar_icon", True),
@@ -424,7 +424,7 @@ class SettingsCenter(QWidget):
             f"border: 1px solid {visual.colors()['border']};")
         self._refresh_icon_preview()
         from fluent_ui.components.setting_rows import SettingRow
-        row = SettingRow("当前软件图标", "用于主窗口、任务栏和托盘。\n动图使用已选的缩略图帧；未选择时使用第一帧。", self)
+        row = SettingRow("当前软件图标", "用于主窗口、任务栏和托盘。动图使用选定的缩略图帧，未选择时使用第一帧。更换图标会立即生效。", self)
         row.add_control(self.icon_preview)
         section.add_row(row)
         from fluent_ui.components.interaction_controls import DropDownButton
@@ -508,7 +508,7 @@ class SettingsCenter(QWidget):
                       self.config.get('clipboard_import_hotkey', 'ctrl+alt+v'), self),
             'clipboard_import_hotkey', 'ctrl+alt+v'))
         section.add_row(self._track(
-            HotkeyRow("唤醒快捷键", "全局显示 / 隐藏主面板。", "global_hotkey",
+            HotkeyRow("主面板快捷键", "通过全局快捷键显示或隐藏主面板。", "global_hotkey",
                       self.config.get("global_hotkey", "ctrl+shift+e"), self),
             "global_hotkey", "ctrl+shift+e"))
         section.add_row(self._track(
@@ -517,7 +517,7 @@ class SettingsCenter(QWidget):
             "quick_panel_hotkey", "alt+2"))
         section = self._section('Esc 隐藏面板')
         for key, title in (('esc_hide_main', '主面板'), ('esc_hide_quick', '快速面板')):
-            row = SwitchRow(title, '按 Esc 隐藏主面板。' if key == 'esc_hide_main' else '按 Esc 隐藏快速面板。',
+            row = SwitchRow(title, '没有其他需要优先取消的操作时，按 Esc 隐藏主面板。' if key == 'esc_hide_main' else '按 Esc 隐藏快速面板。',
                             key, self.config.get(key, False), self)
             section.add_row(self._track(row, key, False))
 
@@ -640,14 +640,14 @@ class SettingsCenter(QWidget):
     def _page_settings_file(self):
         section = self._section("SETTINGS FILE")
         self.export_hint = ActionRow(
-            "导出设置", "把当前应用设置写入一个 JSON 文件。",
+            "导出设置", "将已保存的应用设置导出为 JSON 文件。",
             [("导出…", self._export_settings, True)], self)
         section.add_row(self.export_hint)
         import_row = ActionRow(
-            "导入设置", "从 JSON 文件恢复应用设置。",
+            "导入设置", "从 JSON 文件载入设置，需点击“保存”才能保留这些更改。",
             [("导入…", self._import_settings, False)], self)
         reset_row = ActionRow(
-            "恢复全部默认", "把所有应用设置恢复到程序默认值；不会改动表情库内容。",
+            "恢复全部默认", "将应用设置恢复为默认值。点击“保存”后才会保留修改；不会改动表情库内容。",
             [("恢复全部默认", self._restore_all_defaults, False)], self)
         section.add_row(import_row)
         section.add_row(reset_row)
@@ -873,7 +873,7 @@ class SettingsCenter(QWidget):
         for key in ('global_hotkey', 'quick_panel_hotkey'):
             row = self._all_rows.get(key, (None,))[0]
             if row is not None:
-                row.set_hint(t('唤醒快捷键与快速面板快捷键不能相同') if conflict else '')
+                row.set_hint(t('主面板快捷键与快速面板快捷键不能相同') if conflict else '')
                 row.hint_label.setStyleSheet(f'color: {visual.colors()["danger"]};' if conflict else '')
         row = self._all_rows.get('clipboard_import_hotkey', (None,))[0]
         enabled = keys.get('clipboard_import_enabled', self.config.get('clipboard_import_enabled', True))
@@ -886,7 +886,7 @@ class SettingsCenter(QWidget):
                 for other in (main, quick):
                     try: same = parts == hotkey_parts(other)
                     except ValueError: same = False
-                    if same:error = '导入快捷键不能与唤醒或快速面板快捷键相同。'
+                    if same:error = '导入快捷键不能与主面板或快速面板快捷键相同。'
             except ValueError as exc:error = str(exc)
         command = getattr(self.config, 'clipboard_import_command', None)
         if row is not None:

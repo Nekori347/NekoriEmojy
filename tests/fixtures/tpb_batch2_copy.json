@@ -1,0 +1,184 @@
+{
+  "baseline": "60d4d7e",
+  "records": [
+    {
+      "id": "117",
+      "role": "hint",
+      "previous": "登录 Windows 后自动启动到托盘；移动程序后请重新开启。",
+      "source": "登录 Windows 后自动启动到托盘；移动程序后请重新开启。",
+      "values": {
+        "zh_TW": "登入 Windows 後自動啟動至系統匣；移動程式後，請重新啟用此設定。"
+      }
+    },
+    {
+      "id": "119",
+      "role": "name",
+      "previous": "粘贴后自动隐藏主面板",
+      "source": "发送后自动隐藏主面板",
+      "values": {
+        "zh": "发送后自动隐藏主面板",
+        "zh_TW": "傳送後自動隱藏主面板",
+        "en": "Hide main panel after sending",
+        "ja": "送信後にメインパネルを自動で隠す"
+      }
+    },
+    {
+      "id": "119",
+      "role": "hint",
+      "previous": "复制并尝试粘贴后隐藏主面板，仍可用快捷键呼出。",
+      "source": "表情发送成功后隐藏主面板，仍可使用快捷键重新呼出。",
+      "values": {
+        "zh": "表情发送成功后隐藏主面板，仍可使用快捷键重新呼出。",
+        "zh_TW": "表情傳送成功後隱藏主面板，仍可使用快捷鍵重新開啟。",
+        "en": "Hide the main panel when an emote send completes successfully. Use the shortcut to reopen it.",
+        "ja": "スタンプの送信が成功したときにメインパネルを隠します。ショートカットで再表示できます。"
+      }
+    },
+    {
+      "id": "124",
+      "role": "hint",
+      "previous": "右键固定打开托盘菜单，不能重新绑定。",
+      "source": "右键固定打开托盘菜单，不能重新绑定。",
+      "values": {
+        "en": "Right-click always opens the tray menu and cannot be reassigned.",
+        "ja": "右クリックは常にトレイメニューを開き、この動作は変更できません。"
+      }
+    },
+    {
+      "id": "125",
+      "role": "hint",
+      "previous": "更改软件的显示语言。",
+      "source": "更改软件的显示语言。",
+      "values": {
+        "zh_TW": "變更軟體的顯示語言。"
+      }
+    },
+    {
+      "id": "126",
+      "role": "hint",
+      "previous": "把当前应用设置写入一个 JSON 文件。",
+      "source": "将已保存的应用设置导出为 JSON 文件。",
+      "values": {
+        "zh": "将已保存的应用设置导出为 JSON 文件。",
+        "zh_TW": "將已儲存的應用程式設定匯出為 JSON 檔案。",
+        "en": "Export saved application settings as a JSON file.",
+        "ja": "保存済みのアプリ設定を JSON ファイルに書き出します。"
+      }
+    },
+    {
+      "id": "127",
+      "role": "hint",
+      "previous": "从 JSON 文件恢复应用设置。",
+      "source": "从 JSON 文件载入设置，需点击“保存”才能保留这些更改。",
+      "values": {
+        "zh": "从 JSON 文件载入设置，需点击“保存”才能保留这些更改。",
+        "zh_TW": "從 JSON 檔案載入設定，需點選「保存」才能保留這些變更。",
+        "en": "Load settings from a JSON file. Click Save to keep the changes.",
+        "ja": "JSON ファイルから設定を読み込みます。変更を確定するには「保存」をクリックしてください。"
+      }
+    },
+    {
+      "id": "128",
+      "role": "hint",
+      "previous": "把所有应用设置恢复到程序默认值；不会改动表情库内容。",
+      "source": "将应用设置恢复为默认值。点击“保存”后才会保留修改；不会改动表情库内容。",
+      "values": {
+        "zh": "将应用设置恢复为默认值。点击“保存”后才会保留修改；不会改动表情库内容。",
+        "zh_TW": "將應用程式設定恢復為預設值。點選「保存」後才會保留變更；不會改動表情庫內容。",
+        "en": "Reset app settings to their defaults. Click Save to keep the changes. Your emote library remains unchanged.",
+        "ja": "アプリの設定を初期値に戻します。変更を確定するには「保存」をクリックしてください。スタンプライブラリの内容は変更されません。"
+      }
+    },
+    {
+      "id": "146",
+      "role": "hint",
+      "previous": "用于主窗口、任务栏和托盘。\n动图使用已选的缩略图帧；未选择时使用第一帧。",
+      "source": "用于主窗口、任务栏和托盘。动图使用选定的缩略图帧，未选择时使用第一帧。更换图标会立即生效。",
+      "values": {
+        "zh": "用于主窗口、任务栏和托盘。动图使用选定的缩略图帧，未选择时使用第一帧。更换图标会立即生效。",
+        "zh_TW": "用於主視窗、工作列和系統匣。動圖使用已選的縮圖影格，未選擇時使用第一格。更換圖示會立即生效。",
+        "en": "Used by the main window, taskbar and tray. Animated emotes use the selected thumbnail frame, or the first frame if none is selected. Icon changes take effect immediately.",
+        "ja": "メインウィンドウ、タスクバー、トレイで使用します。アニメーション画像は選択済みのサムネイルフレームを使用し、未選択の場合は最初のフレームを使用します。アイコンの変更はすぐに反映されます。"
+      }
+    },
+    {
+      "id": "149",
+      "role": "name",
+      "previous": "唤醒快捷键",
+      "source": "主面板快捷键",
+      "values": {
+        "zh": "主面板快捷键",
+        "zh_TW": "主面板快捷鍵",
+        "en": "Main panel shortcut",
+        "ja": "メインパネルのショートカットキー"
+      }
+    },
+    {
+      "id": "149",
+      "role": "hint",
+      "previous": "全局显示 / 隐藏主面板。",
+      "source": "通过全局快捷键显示或隐藏主面板。",
+      "values": {
+        "zh": "通过全局快捷键显示或隐藏主面板。",
+        "zh_TW": "使用全域快捷鍵顯示或隱藏主面板。",
+        "en": "Show or hide the main panel with a global shortcut.",
+        "ja": "グローバルショートカットでメインパネルの表示を切り替えます。"
+      }
+    },
+    {
+      "id": "150",
+      "role": "name",
+      "previous": "快速面板快捷键",
+      "source": "快速面板快捷键",
+      "values": {
+        "en": "Quick panel shortcut",
+        "ja": "クイックパネルのショートカットキー"
+      }
+    },
+    {
+      "id": "151",
+      "role": "hint",
+      "previous": "按 Esc 隐藏主面板。",
+      "source": "没有其他需要优先取消的操作时，按 Esc 隐藏主面板。",
+      "values": {
+        "zh": "没有其他需要优先取消的操作时，按 Esc 隐藏主面板。",
+        "zh_TW": "沒有其他需要優先取消的操作時，按 Esc 隱藏主面板。",
+        "en": "When nothing else needs to be dismissed first, press Esc to hide the main panel.",
+        "ja": "先に解除する操作がない場合は、Esc でメインパネルを隠します。"
+      }
+    },
+    {
+      "id": "171",
+      "role": "hint",
+      "previous": "将表情 ZIP 拆分为不超过 100MB 的分享包。",
+      "source": "将表情 ZIP 拆分为不超过 100MB 的分享包。",
+      "values": {
+        "en": "Split an emote ZIP file into shareable packages of up to 100 MB each."
+      }
+    },
+    {
+      "id": "186",
+      "role": "message",
+      "previous": "唤醒快捷键与快速面板快捷键不能相同",
+      "source": "主面板快捷键与快速面板快捷键不能相同",
+      "values": {
+        "zh": "主面板快捷键与快速面板快捷键不能相同",
+        "zh_TW": "主面板快捷鍵與快速面板快捷鍵不能相同",
+        "en": "Main panel and quick panel shortcuts must be different.",
+        "ja": "メインパネルとクイックパネルのショートカットは別にしてください"
+      }
+    },
+    {
+      "id": "187",
+      "role": "message",
+      "previous": "导入快捷键不能与唤醒或快速面板快捷键相同。",
+      "source": "导入快捷键不能与主面板或快速面板快捷键相同。",
+      "values": {
+        "zh": "导入快捷键不能与主面板或快速面板快捷键相同。",
+        "zh_TW": "匯入快捷鍵不可與主面板或快速面板快捷鍵相同。",
+        "en": "The import shortcut must be different from the main and quick panel shortcuts.",
+        "ja": "取り込み用ショートカットはメインパネルやクイックパネルのショートカットとは別に設定してください。"
+      }
+    }
+  ]
+}
