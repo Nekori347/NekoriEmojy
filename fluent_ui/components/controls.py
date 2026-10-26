@@ -185,6 +185,9 @@ class ButtonPaint:
         border=QColor(c['border_soft']);border.setAlpha(140)
         p.setPen(QPen(border,1) if floating else Qt.NoPen if self.ghost else QPen(QColor(c['border_soft']), 1))
         p.setBrush(surface if floating else Qt.NoBrush if (self.ghost and not selected) or not enabled else QColor(fill))
+        if self.property('outline_toggle'):
+            p.setBrush(Qt.NoBrush)
+            p.setPen(QPen(QColor(c['text_secondary'] if selected else c['muted']),1))
         p.drawRoundedRect(r, visual.CONTROL_RADIUS, visual.CONTROL_RADIUS)
         if enabled and (self._hover or self.isDown()):
             p.setPen(Qt.NoPen)
@@ -197,6 +200,8 @@ class ButtonPaint:
             p.setBrush(Qt.NoBrush)
             p.drawRoundedRect(r.adjusted(2, 2, -2, -2), visual.CONTROL_RADIUS-2, visual.CONTROL_RADIUS-2)
         color = c['accent_text'] if primary and enabled else c['danger'] if self.property('role') == 'danger' else c['warning'] if self.property('update_available') else c['text']
+        if self.property('outline_toggle'):
+            color = c['text'] if selected else c['muted']
         p.setFont(self.font())
         text = self.text()
         icon = getattr(self, '_icon', None)

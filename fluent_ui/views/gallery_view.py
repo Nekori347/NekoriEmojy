@@ -416,7 +416,7 @@ class CategorySidebar(Surface):
 
     def apply_presentation(self):
         mode = SidebarPresentationMode(self.config.get('sidebar_mode', 'tree'))
-        self.btn_view_mode.setIcon(FIF.MENU if mode == SidebarPresentationMode.TREE else FIF.TILES)
+        self.btn_view_mode.setIcon(FIF.TREE_VIEW if mode == SidebarPresentationMode.TREE else FIF.TILES)
         target = '分类树' if mode == SidebarPresentationMode.TREE else '分类图标'
         bind_text(self.btn_view_mode, target, 'setToolTip')
         bind_text(self.btn_view_mode, target, 'setAccessibleName')
@@ -1037,7 +1037,7 @@ class GalleryInterface(QWidget):
 
         node = translated(Action, '在此新建分类' if placement.exact else '在当前分类新建分类',
                           parent=menu)
-        node.setIcon(FIF.ADD)
+        node.setIcon(FIF.NEW_CATEGORY)
         node.triggered.connect(lambda: self.create_node_here(placement))
         menu.addAction(node)
 
@@ -2689,9 +2689,9 @@ class GalleryInterface(QWidget):
         if ActionPolicy.enabled('thumbnail_frame', context):
             action(FIF.PHOTO, '选择缩略图帧…', lambda: self._choose_thumbnail_frame(path))
         menu.addSeparator()
-        action(FIF.FOLDER, '设为当前分类图标', lambda: self._set_category_icon(path, context.active_view),
+        action(FIF.CATEGORY_ICON, '设为当前分类图标', lambda: self._set_category_icon(path, context.active_view),
                context.active_view != ROOT and ActionPolicy.enabled('set_icon', context))
-        action(FIF.PHOTO, '设为软件图标', lambda: self._set_application_icon(path),
+        action(FIF.APPLICATION_ICON, '设为软件图标', lambda: self._set_application_icon(path),
                ActionPolicy.enabled('set_icon', context))
         menu.addSeparator()
         action(FIF.DELETE, ActionPolicy.delete_label(context), self._batch_delete,
@@ -3711,7 +3711,7 @@ class GalleryInterface(QWidget):
     def _update_resource_sort_label(self):
         label = {ResourceSort.MANUAL: '自定义顺序', ResourceSort.RECENT_ADDED: '最近添加',
                  ResourceSort.OLDEST_ADDED: '最早添加'}[ResourceSort(self.content_sort)]
-        self.btn_content_sort.setIcon({ResourceSort.MANUAL:FIF.SORT,ResourceSort.RECENT_ADDED:FIF.TIME_DESC,ResourceSort.OLDEST_ADDED:FIF.TIME_ASC}[ResourceSort(self.content_sort)])
+        self.btn_content_sort.setIcon({ResourceSort.MANUAL:FIF.MANUAL_ORDER,ResourceSort.RECENT_ADDED:FIF.RECENT_ADDED,ResourceSort.OLDEST_ADDED:FIF.OLDEST_ADDED}[ResourceSort(self.content_sort)])
         bind_text(self.btn_content_sort, t('表情显示排序') + ' · ' + t(label), 'setToolTip')
         self.btn_content_sort.setAccessibleName(self.btn_content_sort.toolTip())
         for mode, action in getattr(self, 'resource_sort_actions', {}).items():

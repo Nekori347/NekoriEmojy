@@ -87,7 +87,7 @@ def build_workbench(g):
     row.setContentsMargins(0,0,0,0);row.setSpacing(4);row.addStretch()
     g.btn_paste=SplitPushButton(ClipboardImportIcon(),'',commands)
     g.btn_paste.button.ghost=True;g.btn_paste.button.setFixedSize(32,32);g.btn_paste.button.setIconSize(QSize(18,18))
-    g.btn_paste.dropButton.setIcon(I.IMPORT);g.btn_paste.dropButton.setFixedSize(32,32);g.btn_paste.dropButton.setIconSize(QSize(18,18));g.btn_paste.layout().setSpacing(4)
+    g.btn_paste.dropButton.setIcon(I.IMPORT_MENU);g.btn_paste.dropButton.setFixedSize(32,32);g.btn_paste.dropButton.setIconSize(QSize(18,18));g.btn_paste.layout().setSpacing(4)
     bind_text(g.btn_paste.button,'从剪贴板粘贴表情 (Ctrl+V)','setToolTip')
     bind_text(g.btn_paste.dropButton,'导入表情','setToolTip')
     g.btn_paste.clicked.connect(g.handle_global_paste)

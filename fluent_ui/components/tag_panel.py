@@ -464,7 +464,7 @@ class TagPanel(QWidget):
         self.btn_sort.set_mode(self.sort_mode)
         self.btn_sort.mode_changed.connect(self._on_sort_cycled)
         row.addWidget(self.btn_sort)
-        self.btn_new = TransparentToolButton(FIF.ADD, header)
+        self.btn_new = TransparentToolButton(FIF.NEW_TAG, header)
         bind_text(self.btn_new, '新建标签', 'setToolTip')
         bind_text(self.btn_new, '新建标签', 'setAccessibleName')
         self.btn_new.setFixedSize(m.action_extent, m.action_extent)

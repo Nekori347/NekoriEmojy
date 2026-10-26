@@ -54,7 +54,7 @@ class SortCycleButton(QToolButton):
         from fluent_ui.icons import Icon
         label = {SortProjection.MANUAL: '手动顺序', SortProjection.A_Z: '名称 A→Z', SortProjection.Z_A: '名称 Z→A'}[self.mode]
         self.setText('')
-        self.setIcon({SortProjection.MANUAL: Icon.SORT, SortProjection.A_Z: Icon.SORT_ASC, SortProjection.Z_A: Icon.SORT_DESC}[self.mode].icon())
+        self.setIcon({SortProjection.MANUAL: Icon.MANUAL_ORDER, SortProjection.A_Z: Icon.SORT_ASC, SortProjection.Z_A: Icon.SORT_DESC}[self.mode].icon())
         self.setIconSize(QSize(16,16))
         self.setFixedWidth(visual.COMPACT_CONTROLS.action_extent)
         self.setToolTip(f'{t(self.title)} · {t(label)}\n{t("临时显示排序，不改动手动顺序")}')

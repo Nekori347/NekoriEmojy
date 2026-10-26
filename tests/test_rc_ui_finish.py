@@ -33,12 +33,12 @@ def test_selected_decoration_is_inside_card_frame(surface,size):
     c.set_selected(True)
     image=c.grab().toImage();scale=image.devicePixelRatio();accent=QColor(visual.accent())
     def same(x,y):return image.pixelColor(round(x*scale),round(y*scale)).name()==accent.name()
-    rows=[y for y in range(3,12) if sum(same(x,y) for x in range(9,size-9))>=size-20]
+    rows=[y for y in range(3,12) if sum(same(x,y) for x in range(9,size-9))>=size*.5]
     assert rows and min(rows)>=5 and max(rows)<=7,rows
     y=rows[len(rows)//2]
     xs=[x for x in range(3,size-3) if same(x,y)]
     # Ignore the two vertical sides; the central segment has its own inset.
-    assert not same(4,y) and same(7,y) and same(size-8,y) and not same(size-5,y)
+    assert not same(int(size*.15),y) and same(int(size*.3),y) and same(int(size*.7),y) and not same(int(size*.85),y)
     assert abs((min(x for x in xs if x>4)+max(x for x in xs if x<size-5))/2-(size-1)/2)<=.5
     c.deleteLater()
 

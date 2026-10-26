@@ -16,7 +16,7 @@ from .surfaces import RuleHeading
 def build_sidebar(s):
     layout=QVBoxLayout(s);layout.setContentsMargins(2,4,2,4);layout.setSpacing(2)
     header=QWidget(s);top=QHBoxLayout(header);top.setContentsMargins(2,0,2,2);top.setSpacing(2)
-    s.btn_view_mode=TransparentToolButton(I.MENU,header);s.btn_view_mode.setFixedSize(24,24)
+    s.btn_view_mode=TransparentToolButton(I.TREE_VIEW,header);s.btn_view_mode.setFixedSize(24,24)
     s.btn_view_mode.clicked.connect(s.toggle_presentation);top.addWidget(s.btn_view_mode)
     s.btn_root=TransparentToolButton(header);s.btn_root.setCheckable(True);s.btn_root.setFixedHeight(36)
     s.btn_root.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Fixed)
@@ -28,7 +28,7 @@ def build_sidebar(s):
     for label in (s.root_label,s.root_count):label.setAttribute(Qt.WA_TransparentForMouseEvents)
     root.addWidget(s.root_label);root.addWidget(s.root_count)
     s.btn_root.clicked.connect(lambda:s.gallery_view.set_node(ROOT));top.addWidget(s.btn_root,1)
-    s.btn_new=TransparentToolButton(I.ADD,header);s.btn_new.setFixedSize(24,24)
+    s.btn_new=TransparentToolButton(I.NEW_CATEGORY,header);s.btn_new.setFixedSize(24,24)
     bind_text(s.btn_new,'在当前位置新建分类','setToolTip');s.btn_new.clicked.connect(lambda:s.create_node(s.gallery_view.current_node))
     s.btn_sort=SortCycleButton('分类显示排序',header);s.btn_sort.mode_changed.connect(lambda mode:s.set_display_sort(mode.display_mode))
     top.addWidget(s.btn_new);top.addWidget(s.btn_sort);layout.addWidget(header)

@@ -72,7 +72,7 @@ class ResourceSortIcon(FluentIconBase):
 
     def render(self, painter, rect, theme=Theme.AUTO, indexes=None, **attributes):
         from fluent_ui.icons import Icon
-        Icon.SORT.render(painter, rect, theme, **attributes)
+        Icon.MANUAL_ORDER.render(painter, rect, theme, **attributes)
 
 
 class ThemeModeIcon(FluentIconBase):

@@ -336,13 +336,13 @@ class EmojiCard(QLabel):
             p.drawLine(q.topLeft(),q.bottomRight());p.drawLine(q.topRight(),q.bottomLeft())
             p.setFont(visual.font('data'));p.drawText(image,Qt.AlignBottom|Qt.AlignHCenter,'MISSING')
         if self.is_selected or self._hovered:
-            p.setBrush(Qt.NoBrush);p.setPen(QPen(QColor(c['accent']),1 if self.is_selected else 2))
+            p.setBrush(Qt.NoBrush);p.setPen(QPen(QColor(c['accent']),2 if self._hovered else 1.5))
             selection=r.adjusted(1,1,-1,-1)
             p.drawRoundedRect(selection,9,9)
             if self.is_selected:
                 p.setPen(QPen(QColor(c['accent']),2))
-                p.drawLine(QPointF(selection.left()+5,selection.top()+4),
-                           QPointF(selection.right()-5,selection.top()+4))
+                p.drawLine(QPointF(selection.left()+selection.width()*.22,selection.top()+4),
+                           QPointF(selection.right()-selection.width()*.22,selection.top()+4))
 
     def needs_reload(self, target_size):
         target_img_size = max(10, target_size - 8)

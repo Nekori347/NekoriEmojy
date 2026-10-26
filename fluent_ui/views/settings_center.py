@@ -74,6 +74,7 @@ class SettingsCenter(QWidget):
         footer=DecisionBar(self);footer.setObjectName('SettingsFooter')
         preview=QWidget(footer);preview_layout=QHBoxLayout(preview);preview_layout.setContentsMargins(0,0,0,0);preview_layout.setSpacing(6)
         self.preview_switch=translated(PushButton,'实时预览',preview);self.preview_switch.setCheckable(True);self.preview_switch.setChecked(self.preview_enabled)
+        self.preview_switch.setProperty('outline_toggle', True);self.preview_switch.setFixedHeight(32);self.preview_switch.setIconSize(QSize(16,16))
         from fluent_ui.icons import Icon
         self.preview_switch.setIcon(Icon.EYE if self.preview_enabled else Icon.EYE_OFF)
         self.preview_switch.toggled.connect(self._on_preview_toggled)
