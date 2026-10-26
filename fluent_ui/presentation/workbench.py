@@ -29,12 +29,13 @@ class HeadingBand(QWidget):
         if not rail or not rail.isVisible():return
         # The original grey rule remains in the header. Use the free band
         # immediately below it, without moving the title/search or growing it.
-        width=max(0,rail.width()-24)*.618
-        segment=max(0,(width-8)/3)
+        width=max(0,rail.width()-rail.axis_left)*.618
+        gap=width*.04
+        segment=(width-2*gap)/3
         p=QPainter(self);p.setPen(Qt.NoPen)
         for index,color in enumerate(('#DF52AC','#FFF500','#00E5FF')):
             p.setBrush(QColor(color))
-            p.drawRect(QRectF(rail.x()+24+index*(segment+4),rail.y()+rail.height()+2,segment,2))
+            p.drawRect(QRectF(rail.x()+rail.axis_left+index*(segment+gap),rail.y()+rail.height()+2,segment,2))
 
     def resizeEvent(self,event):
         super().resizeEvent(event)

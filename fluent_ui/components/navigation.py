@@ -73,6 +73,7 @@ class HierarchyLocationHeader(QWidget):
     animation never modify Gallery state or create native child windows.
     """
     navigate_requested = Signal(str)
+    axis_left = 2  # Existing horizontal scrub ticks, shared with the lower rule.
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -276,9 +277,9 @@ class HierarchyLocationHeader(QWidget):
             color = QColor(c['border'])
             color.setAlphaF(opacity)
             painter.setPen(QPen(color,1))
-            painter.drawLine(2,int(y),length,int(y))
+            painter.drawLine(self.axis_left,int(y),length,int(y))
         painter.setPen(QPen(QColor(c['border']),1))
-        painter.drawLine(24,self.height()-1,self.width(),self.height()-1)
+        painter.drawLine(self.axis_left,self.height()-1,self.width(),self.height()-1)
 
     def mousePressEvent(self, event):
         if event.button() != Qt.LeftButton or not self.path:

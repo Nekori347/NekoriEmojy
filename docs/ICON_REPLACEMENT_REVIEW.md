@@ -9,11 +9,13 @@
 | UI-A 图标 | icons.py沿原QSvgRenderer/主题色缓存加入局部语义图标；sidebar/workbench/SortCycleButton/ResourceSortIcon/TagPanel/资源右键仅更新批准绑定。剪贴板主操作保留ClipboardImportIcon；不更改通用ADD/MENU/SORT、字母排序或闲置排序菜单。树模式仅该入口用2.25描边，按钮尺寸不变；新分类整体镜像，sticker保留原版填充轮廓。 |
 | UI-A 设置 | 实时预览与更多移入同一现有导航底部行，均32px高。ButtonPaint只为该开关提供透明中性轮廓及开/关对比度；沿原Hover/Pressed/键盘输入来源，不新增状态事实源。眼睛/闭眼、保存/放弃及实时预览语义不变。 |
 | UI-A 卡片 | 既有is_selected/_hovered为输入：Selected单轮廓1.5px、Hover优先2px，顶部线保持原方向位置、收敛至约56%宽度。没有修改选择集合、发送/Enter、拖放或卡片绑定/缩略图。原视觉回归断言仅按新批准线长更新，居中/内缩/不越界保护保留。 |
-| UI-B 双层线 | HeadingBand在既有Hierarchy灰线下的空白绘制三色等长段，总长含两个4px间隙约为灰线0.618；垂直净距2px、色线2px。灰线和标题/搜索几何原样保留，没有改应用身份线。 |
+| UI-B 双层线 | HeadingBand在Hierarchy灰线下绘制三色等长段，总长含两个间隙为灰线0.618；垂直净距2px、色线2px。按维护者最后澄清，灰线右端/高度不变，左端延至标题前横向刻度线的既有左端（axis_left=2）；三色组同起点，内部两间隙各取组宽4%，段长与间隙均随新总长同步。标题/搜索和应用身份线不变。 |
 | UI-B 工作区 | Gallery专用ContentPane中性轮廓1.4px、圆角不变，包围资源和四向Tag Dock整体。Settings等其它ContentPane不随之加重。 |
 | UI-B 开放连接 | AttachedTabRow单独拥有整行基线，按Qt真实tabRect/scroll-button裁剪及工具组矩形分段；TabStrip保留耳朵轮廓与原位呼出，仅让出Gallery基线，未以实心矩形遮线。WorkspaceTools只画一套静态透明开底轮廓，无组级Hover/Checked/动画；内留白容纳原历史26px及滑块28px命中/高亮，组高38px仍在原43px标签行内。 |
 
 Tab几何变化、滚动、隐藏/显示及Qt tabLayoutChange触发行级局部更新，不执行SQL、全库投影、卡片重建或持续采样；没有修改任何Windows宿主代码。实际图标资源与固定上游版本、衍生关系及许可证统一记录在 THIRD_PARTY_NOTICES.md 和既有 assets/icons 许可位置，没有运行时网络依赖或新图标库。
+
+补充规格以维护者最新澄清为准：**保持右端不变，延长左端对齐标题前横向刻度轴**，取代前条“保持左端、向末端延长”的表述。不是把整组线平移；灰线左端24→2，右端保持rail.width()，三色重新按增加后的总长计算。新增长度/起点/比例检查及相邻工具栏用例2项通过。
 
 ## UI-C 的实际阻碍
 

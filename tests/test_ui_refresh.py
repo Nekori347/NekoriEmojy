@@ -120,9 +120,11 @@ def test_title_double_rule_and_dock_nonoverlap(surface):
             assert xs
             spans.append((min(xs),max(xs)))
         assert max(b-a for a,b in spans)-min(b-a for a,b in spans)<=1
-        assert abs((spans[-1][1]+1-spans[0][0])/(rail.width()-24)-.618)<.02
-        assert spans[0][0]==rail.x()+24
-        assert all(3<=spans[i+1][0]-spans[i][1]-1<=5 for i in (0,1))
+        assert abs((spans[-1][1]+1-spans[0][0])/(rail.width()-rail.axis_left)-.618)<.02
+        assert spans[0][0]==rail.x()+rail.axis_left
+        expected_gap=(rail.width()-rail.axis_left)*.618*.04
+        assert all(abs((spans[i+1][0]-spans[i][1]-1)-expected_gap)<=2 for i in (0,1))
+        assert rail.axis_left==2 and y==rail.y()+rail.height()+2
     host=g.tag_panel_host
     # Establish UI-C feasibility using the actual four-way split allocation.
     for placement in ('top','bottom','left','right'):
