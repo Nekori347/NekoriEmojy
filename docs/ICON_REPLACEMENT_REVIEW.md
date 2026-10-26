@@ -1,3 +1,41 @@
+# 发布后局部 UI 实施（2026-10-26）
+
+基线3989346 / dev/post-0.2.1。本轮按维护者新附件批准的固定图标及UI合同实施，**UI-A `d9f98d9`、UI-B `f7afc8b` 已实现/机器验证/待人工视觉与操作验收；UI-C未实现，保留待产品决策**。不Push/打包/发布，不继续W-02调查。
+
+## 实际交付
+
+| 工作包 | 实现及责任层 |
+|---|---|
+| UI-A 图标 | icons.py沿原QSvgRenderer/主题色缓存加入局部语义图标；sidebar/workbench/SortCycleButton/ResourceSortIcon/TagPanel/资源右键仅更新批准绑定。剪贴板主操作保留ClipboardImportIcon；不更改通用ADD/MENU/SORT、字母排序或闲置排序菜单。树模式仅该入口用2.25描边，按钮尺寸不变；新分类整体镜像，sticker保留原版填充轮廓。 |
+| UI-A 设置 | 实时预览与更多移入同一现有导航底部行，均32px高。ButtonPaint只为该开关提供透明中性轮廓及开/关对比度；沿原Hover/Pressed/键盘输入来源，不新增状态事实源。眼睛/闭眼、保存/放弃及实时预览语义不变。 |
+| UI-A 卡片 | 既有is_selected/_hovered为输入：Selected单轮廓1.5px、Hover优先2px，顶部线保持原方向位置、收敛至约56%宽度。没有修改选择集合、发送/Enter、拖放或卡片绑定/缩略图。原视觉回归断言仅按新批准线长更新，居中/内缩/不越界保护保留。 |
+| UI-B 双层线 | HeadingBand在既有Hierarchy灰线下的空白绘制三色等长段，总长含两个4px间隙约为灰线0.618；垂直净距2px、色线2px。灰线和标题/搜索几何原样保留，没有改应用身份线。 |
+| UI-B 工作区 | Gallery专用ContentPane中性轮廓1.4px、圆角不变，包围资源和四向Tag Dock整体。Settings等其它ContentPane不随之加重。 |
+| UI-B 开放连接 | AttachedTabRow单独拥有整行基线，按Qt真实tabRect/scroll-button裁剪及工具组矩形分段；TabStrip保留耳朵轮廓与原位呼出，仅让出Gallery基线，未以实心矩形遮线。WorkspaceTools只画一套静态透明开底轮廓，无组级Hover/Checked/动画；内留白容纳原历史26px及滑块28px命中/高亮，组高38px仍在原43px标签行内。 |
+
+Tab几何变化、滚动、隐藏/显示及Qt tabLayoutChange触发行级局部更新，不执行SQL、全库投影、卡片重建或持续采样；没有修改任何Windows宿主代码。实际图标资源与固定上游版本、衍生关系及许可证统一记录在 THIRD_PARTY_NOTICES.md 和既有 assets/icons 许可位置，没有运行时网络依赖或新图标库。
+
+## UI-C 的实际阻碍
+
+`TagPanelHost.set_placement()`将同一个TagPanel与图库workspace插入QSplitter两个互斥区域，`apply_extent()`将空间分配给二者。TOP/BOTTOM/LEFT/RIGHT展开时，两区域实际几何均**不重叠**；TagPanel当前在自身区域绘制surface_alt，图库不在它后面。关掉该底色或加Alpha只能看到父表面，不能看到表情。
+
+Win11原生Qt样本与四向控件测试均核对非重叠。没有既有图像合成层可直接复用；要真正透图至少需要批准改变重叠/空间分配合同，或另一种明确的背景呈现方案。按附件8.2，本轮不擅自决定，也不交付伪透明、不加滚动截图/模糊/后台采样。因此 **UI-C暂无源码提交**，原Tag四向折叠/ResizeHandle/记忆及固定预览边界保持。待指导AI确认这一实际约束后再安排。
+
+## 验证与限制
+
+- UI-A及相邻组合22项：首次21通过，既有正常呼出动画用例在固定340ms等待时仍在回弹帧而失败；单独复核该用例通过。没有改动画时长、关键帧或用延时业务补偿使其通过；保留此次时序敏感性记录。
+- UI-B：tab_toolbar_layout + tab_overflow + shared_interaction_lifecycle **20项通过**；包括关闭动效静态终态、原位向上中间帧、滚轮不切换、翻页和Hover清理。
+- test_ui_refresh **5项通过**：14/16/18/20px实际SVG渲染与刷新绑定、同级设置几何/透明Checked底面、Hover优先单轮廓、真实分段不绘制区域/窄窗、三色像素比例及四向非重叠证明。
+- unified_selection + category_tab_drop + tag_panel_collapse + virtual_gallery + external_drag **44项通过**，保护混排/菜单取消与合法目标、四向折叠及尺寸记忆、renderer复用/身份、外拖独立副本。上述组有交叉，不相加冒充独立总数；Qt模拟不等于新一轮Windows OLE/真实聊天客户端验收。
+- Win11原生Qt独立MainWindow/Settings窗口生成样本：深浅主题、1180/860px主窗口、预览开/关及四向Dock截图已实际查看；设置两控件顶部/高度相同，工具组安全留白和断点可见，四向无重叠。截图/数据仅保留私有DevData/ui-refresh，未读取真实Library。
+- 隔离启动冒烟NEKORI_STARTUP_OK；release_layout清单 **2项通过**，新增SVG/许可沿原资源清单收集。未构建发行包，不称实际载荷已验收。
+
+本轮未重跑W-02连续缩放/八方向研究、全量安全或性能套件。Win10/混合DPI/高DPI真实桌面、全聊天客户端未验证；图标重量、灰框/三色线及设置对比度仍由维护者最终体验。#9持续Open并暂停主动调查，#60既有结论保留。固定Demo持续数据按前后完整表行核对，不按历史数量回填；七处W01实验不暂存，W03未启用。
+
+---
+
+## 以下为阶段A历史记录（当时尚未批准实装，不代表当前状态）
+
 # 图标替换：阶段 A 视觉确认
 
 2026-10-25 · 核对基线 `48254b1` / `dev/post-0.2.1`。**仅准备候选与对照图，未替换运行图标，等待维护者确认。**
