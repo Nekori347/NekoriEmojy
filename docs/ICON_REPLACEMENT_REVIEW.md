@@ -1,3 +1,22 @@
+# UI-B边框及共享滑条定向修正（2026-10-26）
+
+基线4c420ec，源码 **b9afec9**。仅修改 `components/navigation.py`、`components/softframe.py` 及两份相关测试。已实现/机器验证/待维护者视觉验收，不Push/打包/发布；图标/三色线、UI-C和窗口宿主未改。
+
+- **工具组左下**：原WorkspaceTools路径直接从底部垂直上行，没有耳朵下部外展圆角。现与活动Tab复用真实 `open_ear_path`，在AttachedTabRow内绘制，可超出工具容器左界完成曲线；内部控件及工具容器几何不变。容器仍是无填充静态布局，无组级Hover/动画/选中。
+- **顶部重叠**：原行基线y=h−0.7、Tab路径y=h−0.5，且分别由父行/子Tab/工具容器绘制，连接点存在不同像素基准及重叠端帽。Gallery的AttachedTabRow现统一拥有基线、两种耳朵表面/轮廓，用同一y/1.4px/FlatCap与真实分段区间；Tab只继续画文字、Hover和原位呼出线。Settings/独立Tab原绘制不改。不是以背景块遮盖边线。
+- **左右下角**：原ContentPane将同一圆角转为整数QRegion，切掉自身轮廓部分覆盖像素。实际控件“带Mask/移除Mask”像素对照先失败；Gallery专用Mask现为已有曲线留一个逻辑像素抗锯齿余量，并限制在原widget矩形内，绘制路径/圆角/布局均不变。没有新增覆盖层、边框或改顶层窗口Region；TagPanelHost未修改。
+- **共享滑条**：原hasFocus无条件画强调圈，所以鼠标点击后焦点不走即持续高亮；自有拖动、Hover还需在释放/失去捕获/隐藏后校准。SoftframeSlider复用 `focus_input()`、`pointer_hits()`，键盘来源才画焦点圈；鼠标焦点仍保留。释放/失活/禁用/隐藏清理临时拖动，并按实际柄命中恢复Hover或Normal，数值/track/page/keyboard/tracking/wheel原语义不变。统一覆盖主图库缩略图、Settings RangeRow、AccentPicker HSV/RGB、缩略帧对话框、Similarity阈值等现有调用者，不逐入口打补丁。
+
+**验证**：三个最小用例先失败后转绿（鼠标焦点图像、工具左下曲线、左右下角抗锯齿裁剪）。定向组合30项通过（新滑条H/V释放/捕获/数值、UI刷新、Tab动画/翻页/工具、#60生命周期）；相邻17项通过（原ContentPane裁剪、设置滚轮/色彩保存取消、虚拟图库与标签拖放）；补验8项通过（新用例复核与实际缩略图柄拖动端点、轨道点击、配置值及端点边缘），组间有交叉。隔离启动输出NEKORI_STARTUP_OK。
+
+Win11实际Qt窗口深浅、1180/860px前后画面及下角放大图已查看，私有生成证据在DevData/ui-refresh/details-*与corners-*。这些是Qt窗口渲染和自动输入，不冒称全系统鼠标拖动/其它DPI/Win10或人工最终验收。一次测试错误地以普通QEvent构造HoverLeave导致原生事件强制转换崩溃；已改为正确QHoverEvent，未加业务绕过或将该脚本错误归入旧崩溃Issue。
+
+七处W01实验保持，W03不启用，#9继续Open并暂停调查；#57/T06/T07/原Library与正式版不动。固定Demo重启前后以完整业务表/行序对照，记录于CURRENT。#24/#60/#37同步并保持Open；不新增Issue或改变追踪总数。细节仍待维护者实际视觉体验。
+
+---
+
+## 以下为前轮UI交付记录
+
 # 发布后局部 UI 实施（2026-10-26）
 
 基线3989346 / dev/post-0.2.1。本轮按维护者新附件批准的固定图标及UI合同实施，**UI-A `d9f98d9`、UI-B `f7afc8b` 已实现/机器验证/待人工视觉与操作验收；UI-C未实现，保留待产品决策**。不Push/打包/发布，不继续W-02调查。
