@@ -59,6 +59,8 @@ config=ConfigService()
 if not config.config_existed:
     config.config.update(language='zh',ocr_auto=False,always_on_top=True,thumbnail_size=80,gallery_click_action='select')
 i18n_engine.init(config);visual.theme.configure(config)
+from fluent_ui.components.tooltip import install_global_tooltips
+install_global_tooltips(app,int(config.get('tooltip_delay',120)))
 storage=StorageService(config=config)
 seeded=DATA/'seeded.json'
 def find(name):return next((n['id'] for n in storage.index.nodes() if n['name']==name),None)
