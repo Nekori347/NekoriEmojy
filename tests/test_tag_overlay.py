@@ -28,7 +28,7 @@ def test_overlay_keeps_gallery_and_scrollbar_geometry(surface,placement):
     h.set_placement(placement);h.set_expanded(True,persist=False);settle(surface.app)
     rect=QRect(vp.mapFromGlobal(h.panel.mapToGlobal(QPoint())),h.panel.size())
     assert vp.rect().contains(rect)
-    assert h.panel.btn_collapse.parentWidget() is h.panel.header
+    assert h.panel.btn_collapse.parentWidget() is (h.panel.header if h.horizontal else h.panel)
     assert h.panel.header.height()==30
     available=h.available_rect(vp);assert not available.intersects(rect)
     point=available.center();hit=g.childAt(g.mapFromGlobal(vp.mapToGlobal(point)))

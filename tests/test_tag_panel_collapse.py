@@ -76,7 +76,7 @@ def test_collapse_changes_only_overlay_extent_and_restores_it(scene):
     host.set_expanded(False)
     settle(app)
     assert not host.expanded and panel.collapsed
-    assert not panel.index_body.isVisible()
+    assert not panel.flow_area.isVisible() and panel.header.isVisible()
     assert extent_of(host, panel) == panel.collapsed_extent()
     assert content_extent(host) == content_before
     # The user's extent is remembered, not replaced by the collapsed one.
@@ -110,8 +110,11 @@ def test_bottom_expansion_does_not_jump_to_target_before_animation(scene, monkey
     monkeypatch.setattr(host.splitter, 'setSizes', trace)
     monkeypatch.setattr(QApplication, 'platformName', staticmethod(lambda: 'windows'))
     host.set_expanded(True)
+    # Configuration signals are deliberately blocked now. Check the actual
+    # initial geometry, rather than requiring a redundant setSizes(start).
+    assert extent_of(host,panel)==start
     QTest.qWait(visual.MOTION.expand + 70)
-    assert observed and observed[0] <= start + 1
+    assert observed and observed[0] < config.get('tag_panel_horizontal_extent')
     assert observed == sorted(observed)
     assert extent_of(host, panel) == config.get('tag_panel_horizontal_extent')
 
@@ -152,22 +155,22 @@ def test_header_chevron_and_whole_collapsed_rail_action(scene, placement):
     QTest.mouseClick(panel.btn_collapse,Qt.LeftButton)
     settle(app)
     assert not host.expanded and panel.chrome.isVisible()
-    assert not panel.header.isVisible() and not panel.index_body.isVisible()
-    assert panel.chrome.geometry() == panel.rect()
+    assert panel.header.isVisible() and not panel.flow_area.isVisible()
+    assert panel.rect().contains(panel.chrome.geometry())
     assert panel.chrome.toolTip() == panel.chrome.accessibleName() == '展开标签'
     # Far end of the rail, nowhere near the painted icon.
     QTest.mouseClick(panel.chrome, Qt.LeftButton, pos=panel.chrome.rect().bottomRight()-QPoint(1, 1))
     settle(app)
     assert host.expanded
-    assert panel.btn_collapse.parentWidget() is panel.header
+    assert panel.btn_collapse.parentWidget() is (panel.header if host.horizontal else panel)
 
 
-def test_collapsed_thickness_uses_theme_chrome_metrics_not_expanded_header(scene, monkeypatch):
-    """The strip must not inherit thickness from its own header content."""
+def test_collapsed_horizontal_header_keeps_fixed_height_not_content_hint(scene, monkeypatch):
+    """The approved fixed title must not stretch with its drawer or sizeHint."""
     from PySide6.QtCore import QSize
     from fluent_ui import visual
     app, window, host, panel, content, config, model = scene
-    token = visual.TAG_COLLAPSED_METRICS.extent
+    token = 30
     assert panel.height() == 154 > token
 
     # A header that would be enormous if it were measured changes nothing.
@@ -221,7 +224,7 @@ def test_compact_chrome_fits_and_index_stays_on_outer_edge(scene, placement):
     assert (panel.index_view.height() if host.horizontal else panel.index_view.width()) == visual.SECTION_INDEX_COMPACT_EXTENT
     host.set_expanded(False)
     settle(app)
-    assert panel.chrome.geometry() == panel.rect()
+    assert panel.rect().contains(panel.chrome.geometry())
     assert not panel.title_label.isVisible() and not panel.count_label.isVisible()
     assert not panel.btn_sort.isVisible() and not panel.btn_new.isVisible()
     assert not host.splitter.handle(1).isEnabled()
@@ -315,7 +318,7 @@ def test_collapsed_state_survives_a_cold_start(scene):
     settle(app)
     try:
         assert not fresh_host.expanded and fresh_panel.collapsed
-        assert not fresh_panel.index_body.isVisible()
+        assert not fresh_panel.flow_area.isVisible() and fresh_panel.header.isVisible()
         assert extent_of(fresh_host, fresh_panel) == collapsed_extent
         fresh_host.set_expanded(True)
         settle(app)

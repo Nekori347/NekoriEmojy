@@ -433,7 +433,6 @@ class TagPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         self.chrome = EdgeDockPanelChrome(self)
-        layout.addWidget(self.chrome, 1)
         self.expanded_body = QWidget(self)
         expanded_layout = QVBoxLayout(self.expanded_body)
         expanded_layout.setContentsMargins(2,0,2,0)
@@ -455,23 +454,26 @@ class TagPanel(QWidget):
         title.setStyleSheet('padding: 0px;')
         title.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         row.addWidget(title, 1)
-        self.count_label = QLabel('', header)
+        self.btn_collapse=EdgeDockPanelChrome(self,expanded=True)
+        self.btn_collapse.setFixedSize(76,24);row.addWidget(self.btn_collapse)
+        self.header_actions=QWidget(header)
+        actions=QHBoxLayout(self.header_actions);actions.setContentsMargins(0,0,0,0);actions.setSpacing(m.spacing)
+        self.count_label = QLabel('', self.header_actions)
         self.count_label.setProperty('role', 'data')
-        row.addWidget(self.count_label)
+        actions.addStretch(1);actions.addWidget(self.count_label)
         # The same three-state control the sidebar and the gallery use, so
         # clicking cycles MANUAL -> A_Z -> Z_A -> MANUAL with one shared rule.
         self.btn_sort = SortCycleButton('标签显示排序', header)
         self.btn_sort.set_mode(self.sort_mode)
         self.btn_sort.mode_changed.connect(self._on_sort_cycled)
-        row.addWidget(self.btn_sort)
-        self.btn_collapse=EdgeDockPanelChrome(self,expanded=True)
-        self.btn_collapse.setFixedSize(24,24);row.addWidget(self.btn_collapse)
         self.btn_new = TransparentToolButton(FIF.NEW_TAG, header)
         bind_text(self.btn_new, '新建标签', 'setToolTip')
         bind_text(self.btn_new, '新建标签', 'setAccessibleName')
         self.btn_new.setFixedSize(m.action_extent, m.action_extent)
         self.btn_new.setIconSize(QSize(m.icon, m.icon))
         self.btn_new.clicked.connect(lambda: self.create_tag())
+        actions.addWidget(self.btn_new);actions.addWidget(self.btn_sort)
+        row.addWidget(self.header_actions,1)
 
         expanded_layout.addWidget(header)
 
@@ -495,7 +497,6 @@ class TagPanel(QWidget):
         self.axis_strip=QWidget(self.expanded_body)
         self.axis_layout=QBoxLayout(QBoxLayout.TopToBottom,self.axis_strip)
         self.axis_layout.setContentsMargins(0,0,0,0);self.axis_layout.setSpacing(0)
-        self.btn_new.setParent(self.axis_strip);self.axis_layout.addWidget(self.btn_new)
         self.axis_layout.addWidget(self.index_view);self.axis_layout.addStretch(1)
         self.flow_area=QWidget(self.expanded_body)
         self.index_layout=QBoxLayout(QBoxLayout.LeftToRight,self.flow_area)
@@ -523,8 +524,8 @@ class TagPanel(QWidget):
 
     # -- collapsed presentation ----------------------------------------
     def collapsed_extent(self):
-        """Theme chrome metrics determine thickness, independently of content."""
-        return self.collapsed_metrics.extent
+        """Keep the horizontal title fixed; side rails use compact metrics."""
+        return max(30,self.collapsed_metrics.extent) if self._collapsed_horizontal else self.collapsed_metrics.extent
 
     def set_collapsed(self, collapsed, horizontal=None, *, transitioning=False):
         """Host-fed presentation only; all collapsed edges share one rail."""
@@ -536,7 +537,13 @@ class TagPanel(QWidget):
         self._transitioning = transitioning
         self._collapsed_ready = True
         self.chrome.setVisible(collapsed)
-        self.index_body.setVisible(not collapsed)
+        # The title has its own fixed coordinates. Only the content drawer is
+        # clipped by the changing panel extent; it stays painted in flight.
+        self.index_body.setVisible(True)
+        self.flow_area.setVisible(not collapsed or transitioning)
+        self.title_label.setVisible(not collapsed)
+        self.header_actions.setVisible(not collapsed)
+        self.btn_collapse.setVisible(not collapsed)
         if transitioning:
             # Keep the current dock extent legal until the host animates it.
             extent = self.collapsed_extent()
@@ -556,20 +563,34 @@ class TagPanel(QWidget):
             self.setMinimumSize(110, 84)
             self.setMaximumSize(self.UNBOUNDED, self.UNBOUNDED)
         self._fit_collapsed_identity()
+        self._place_chrome()
         self.updateGeometry()
 
     def _fit_collapsed_identity(self):
         """Counts yield before command targets or the title; never grow chrome."""
-        available = self.header.width() - (self.btn_sort.width() + self.btn_collapse.width()
-                    + self.title_label.sizeHint().width() + 5*visual.COMPACT_CONTROLS.spacing)
-        self.count_label.setVisible(available >= self.count_label.sizeHint().width())
+        m=visual.COMPACT_CONTROLS
+        available=((self.header.width()-self.btn_collapse.width()-14-2*m.spacing)//2
+                   if self._collapsed_horizontal else self.header.width()-14-24-m.spacing)
+        self.count_label.setVisible(available >= self.btn_new.width()+self.btn_sort.width()+self.count_label.sizeHint().width()+2*m.spacing)
         self.title_label.setToolTip(t('标签'))
         self.title_label.setAccessibleName(t('标签'))
+
+    def _place_chrome(self):
+        if not hasattr(self,'header_actions'):return
+        if self._collapsed_horizontal:
+            self.chrome.setGeometry(QRect(self.header.mapTo(self,QPoint()),self.header.size()))
+        else:
+            extent=self.collapsed_extent()
+            self.chrome.setGeometry(0 if self._placement.leading else self.width()-extent,0,extent,self.height())
+            self.btn_collapse.setGeometry(self.width()-24 if self._placement.leading else 0,
+                                          max(30,(self.height()-76)//2),24,76)
+        self.chrome.raise_();self.btn_collapse.raise_()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if self._collapsed_ready:
             self._fit_collapsed_identity()
+            self._place_chrome()
 
     def eventFilter(self, watched, event):
         scroll_area = self.__dict__.get('scroll')
@@ -588,6 +609,7 @@ class TagPanel(QWidget):
 
         if watched is self.header and event.type() == QEvent.Resize and self._collapsed_ready:
             self._fit_collapsed_identity()
+            self._place_chrome()
         return super().eventFilter(watched, event)
 
     def set_panel_placement(self, placement):
@@ -604,6 +626,7 @@ class TagPanel(QWidget):
         self.flow.set_items(projection.items, selected)
         self.index_view.set_model(SectionIndexModel(projection))
         self.index_view.setVisible(self.sort_mode != SortProjection.MANUAL)
+        self.axis_strip.setVisible(self.sort_mode != SortProjection.MANUAL)
         self._refresh_header()
 
     def apply_placement_axis(self, horizontal):
@@ -623,19 +646,26 @@ class TagPanel(QWidget):
             (QBoxLayout.BottomToTop if self._placement.leading else QBoxLayout.TopToBottom)
             if horizontal else (QBoxLayout.RightToLeft if self._placement.leading else QBoxLayout.LeftToRight))
         self.index_view.set_orientation(Qt.Horizontal if horizontal else Qt.Vertical)
-        self.axis_layout.removeWidget(self.index_view);self.axis_layout.removeWidget(self.btn_new)
+        self.axis_layout.removeWidget(self.index_view)
         self.axis_layout.setDirection(QBoxLayout.LeftToRight if horizontal else QBoxLayout.TopToBottom)
         extent=visual.SECTION_INDEX_COMPACT_EXTENT
         self.axis_strip.setMinimumSize(0,0);self.axis_strip.setMaximumSize(self.UNBOUNDED,self.UNBOUNDED)
-        self.btn_new.setFixedSize(extent,extent)
         if horizontal:
             self.axis_strip.setFixedHeight(extent)
-            self.axis_layout.insertWidget(0,self.index_view);self.axis_layout.addWidget(self.btn_new)
+            self.axis_layout.insertWidget(0,self.index_view)
         else:
             self.axis_strip.setFixedWidth(extent)
-            self.axis_layout.insertWidget(0,self.btn_new);self.axis_layout.insertWidget(1,self.index_view)
+            self.axis_layout.insertWidget(0,self.index_view)
         self.axis_layout.setAlignment(self.index_view,Qt.AlignLeft|Qt.AlignVCenter if horizontal else Qt.AlignTop|Qt.AlignHCenter)
-        self.axis_layout.setAlignment(self.btn_new,Qt.AlignVCenter if horizontal else Qt.AlignTop|Qt.AlignHCenter)
+        self.header_row.removeWidget(self.btn_collapse)
+        self.btn_collapse.setParent(self.header if horizontal else self)
+        self.btn_collapse.setFixedSize(76,24) if horizontal else self.btn_collapse.setFixedSize(24,76)
+        if horizontal:self.header_row.insertWidget(1,self.btn_collapse)
+        self.header_row.setStretchFactor(self.header_actions,1 if horizontal else 0)
+        self.expanded_body.layout().setContentsMargins(26 if not horizontal and not self._placement.leading else 2,0,
+                                                      26 if not horizontal and self._placement.leading else 2,0)
+        self.btn_collapse.setVisible(not self.collapsed)
+        self._place_chrome()
 
     def _show_position_menu(self,pos):
         menu=SafeRoundMenu(parent=self)
@@ -688,8 +718,6 @@ class TagPanel(QWidget):
         palette = visual.colors()
         painter.setPen(Qt.NoPen)
         material=QColor(palette['surface_overlay'])
-        if self.collapsed:
-            material.setAlpha(210);painter.fillRect(self.rect(),material);return
         title_y=self.header.mapTo(self,QPoint()).y()+self.header.height()
         material.setAlpha(175);painter.fillRect(QRect(0,title_y,self.width(),self.height()-title_y),material)
         material.setAlpha(210);painter.fillRect(QRect(0,0,self.width(),title_y),material)

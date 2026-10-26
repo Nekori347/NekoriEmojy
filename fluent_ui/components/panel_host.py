@@ -1,6 +1,6 @@
 """A movable panel and the shared thin-line / wide-hit-target splitter."""
 from enum import Enum
-from PySide6.QtCore import Qt, QEvent, QRect, QRectF, QPoint, QPointF, QSize, Signal, QVariantAnimation, QAbstractAnimation
+from PySide6.QtCore import Qt, QEvent, QRect, QRectF, QPoint, QPointF, QSize, Signal, QSignalBlocker, QVariantAnimation, QAbstractAnimation
 from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath, QRegion
 from PySide6.QtWidgets import QAbstractButton, QApplication, QSplitter, QSplitterHandle, QVBoxLayout, QWidget, QSizePolicy
 from fluent_ui.icons import Icon as FIF
@@ -45,7 +45,7 @@ def paint_dock_chevron(painter, points, active=False):
 
 
 class EdgeDockPanelChrome(ButtonPaint, QAbstractButton):
-    """Collapsed identity: the entire available rail is one expand action."""
+    """One transparent linear action, with identity on the collapsed rail."""
     def __init__(self, panel, *, expanded=False):
         super().__init__(panel)
         self.expanded = expanded
@@ -73,33 +73,35 @@ class EdgeDockPanelChrome(ButtonPaint, QAbstractButton):
     def paintEvent(self, event):
         p = QPainter(self)
         c = visual.colors()
-        hovered = pointer_hits(self)
-        if hovered or self.isDown():
-            p.fillRect(self.rect(), QColor(c['surface_selected'] if self.isDown() else c['surface_hover']))
-        if self.expanded:
-            paint_dock_chevron(p,self.chevron_points(),hovered or self.isDown())
-            if self.keyboard_focus_visible():
-                p.setPen(QPen(QColor(c['accent']),1));p.setBrush(Qt.NoBrush)
-                p.drawRoundedRect(QRectF(self.rect()).adjusted(2.5,2.5,-2.5,-2.5),4,4)
-            return
-        side = self.panel.collapsed_metrics.icon_size
-        r = QRect(0, 0, side, side)
-        # Same identity and leading alignment on both axes.
-        inset = self.panel.collapsed_metrics.edge_padding
-        r.moveTo(inset if self.panel._collapsed_horizontal else (self.width()-side)//2,
-                 (self.height()-side)//2 if self.panel._collapsed_horizontal else inset)
-        FIF.TAG.render(p, r, fill=c['text_primary'])
-        flow = getattr(self.panel, 'flow', None)
-        if flow is not None and flow.active_filters:
-            p.setPen(QPen(QColor(c['accent']), 3, Qt.SolidLine, Qt.RoundCap))
-            if self.panel._collapsed_horizontal:
-                p.drawLine(r.left(),self.height()-4,r.right(),self.height()-4)
+        active = pointer_hits(self) or self.isDown() or self.keyboard_focus_visible()
+        p.setRenderHint(QPainter.Antialiasing)
+        points=self.chevron_points();center=self.rect().center()
+        path=QPainterPath(points[0])
+        for point in points[1:]:path.lineTo(point)
+        rules=QPainterPath()
+        # The original short rules rotate together with the directional mark.
+        for start,end in ((-28,-9),(9,28)):
+            if self.panel._placement.horizontal:
+                rules.moveTo(center.x()+start,center.y());rules.lineTo(center.x()+end,center.y())
             else:
-                p.drawLine(4,r.top(),4,r.bottom())
-        paint_dock_chevron(p, self.chevron_points(), hovered)
-        if self.keyboard_focus_visible():
-            p.setPen(QPen(QColor(c['accent']), visual.LINE_WIDTH))
-            p.drawRect(self.rect().adjusted(1, 1, -2, -2))
+                rules.moveTo(center.x(),center.y()+start);rules.lineTo(center.x(),center.y()+end)
+        color=QColor(c['accent' if active else 'text_secondary'])
+        if active:
+            glow=QColor(color);glow.setAlpha(52 if self.isDown() else 28)
+            p.setPen(QPen(glow,5 if self.isDown() else 4,Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin));p.drawPath(path);p.drawPath(rules)
+        p.setPen(QPen(color,visual.COMPACT_CONTROLS.chevron_stroke,Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin));p.drawPath(rules)
+        paint_dock_chevron(p,points,active)
+        if not self.expanded:
+            side=self.panel.collapsed_metrics.icon_size
+            r=QRect(0,0,side,side)
+            inset=self.panel.collapsed_metrics.edge_padding
+            r.moveTo(inset if self.panel._collapsed_horizontal else (self.width()-side)//2,
+                     (self.height()-side)//2 if self.panel._collapsed_horizontal else (30-side)//2)
+            FIF.TAG.render(p,r,fill=c['text_primary'])
+            flow=getattr(self.panel,'flow',None)
+            if flow is not None and flow.active_filters:
+                p.setPen(QPen(QColor(c['accent']),2,Qt.SolidLine,Qt.RoundCap))
+                p.drawLine(r.bottomLeft()+QPoint(0,2),r.bottomRight()+QPoint(0,2))
 
     def enterEvent(self, event):
         super().enterEvent(event)
@@ -230,7 +232,11 @@ class TagPanelHost(QWidget):
         if persist:self.config.set('tag_panel_expanded',expanded)
         target=self.apply_extent(resize=not animate)
         if animate and target is not None:
-            self._motion.setStartValue(start);self._motion.setEndValue(target);visual.start_animation(self._motion,visual.MOTION.expand)
+            # Reconfiguring a finished QVariantAnimation evaluates its old
+            # progress. Only a running transition may change drawer geometry.
+            with QSignalBlocker(self._motion):
+                self._motion.setStartValue(start);self._motion.setEndValue(target);self._motion.setCurrentTime(0)
+            visual.start_animation(self._motion,visual.MOTION.expand)
 
     def toggle_expanded(self):self.set_expanded(not self.expanded)
 
