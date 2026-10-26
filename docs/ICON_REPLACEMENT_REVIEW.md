@@ -1,4 +1,28 @@
-# 顶部耳朵连接规格纠正与两项半透明状态（2026-10-26）
+# Tag Panel四向前景覆盖与工具组底面（2026-10-26）
+
+接管ba338e1。工具组共享表面 **3e03fec**，Tag覆盖层 **29fa455**；已实现/机器验证/待维护者视觉与操作验收。不Push/构建/发布。**Tag Panel已真实透出图库；Relative Tabs半透明仍未实现**，二者分别记录。下方关于Tag非重叠阻碍的段落为前轮历史，本轮已获批准并替换该空间分配合同。
+
+## 绘制及交互责任
+
+- 原工具耳朵透明，但与ContentPane各自透出的父表面不同，导致常态色差。现在同一个语义`Surface('raised')`承载Tab行与资源工作区，Gallery ContentPane取消重复填充；工具组仍无独立填色/选中/动画/整体Hover。原轮廓所有权、真实圆角、内部线端点开口、下角AA均保留。
+- `TagPanelHost`保留一份全尺寸图库内容，在真实viewport内叠放同一个TagPanel。原QSplitter只保留面板与一个空白占位pane以复用Qt尺寸拖动；**splitter的mask仅包括实际Tag面板和ResizeHandle**，空白pane不绘制也不接收事件。四向共用计算，滚动条不在覆盖范围。展开、收起、调整覆盖厚度不更改图库viewport/网格宽度或滚动值。
+- 两轴尺寸配置沿用原键；窗口过小时临时钳制且保留图库可操作区域，不改写用户保存的期望厚度。收起条沿用原展开入口。收起按钮复用`EdgeDockPanelChrome`与ButtonPaint，置于原有30px标题栏内；不再由手柄承担收起命令，手柄仅负责尺寸操作。焦点来源和失去捕获清理仍生效。
+- `TagPanel`用同一`surface_overlay`色分区绘制：主体alpha175、标题alpha210；两区不重复叠色，没有模糊/截图/采样或第二份缩略图背景。像素用例实际改变下层EmojiCard的红/蓝图像，覆盖区合成像素同步改变；不是仅测Alpha参数。
+- Host仅在覆盖几何改变时发信号；Gallery基于真实剩余矩形定位回到顶部、拖放取消区、固定预览和Sticky。复用原Hover取消/命中校准、最深分类归属及push-off、折叠锚点，不另建模型/拖放状态。固定预览空间不足时沿现有隐藏语义结束预览；不会穿透面板触发底层卡片。回到顶部仍保护节点箭头，先寻找邻近空位。
+
+## 验证及边界
+
+- offscreen相邻组合 **101项通过**：tag_overlay/tag_panel_collapse/shared_interaction_lifecycle/ui_refresh/ui_border_slider/tab_overflow/tab_toolbar_layout/hover_preview/sticky_category/gallery_hover_geometry/category_tab_drop/virtual_gallery/unified_selection。另补Sticky覆盖避让及真实折叠锚点、Splitter键盘来源2项；失去捕获像素检查与wpb_drop/management_mode组合15项通过，组间有交叉，不累加虚报。
+- 新测试明确保留标签排序、过滤、选择、尺寸记忆与冷启动；原“展开时互斥分配空间”断言按本轮批准的新合同改为图库几何不变，Relative Tabs原非重叠断言不变。长图库先断言实际滚动范围，验证滚动条轨道、回到顶部点击、取消区和实际卡片身份/renderer数不变。
+- Win11 `windows`平台实际Qt窗口：浅/深 × TOP/BOTTOM/LEFT/RIGHT共8组展开/收起及手柄拖动成功，viewport均920×663；完成初始延迟准备后renderer.created保持114，展开/收起不增加卡片；窗口860px窄态核对通过。真实图像透出、标题/主体层级及工具共享底面已查看。输入为QTest真实控件事件，**不是全系统鼠标拖放/维护者最终验收**。
+- 初始原生探针在卡片队列未排空时拍基线，发现17个正常待建控件，不能归因于面板；改为先确认既有队列完成再对照，未修改renderer绕过。展开动画曾从最小展开厚度跳起，已纠正为从收起条厚度过渡；现有动画用例通过。冒烟脚本初次误用ConfigService.save，修正脚本调用既有update后通过，未改业务配置服务。
+- 独立配置/Library启动`main.py --smoke-test`输出NEKORI_STARTUP_OK；宿主模块明确加载已提交HEAD，不把W01实验当本轮成果。没有新增线程、网络、定时采样、缓存或全量Gallery刷新；T06/T07、W03候选、W02暂停状态不变。
+
+固定Demo仍使用唯一入口与持续数据，最终重启/七表完整行与行序核对记录见CURRENT。私人生成截图/探针留在DevData/ui-refresh，不进入提交。未验证Win10/混合DPI及实际聊天客户端；透明浓度、文字对比度与四向实际使用感受待维护者体验。Relative Tabs真实透图仍是独立未交付范围，本轮不扩展。
+
+---
+
+## 前轮历史：顶部耳朵连接规格纠正与两项半透明状态（2026-10-26）
 
 基线aa5850d；边框源码 **d3feb31**，已实现/机器验证/待维护者体验。此前把“开放”处理为耳朵下方整段不画线，规格不完整；本轮按维护者最终合同纠正：**外轮廓连续，耳朵与工作区之间有水平分割线，仅分割线两端开放**。下方旧记录的“开底/断点”仅保留历史，不再作为完整验收标准。
 
