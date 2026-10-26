@@ -205,7 +205,7 @@ class TGBatchPackageDialog(dialogs.OwnerCenteredDialog):
             message = ""
         self.table.item(row, 1).setText(t(labels[stage]))
         self.table.item(row, 2).setText(f"{done}/{total}" if total else "")
-        message = t(message)
+        message = str(message)
         self.table.item(row, 3).setText(message.replace("\n", " "))
         self.table.item(row, 3).setToolTip(message)
 
@@ -233,7 +233,7 @@ class TGBatchPackageDialog(dialogs.OwnerCenteredDialog):
                 if self.table.item(row, 1).text() not in (t("已完成"), t("失败"), t("已取消")):
                     self._progress(row, "failed", 0, 0, self.worker.error)
         else:
-            self.summary.setText(t("批量处理结束：成功 {success} 包，失败 {failed} 包，取消 {cancelled} 包。").format(
+            self.summary.setText(t("批量处理结束：已生成 {success} 个 ZIP，失败 {failed} 包，取消 {cancelled} 包；具体跳过项见各包详情。").format(
                 success=counts["done"], failed=counts["failed"], cancelled=counts["cancelled"],
             ))
         for widget in (self.links_edit, self.path_edit, self.browse_button, self.start_button, self.close_button):

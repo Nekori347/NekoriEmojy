@@ -2884,7 +2884,7 @@ class GalleryInterface(QWidget):
             elif state in {'interrupted','waiting_source','ocr_interrupted'}:
                 title=t('发现未完成导入任务');outcome='interrupted';done=request.done;total=request.total
                 summary=t(request.phase)
-                if state=='ocr_interrupted':title=t('发现未完成 OCR 任务');summary=t(job.get('error',''))
+                if state=='ocr_interrupted':title=t('发现未完成 OCR 任务');summary=str(job.get('error',''))
             elif state=='decision':
                 title=t('等待处理重复表情（{count}）').format(count=request.conflicts)
                 outcome='waiting';done=0;total=0
@@ -2929,7 +2929,7 @@ class GalleryInterface(QWidget):
             if state in {'interrupted','waiting_source'}:
                 title=t('发现未完成 OCR 任务');outcome='interrupted'
                 resume=lambda k=key:self._recovery_options(k,'ocr')
-                if job.get('error'):content+='\n'+t(job['error'])
+                if job.get('error'):content+='\n'+str(job['error'])
             host.upsert_task(key,title,current=done,total=job.get('total',0),state=outcome,content=content,kind='ocr',
                 cancel=lambda k=key:self.ocr.cancel(job_id=k),resume=resume,details=job.get('error',''),phase=state)
 

@@ -1384,10 +1384,10 @@ class TGStickerInterface(QWidget):
                 self.tooltip.finish(t("连通性测试"), msg)
             else:
                 msg = t("❌ 连接失败: {error}").format(
-                    error=t(res.get("error", t("未知错误")))
+                    error=res.get("error") or t("未知错误")
                 )
                 self.log(msg)
-                self.tooltip.fail(t("连通性测试"), t(msg))
+                self.tooltip.fail(t("连通性测试"), msg)
         except Exception as e:
             self.log(t("❌ 测试出错: {error}").format(error=e))
             self.tooltip.fail(t("测试出错"), t("发生异常: {error}").format(error=e))
@@ -1419,9 +1419,9 @@ class TGStickerInterface(QWidget):
         self.detailPreviewLabel.clear()
         self.detailInfoLabel.setText(t('未选中表情'))
 
-        parse_message = t("正在解析表情合集 [{link}] ...").format(link=link)
+        parse_message = t("正在获取表情合集信息：{link}").format(link=link)
         self.log(t("💬 {message}").format(message=parse_message))
-        self.tooltip.show(t("正在解析 Telegram 表情合集..."), parse_message)
+        self.tooltip.show(t("正在获取 Telegram 表情合集信息…"), parse_message)
 
         self.downloader = self._get_configured_downloader()
         self._parse_thread = ParsePackThread(self.downloader, link, self)
@@ -1461,8 +1461,8 @@ class TGStickerInterface(QWidget):
             self.formatComboBox.setCurrentIndex(0)
 
         self.tooltip.finish(
-            t("解析完成"),
-            t("已加载《{title}》，共 {total} 张表情").format(
+            t("合集信息已获取"),
+            t("已找到「{title}」，共 {total} 张表情").format(
                 title=pack.title, total=pack.total_count
             ),
         )
@@ -1471,7 +1471,7 @@ class TGStickerInterface(QWidget):
 
     def _onParseFailed(self, error_msg: str):
         if not self._current_worker_signal('_parse_thread'):return
-        error_msg = t(error_msg)
+        error_msg = str(error_msg)
         self.current_pack = None
         self._set_busy(False)
         bind_text(self.previewTitleLabel, t('表情预览区 (解析失败)'))
@@ -1792,7 +1792,7 @@ class TGStickerInterface(QWidget):
 
         self._set_busy(True)
         self.tooltip.show(
-            t("正在导出 Telegram 表情..."),
+            t("正在导出 Telegram 表情…"),
             t("准备导出 {count} 张表情").format(count=count_desc),
         )
 
@@ -1826,11 +1826,21 @@ class TGStickerInterface(QWidget):
         self._set_busy(False)
         self.last_download_result = result
 
-        msg = t("🎉 全部提取成功! 成功导出 {success} 张, 失败 {failed} 张。").format(
-            success=result["success_count"], failed=result["fail_count"]
-        )
-        self.log(f"✅ {msg}")
-        self.tooltip.finish(t("导出完成"), msg, outcome=("partial" if result["success_count"] else "error") if result["fail_count"] else "success")
+        if not result["fail_count"]:
+            title = t("导出完成", context="tg_file_export")
+            msg = t("已导出 {success} 张表情。")
+            outcome = "success"
+        elif result["success_count"]:
+            title = t("导出部分完成", context="tg_file_export")
+            msg = t("已导出 {success} 张，{failed} 张导出失败；已导出的文件会保留。")
+            outcome = "partial"
+        else:
+            title = t("导出失败", context="tg_file_export")
+            msg = t("没有表情成功导出，{failed} 张失败。请查看日志后重试。")
+            outcome = "error"
+        msg = msg.format(success=result["success_count"], failed=result["fail_count"])
+        self.log(f"{title}: {msg}")
+        self.tooltip.finish(title, msg, outcome=outcome)
         self.log(t("📁 导出文件夹: {directory}").format(directory=result["output_dir"]))
         if result.get("zip_path"):
             self.log(t("📦 ZIP压缩包: {path}").format(path=result["zip_path"]))
@@ -1849,7 +1859,7 @@ class TGStickerInterface(QWidget):
 
     def _onDownloadFailed(self, error_msg: str):
         if not self._current_worker_signal('_download_thread'):return
-        error_msg = t(error_msg)
+        error_msg = str(error_msg)
         self._set_busy(False)
         self.log(t("❌ 导出过程中出现错误: {error}").format(error=error_msg))
         self.tooltip.fail(t("导出失败"), str(error_msg))
@@ -1947,7 +1957,7 @@ class TGStickerInterface(QWidget):
 
     def _onPackageFailed(self, message):
         if not self._current_worker_signal('_import_thread'):return
-        message = t(message)
+        message = str(message)
         self._set_busy(False)
         refresh = getattr(self.window(), "refresh_library", None)
         if callable(refresh):

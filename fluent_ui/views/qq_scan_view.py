@@ -1229,7 +1229,7 @@ class QQScanInterface(QWidget):
         self.loaded_emoji_count = 0
         self.log(_tf("💬 开始智能扫描分类 [{folder}] 表情合集路径...", folder=selected_folder))
 
-        self.tooltip.show(t("正在扫描表情合集..."), _tf("正在扫描分类 [{folder}]...", folder=selected_folder))
+        self.tooltip.show(t("正在扫描表情…"), _tf("正在扫描分类「{folder}」…", folder=selected_folder))
 
         self._set_busy(True)
         self._scan_worker = QQScanWorker(target_path, selected_folder, self)
@@ -1262,11 +1262,11 @@ class QQScanInterface(QWidget):
 
         if total_valid == 0:
             self.log(t("❌ 未筛选出任何有效的表情合集表情"))
-            self.tooltip.finish(t("扫描完成"), t("未筛选出任何有效的表情合集表情"))
+            self.tooltip.finish(t("扫描完成"), t("未找到可用的表情文件"))
             return
 
         self.log(_tf("✅ 扫描并筛选完毕，共发现 {count} 个有效表情。", count=total_valid))
-        self.tooltip.finish(t("扫描完成"), _tf("共发现 {count} 个有效表情", count=total_valid))
+        self.tooltip.finish(t("扫描完成"), _tf("找到 {count} 张表情", count=total_valid))
 
         # 扫描成功后自动折叠收起配置卡片，将最大视野留给预览网格
         self.collapse_config()
@@ -1287,14 +1287,14 @@ class QQScanInterface(QWidget):
     def copy_files_with_progress(self, file_paths, dst_dir):
         """导出文件（通过后台异步线程执行，主线程保持响应）"""
         if self._current_worker and self._current_worker.isRunning():
-            notify(self, t("提示"), t("当前有正在进行的操作，请稍候或先中止当前任务！"))
+            notify(self, t("提示"), t("已有任务正在进行，请等待完成或先停止该任务。"))
             return
 
         total_files = len(file_paths)
         self._set_busy(True)
         self.tooltip.show(
-            t("正在导出表情..."),
-            _tf("准备导出 {total} 个表情...", total=total_files), total=total_files
+            t("正在导出表情…"),
+            _tf("准备导出 {total} 张表情…", total=total_files), total=total_files
         )
 
         worker = QQExportWorker(
@@ -1319,7 +1319,7 @@ class QQScanInterface(QWidget):
             destination=dest_name
         ))
         percent = int(done * 100 / max(total, 1))
-        self.tooltip.update(_tf("正在处理: {done}/{total} ({percent}%)",
+        self.tooltip.update(_tf("已导出 {done}/{total} 张（{percent}%）",
                                 done=done, total=total, percent=percent), current=done, total=total)
 
     def _on_export_finished(self, copied_count, dst_dir, was_cancelled):
@@ -1328,20 +1328,19 @@ class QQScanInterface(QWidget):
         self._current_worker = None
 
         if was_cancelled:
-            self.log(_tf("⚠️ 导出已被用户中断！已导出 {count} 个表情文件。", count=copied_count))
-            self.tooltip.finish(
-                t("导出已中断"),
-                _tf("已由用户手动中断，已导出 {count} 个表情文件", count=copied_count),outcome='cancelled'
-            )
+            title = t("导出已中断")
+            content = _tf("已停止导出，已导出的 {count} 个文件会保留。", count=copied_count)
+            self.log(f"{title}: {content}")
+            self.tooltip.finish(title, content, outcome='cancelled')
             return
 
-        self.log(_tf("✅ 成功导出 {count} 个表情文件！", count=copied_count))
+        title = t('导出部分完成') if copied_count<total and copied_count else t('导出失败') if copied_count<total else t('导出完成')
+        content = t('已导出 {done} 张表情，失败 {failed} 张').format(done=copied_count,failed=total-copied_count)
+        self.log(f"{title}: {content}")
         self.tooltip.finish(
-            t('导出部分完成') if copied_count<total and copied_count else t('导出失败') if copied_count<total else t('导出完成'),
-            t('已导出 {done} 张表情，失败 {failed} 张').format(done=copied_count,failed=total-copied_count),
+            title, content,
             outcome='partial' if copied_count<total and copied_count else 'error' if copied_count<total else 'success'
         )
-        self.log(t("✅ 完成！正在打开输出文件夹……"))
         try:
             subprocess.Popen(['explorer', os.path.abspath(dst_dir)])
         except Exception as e:
@@ -1448,7 +1447,7 @@ class QQScanInterface(QWidget):
     def import_files_with_progress(self, file_paths):
         """导入表情到资源库（通过后台异步线程执行，主线程保持响应）"""
         if self._current_worker and self._current_worker.isRunning():
-            notify(self, t("提示"), t("当前有正在进行的操作，请稍候或先中止当前任务！"))
+            notify(self, t("提示"), t("已有任务正在进行，请等待完成或先停止该任务。"))
             return
 
         main_win = self.window()
@@ -1605,7 +1604,7 @@ class QQScanInterface(QWidget):
         help_text = t(
             "使用帮助：\n\n"
             "1. 使用时请确保已登录过QQ并加载过全部表情合集\n"
-            "2. 提取的时候会自动创建以QQ号开头的文件夹\n"
+            "2. 导出文件夹优先以“昵称（QQ 号）”命名；无法获取昵称时使用 QQ 号。\n"
             "3. 选择一个账号后，点击'扫描表情合集预览'获取表情合集，然后选择表情，最后'导出选中'或'导出全部'。\n"
             "4. 导出的表情合集比账号内实际的表情合集要多属正常现象，因为QQ会缓存一些表情合集\n\n"
             "  注意：如果没有找到任何用户，请确保QQ已经在本地登录过。并确保路径正确\n"
