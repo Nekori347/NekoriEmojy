@@ -18,6 +18,9 @@ class RailPanel(QWidget):
     _collapsed_horizontal = True
     collapsed_metrics = visual.TAG_COLLAPSED_METRICS
 
+    def header_action_hovered(self):
+        return False
+
     def collapsed_extent(self):
         return visual.TAG_PANEL_COLLAPSED_EXTENT
 

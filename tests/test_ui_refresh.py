@@ -89,14 +89,15 @@ def test_open_sheet_gaps_follow_tabs_clip_and_static_tools(surface):
         tabs.set_tabs(['Scope']+['Category '+str(i) for i in range(12)])
         for index in (0,6,11):
             tabs.setCurrentIndex(index);settle(surface.app)
-            image=own_paint(row);gaps=row.boundary_gaps()
+            image=own_paint(g.sheet_surface.outline)
+            shape,_,_=g.sheet_surface.structure_paths()
             body=tabs.content_tab_rect(index)
             visible=tabs._tab_viewport().intersected(QRegion(body.adjusted(-7,0,7,0))).boundingRect()
             if not visible.isEmpty():
                 x=tabs.x()+visible.center().x()
-                assert any(a<=x<=b for a,b in gaps)
+                assert shape.contains(QPoint(x,row.height()-2))
                 assert image.pixelColor(x,row.height()-1).alpha()>0  # retained inner divider
-            assert any(a<=tools.x() and b>=tools.x()+tools.width()-.5 for a,b in gaps)
+            assert shape.contains(tools.geometry().center())
             assert image.pixelColor(tools.x()+tools.width()//2,row.height()-1).alpha()>0
             assert g.btn_recent.geometry().left()>=5
             assert g.btn_recent.geometry().top()>=4
@@ -104,7 +105,8 @@ def test_open_sheet_gaps_follow_tabs_clip_and_static_tools(surface):
         before=tools.geometry();QTest.mouseClick(g.btn_recent,Qt.LeftButton);settle(surface.app)
         assert tools.geometry()==before
     tabs.hide();settle(surface.app)
-    assert len(row.boundary_gaps())==1 and row.boundary_gaps()[0][0]<tools.x()
+    shape,_,rules=g.sheet_surface.structure_paths()
+    assert len(rules)==1 and shape.contains(tools.geometry().center())
 
 
 def test_title_double_rule_and_dock_overlay(surface):

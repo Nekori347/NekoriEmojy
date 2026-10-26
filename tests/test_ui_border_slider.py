@@ -21,22 +21,24 @@ def test_mouse_focus_slider_has_no_latched_ring_but_keyboard_still_works(surface
     s.close();s.deleteLater();settle(surface.app)
 
 
-def test_one_row_painter_owns_tools_flare_and_active_tab_contour(surface):
+def test_one_final_painter_owns_tools_flare_and_active_tab_contour(surface):
     g=surface.g;row=g.tab_row;tabs=g.category_tabs;tools=g.size_slider.parentWidget();settle(surface.app)
-    image=own_paint(row)
+    image=own_paint(g.sheet_surface.outline)
     assert image.pixelColor(tools.x(),row.height()-4).alpha()>0,'missing left lower ear curve'
     body=tabs.content_tab_rect(tabs.currentIndex())
     assert own_paint(tabs).pixelColor(body.left(),24).alpha()==0,'tab still draws a second sheet contour'
 
 
 def test_content_antialias_is_not_cut_by_its_integer_mask(surface):
-    pane=surface.g.content_pane;settle(surface.app)
-    clipped=own_paint(pane);mask=pane.mask();pane.clearMask();unclipped=own_paint(pane);pane.setMask(mask)
+    pane=surface.g.content_pane;outline=surface.g.sheet_surface.outline;settle(surface.app)
+    clipped=own_paint(outline);mask=pane.mask();pane.clearMask();unclipped=own_paint(outline);pane.setMask(mask)
     for x in range(14):
-        for y in range(pane.height()-14,pane.height()):
+        for y in range(outline.height()-14,outline.height()):
             assert clipped.pixelColor(x,y)==unclipped.pixelColor(x,y)
-            xx=pane.width()-1-x
+            xx=outline.width()-1-x
             assert clipped.pixelColor(xx,y)==unclipped.pixelColor(xx,y)
+    assert clipped.pixelColor(0,outline.height()-1).alpha()==0
+    assert clipped.pixelColor(20,outline.height()-1).alpha()>50
 
 
 @pytest.mark.parametrize('orientation',[Qt.Horizontal,Qt.Vertical])
@@ -69,7 +71,7 @@ def test_slider_release_hover_capture_and_values(surface,monkeypatch,orientation
 
 def test_ears_keep_inner_separator_with_open_ends_and_connected_feet(surface):
     g=surface.g;row=g.tab_row;tabs=g.category_tabs;tools=g.size_slider.parentWidget();settle(surface.app)
-    image=own_paint(row);y=row.height()-1
+    image=own_paint(g.sheet_surface.outline);y=row.height()-1
     body=tabs.content_tab_rect(tabs.currentIndex());left=tabs.x()+body.left();right=tabs.x()+body.right()
     # An actual internal divider, not the former complete omission below an ear.
     center=image.pixelColor((left+right)//2,y);gap=image.pixelColor(left+2,y)
@@ -79,7 +81,7 @@ def test_ears_keep_inner_separator_with_open_ends_and_connected_feet(surface):
     assert image.pixelColor(tools.x()+tools.width()-3,y).alpha()==0
     # The right outer contour must reach the sheet, not be clipped mid-flare.
     assert image.pixelColor(row.width()-1,y).alpha()>0
-    assert abs(row.boundary_gaps()[0][0]-max(.5,left+.5-7))<.01
+    assert own_paint(row).pixelColor((left+right)//2,y).alpha()==0,'row must not own another stroke'
 
 
 def test_relative_tabs_have_no_underlying_gallery_projection(surface):

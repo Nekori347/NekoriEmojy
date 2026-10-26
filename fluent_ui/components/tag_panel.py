@@ -12,7 +12,7 @@ list the user mostly reads.
 import json
 
 from PySide6.QtCore import QMimeData, QPoint, QRect, QRectF, QSize, Qt, Signal, QEvent
-from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QColor, QFontMetrics, QPainter, QPainterPath, QPen, QPixmap, QCursor
 from PySide6.QtWidgets import (
     QApplication, QBoxLayout, QFrame, QHBoxLayout, QLabel, QSizePolicy,
     QScrollArea, QVBoxLayout, QWidget,
@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 
 from qfluentwidgets import Action
 from fluent_ui.icons import Icon as FIF
-from fluent_ui.components.controls import TransparentToolButton
+from fluent_ui.components.controls import TransparentToolButton, pointer_hits
 
 from fluent_ui import visual
 from fluent_ui.components import dialogs
@@ -440,6 +440,7 @@ class TagPanel(QWidget):
 
         self.header = header = QWidget(self.expanded_body)
         header.installEventFilter(self)
+        header.setMouseTracking(True)
         header.setStyleSheet('background: transparent;')
         row = self.header_row = QHBoxLayout(header)
         m = visual.COMPACT_CONTROLS
@@ -474,6 +475,8 @@ class TagPanel(QWidget):
         self.btn_new.clicked.connect(lambda: self.create_tag())
         actions.addWidget(self.btn_new);actions.addWidget(self.btn_sort)
         row.addWidget(self.header_actions,1)
+        for item in (title,self.header_actions,self.count_label,self.btn_new,self.btn_sort):
+            item.installEventFilter(self);item.setMouseTracking(True)
 
         expanded_layout.addWidget(header)
 
@@ -586,13 +589,46 @@ class TagPanel(QWidget):
                                           max(30,(self.height()-76)//2),24,76)
         self.chrome.raise_();self.btn_collapse.raise_()
 
+    def sync_chrome_layout(self):
+        # Resolve the current axis and real nested layout before placing or
+        # hit-testing chrome. No deferred repaint/resize is required.
+        self.layout().activate();self.index_body.layout().activate()
+        self.expanded_body.layout().activate();self._fit_collapsed_identity()
+        self.header_row.activate();self.header_actions.layout().activate()
+        self._place_chrome()
+
+    def _header_action_at(self,point):
+        if not self.header.rect().contains(point):return False
+        margin=visual.COMPACT_CONTROLS.spacing
+        for item in (self.btn_new,self.btn_sort,self.count_label):
+            if item.isVisible():
+                reserved=QRect(item.mapTo(self.header,QPoint()),item.size()).adjusted(-margin,-margin,margin,margin)
+                if reserved.contains(point):return False
+        return True
+
+    def header_action_hovered(self):
+        return pointer_hits(self.header) and self._header_action_at(self.header.mapFromGlobal(QCursor.pos()))
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if self._collapsed_ready:
-            self._fit_collapsed_identity()
-            self._place_chrome()
+            self.sync_chrome_layout()
 
     def eventFilter(self, watched, event):
+        header=self.__dict__.get('header')
+        if header is not None and hasattr(self,'header_actions') and (watched is header or header.isAncestorOf(watched)):
+            kind=event.type()
+            control=self.chrome if self.collapsed else self.btn_collapse
+            if kind in (QEvent.Enter,QEvent.Leave,QEvent.MouseMove,QEvent.Move,QEvent.Resize,QEvent.Hide,QEvent.EnabledChange):
+                control._settle_hover();control.update()
+            if watched in (header,self.title_label,self.header_actions) and kind in (QEvent.MouseButtonPress,QEvent.MouseButtonRelease) and event.button()==Qt.LeftButton:
+                point=watched.mapTo(header,event.position().toPoint())
+                allowed=self._header_action_at(point)
+                if kind==QEvent.MouseButtonPress:control.setDown(allowed)
+                else:
+                    pressed=control.isDown();control.setDown(False)
+                    if pressed and allowed:control.click()
+                event.accept();return True
         scroll_area = self.__dict__.get('scroll')
         if scroll_area is not None and watched is scroll_area.viewport() and event.type() in (QEvent.DragEnter, QEvent.DragMove, QEvent.Drop, QEvent.DragLeave):
             # Events already on TagFlow are handled there; this adapter handles
@@ -609,6 +645,7 @@ class TagPanel(QWidget):
 
         if watched is self.header and event.type() == QEvent.Resize and self._collapsed_ready:
             self._fit_collapsed_identity()
+            self.header_row.activate();self.header_actions.layout().activate()
             self._place_chrome()
         return super().eventFilter(watched, event)
 

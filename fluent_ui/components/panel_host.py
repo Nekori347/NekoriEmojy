@@ -70,10 +70,19 @@ class EdgeDockPanelChrome(ButtonPaint, QAbstractButton):
     def chevron_points(self):
         return dock_chevron_points(self.rect(), self.panel._placement, expanded=self.expanded)
 
+    def _action_hovered(self):
+        return pointer_hits(self) or (self.expanded and self.panel.header_action_hovered())
+
+    def _settle_hover(self):
+        # Same ButtonPaint lifecycle, with the header's existing action area.
+        hovered=self._action_hovered()
+        self._hover_animation.stop();self._set_hover(float(hovered))
+        if not hovered:self.setDown(False)
+
     def paintEvent(self, event):
         p = QPainter(self)
         c = visual.colors()
-        active = pointer_hits(self) or self.isDown() or self.keyboard_focus_visible()
+        active = self._action_hovered() or self.isDown() or self.keyboard_focus_visible()
         p.setRenderHint(QPainter.Antialiasing)
         points=self.chevron_points();center=self.rect().center()
         path=QPainterPath(points[0])
@@ -217,7 +226,8 @@ class TagPanelHost(QWidget):
         self.splitter.setOrientation(Qt.Vertical if self.horizontal else Qt.Horizontal)
         for index,widget in enumerate((self.panel,self._spare) if placement.leading else (self._spare,self.panel)):
             self.splitter.insertWidget(index,widget);self.splitter.setStretchFactor(index,0 if widget is self.panel else 1)
-        self.apply_panel_axis();self.panel.set_collapsed(not self.expanded,self.horizontal);self.apply_extent()
+        self.panel.set_collapsed(not self.expanded,self.horizontal)
+        self.apply_panel_axis();self.apply_extent();self.panel.sync_chrome_layout()
 
     def apply_panel_axis(self):
         self.panel.set_panel_placement(self.placement);self.panel.apply_placement_axis(self.horizontal)

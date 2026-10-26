@@ -11,7 +11,7 @@ from fluent_ui import visual
 from services.i18n import t
 from fluent_ui.icons import Icon as I
 from fluent_ui.components.controls import TransparentToolButton,SplitPushButton,SearchLineEdit
-from fluent_ui.components.navigation import HierarchyLocationHeader,TabStrip,ContentPane,AttachedTabRow,WorkspaceTools
+from fluent_ui.components.navigation import HierarchyLocationHeader,TabStrip,ContentPane,AttachedTabRow,WorkspaceTools,WorkspaceSheet
 from fluent_ui.components.interaction_controls import IconDropDownButton,ResourceSortIcon,FilterCheckboxFlyout
 from fluent_ui.components.panel_host import PanelSplitter
 from fluent_ui.components.safe_round_menu import SafeRoundMenu
@@ -72,9 +72,8 @@ def build_workbench(g):
     g.top_bar_layout.addWidget(g.location_rail,0,Qt.AlignTop)
     g.right_layout.addWidget(g.top_bar)
 
-    # One shared sheet, including the transparent tool ear. The ContentPane
-    # keeps its contour/clip, but delegates its fill to this existing Surface.
-    g.sheet_surface=Surface('raised',g.right_container,radius=10,edge=False)
+    # One shaped sheet: selected ear + fixed tools + resource workspace.
+    g.sheet_surface=WorkspaceSheet(g.right_container)
     sheet=QVBoxLayout(g.sheet_surface);sheet.setContentsMargins(0,0,0,0);sheet.setSpacing(0)
     g.right_layout.addWidget(g.sheet_surface,1)
     g.tab_row=AttachedTabRow(g.sheet_surface)
@@ -86,7 +85,6 @@ def build_workbench(g):
     sheet.addWidget(g.tab_row)
     g.content_pane=ContentPane(g.sheet_surface)
     g.content_pane.setProperty('gallery_workspace',True)
-    g.content_pane.setProperty('shared_surface',True)
     g.content_pane.content_layout.setContentsMargins(1,0,1,1)
     sheet.addWidget(g.content_pane,1)
 
@@ -149,9 +147,10 @@ def build_workbench(g):
     size_row.insertWidget(0,g.btn_recent,0,Qt.AlignVCenter);size_row.insertSpacing(1,5)
     tab_layout.addSpacing(8);tab_layout.addWidget(size_host,0,Qt.AlignRight|Qt.AlignBottom)
     g.tab_row.bind_structure(g.category_tabs,size_host)
+    g.sheet_surface.bind_structure(g.tab_row,g.content_pane)
 
     g.content_pane.corner_radius=10
-    g.workspace=Surface('raised',g.content_pane,radius=9,edge=False)
+    g.workspace=QWidget(g.content_pane)
     g.workspace_layout=QVBoxLayout(g.workspace)
     g.workspace_layout.setContentsMargins(0,0,0,0);g.workspace_layout.setSpacing(0)
     g._build_context_strip();g._build_grid();g._build_command_bar();g._build_tag_panel()

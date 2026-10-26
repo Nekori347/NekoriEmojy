@@ -1,5 +1,5 @@
 """Shared primary navigation and engineering secondary tabs."""
-from PySide6.QtCore import Qt, QSize, QRect, QRectF, QPointF, QEvent, Signal, Property, QPropertyAnimation, QEasingCurve, QVariantAnimation, QTimer
+from PySide6.QtCore import Qt, QSize, QRect, QRectF, QPoint, QPointF, QEvent, Signal, Property, QPropertyAnimation, QEasingCurve, QVariantAnimation, QTimer
 from PySide6.QtGui import QColor, QPainter, QPen, QPainterPath, QFontMetrics, QFont, QRegion, QCursor
 from PySide6.QtWidgets import QStyledItemDelegate, QStyle, QTabBar, QWidget, QVBoxLayout, QToolButton, QApplication, QLabel, QSizePolicy
 from fluent_ui import visual
@@ -348,10 +348,10 @@ def workspace_edge_color():
     return color
 
 
-def open_ear_path(left,right,top,baseline,right_limit):
+def open_ear_path(left,right,top,baseline,right_limit,left_limit=.5):
     """The same real lower flare and rounded upper corners for both ears."""
     radius=7
-    path=QPainterPath();path.moveTo(max(.5,left-radius),baseline)
+    path=QPainterPath();path.moveTo(max(left_limit,left-radius),baseline)
     path.quadTo(left,baseline,left,baseline-radius)
     path.lineTo(left,top+radius);path.quadTo(left,top,left+radius,top)
     path.lineTo(right-radius,top);path.quadTo(right,top,right,top+radius)
@@ -360,24 +360,113 @@ def open_ear_path(left,right,top,baseline,right_limit):
 
 
 class WorkspaceTools(QWidget):
-    """Static layout container; the attached row owns its open contour."""
+    """Static layout container; the shared sheet owns its open contour."""
     pass
 
 
-class AttachedTabRow(QWidget):
-    """Continuous sheet/ear contour; only the inner separator ends are open."""
+class WorkspaceSheet(QWidget):
+    """One shaped fill and one final, input-transparent structure owner."""
     def __init__(self,parent=None):
-        super().__init__(parent);self.tabs=None;self.tools=None
-        visual.theme.changed.connect(self.update)
+        super().__init__(parent)
+        self.row=self.pane=None
+        self.outline=_WorkspaceOutline(self)
+        visual.theme.changed.connect(self.invalidate_structure)
+        visual.theme.accent_changed.connect(self.invalidate_structure)
+
+    def bind_structure(self,row,pane):
+        self.row,self.pane=row,pane
+        row.sheet=self;pane.setProperty('shared_structure',True)
+        for widget in (row,pane):widget.installEventFilter(self)
+        self.outline.setGeometry(self.rect());self.outline.show();self.outline.raise_()
+        self.invalidate_structure()
+
+    def invalidate_structure(self,*_):
+        self.update();self.outline.update()
+
+    def eventFilter(self,obj,event):
+        if event.type() in (QEvent.Move,QEvent.Resize,QEvent.Show,QEvent.Hide,QEvent.LayoutRequest):self.invalidate_structure()
+        return super().eventFilter(obj,event)
+
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        self.outline.setGeometry(self.rect());self.outline.raise_()
+
+    def structure_paths(self):
+        """Fill and stroke read the same current Qt tab and pane geometry."""
+        shape=QPainterPath();clip=QPainterPath();clip.setFillRule(Qt.WindingFill);rules=[]
+        if self.row is None or self.pane is None:return shape,clip,rules
+        half=.5/self.devicePixelRatioF();left=half;right=self.width()-half
+        row=self.row;baseline=self.pane.y()-half;bottom=self.pane.geometry().bottom()+1-half
+        radius=getattr(self.pane,'corner_radius',12)
+        shape.moveTo(left,baseline);shape.lineTo(right,baseline);shape.lineTo(right,bottom-radius)
+        shape.quadTo(right,bottom,right-radius,bottom);shape.lineTo(left+radius,bottom)
+        shape.quadTo(left,bottom,left,bottom-radius);shape.closeSubpath()
+        # The lower flare is allowed outside tab text/arrow clipping. The
+        # actual smooth contour is always a painter path, never a QRegion mask.
+        clip.addRect(QRectF(0,baseline-7-1.4/2,self.width(),self.height()))
+        ears=[];tabs=row.tabs;body=row._selected_body()
+        if body is not None and tabs._tab_viewport().intersects(body):
+            origin=tabs.mapTo(self,QPoint())
+            visible=tabs._tab_viewport().translated(origin)
+            clip.addRegion(visible)
+            ears.append((origin.x()+body.left()+half,origin.x()+body.right()+half,origin.y()+5+half,visible))
+        tools=row.tools
+        if tools is not None and tools.isVisible():
+            r=QRect(tools.mapTo(self,QPoint()),tools.size())
+            clip.addRect(QRectF(r));ears.append((r.left()+half,r.right()+half,r.top()+half,None))
+        for a,b,top,visible in ears:
+            ear=open_ear_path(a,b,top,baseline,right,left);ear.closeSubpath()
+            if visible is not None:
+                view=visible.boundingRect()
+                ear_clip=QPainterPath();ear_clip.setFillRule(Qt.WindingFill);ear_clip.addRegion(visible)
+                ear_clip.addRect(QRectF(view.left()-7,baseline-7,view.width()+14,7+half))
+                ear=ear.intersected(ear_clip)
+            shape=shape.united(ear)
+            rule=QPainterPath();rule.moveTo(a+6-half,baseline);rule.lineTo(b-6-half,baseline)
+            rules.append((rule,visible))
+        return shape,clip,rules
+
+    def paintEvent(self,event):
+        shape,clip,_=self.structure_paths()
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);p.setClipPath(clip)
+        p.fillPath(shape,QColor(visual.colors()['surface']))
+
+
+class _WorkspaceOutline(QWidget):
+    """Pure decoration above children; no independent geometry or state."""
+    def __init__(self,sheet):
+        super().__init__(sheet)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WA_NoSystemBackground)
+        self.setFocusPolicy(Qt.NoFocus)
+
+    def paintEvent(self,event):
+        shape,clip,rules=self.parentWidget().structure_paths()
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);p.setClipPath(clip)
+        p.setBrush(Qt.NoBrush);p.setPen(QPen(workspace_edge_color(),1.4,Qt.SolidLine,Qt.FlatCap,Qt.RoundJoin))
+        p.drawPath(shape)
+        for rule,visible in rules:
+            p.save()
+            if visible is not None:p.setClipRegion(visible,Qt.IntersectClip)
+            p.drawPath(rule);p.restore()
+
+
+class AttachedTabRow(QWidget):
+    """Tab/tool layout and geometry notifications; the sheet owns painting."""
+    def __init__(self,parent=None):
+        super().__init__(parent);self.tabs=None;self.tools=None;self.sheet=None
 
     def bind_structure(self,tabs,tools):
         self.tabs,self.tools=tabs,tools
-        tabs.currentChanged.connect(self.update)
+        tabs.currentChanged.connect(self.invalidate_structure)
         for widget in (tabs,tools):widget.installEventFilter(self)
-        for button in tabs._scroll_buttons:button.clicked.connect(self.update)
+        for button in tabs._scroll_buttons:button.clicked.connect(self.invalidate_structure)
+
+    def invalidate_structure(self,*_):
+        if self.sheet is not None:self.sheet.invalidate_structure()
 
     def eventFilter(self,obj,event):
-        if event.type() in (QEvent.Move,QEvent.Resize,QEvent.Show,QEvent.Hide,QEvent.LayoutRequest):self.update()
+        if event.type() in (QEvent.Move,QEvent.Resize,QEvent.Show,QEvent.Hide,QEvent.LayoutRequest):self.invalidate_structure()
         return super().eventFilter(obj,event)
 
     def _selected_body(self):
@@ -385,52 +474,6 @@ class AttachedTabRow(QWidget):
             return self.tabs.content_tab_rect(self.tabs.currentIndex())
         return None
 
-    def _contour_clip(self):
-        tabs=self.tabs;viewport=tabs._tab_viewport();visible=viewport.boundingRect()
-        # Scroll arrows clip tab labels/body, not the lower flare that joins
-        # the sheet. Its feet need the existing 7px outside the body bounds.
-        feet=QRegion(QRect(visible.left()-7,tabs.height()-8,visible.width()+14,8))
-        return viewport.united(feet).translated(tabs.pos()).intersected(QRegion(self.rect()))
-
-    def boundary_gaps(self):
-        gaps=[];body=self._selected_body()
-        if body is not None:
-            tabs=self.tabs
-            visible=tabs._tab_viewport().boundingRect()
-            start=max(body.left()+.5-7,visible.left()-7)+tabs.x()
-            end=min(body.right()+.5+7,visible.right()+1+7)+tabs.x()
-            if end>start:gaps.append((start,end))
-        if self.tools is not None and self.tools.isVisible():
-            gaps.append((self.tools.x()+.75-7,self.tools.x()+self.tools.width()-.75+7))
-        return sorted((max(.5,a),min(self.width()-.5,b)) for a,b in gaps if b>.5 and a<self.width()-.5)
-
-    def paintEvent(self,event):
-        painter=QPainter(self);painter.setRenderHint(QPainter.Antialiasing)
-        y=self.height()-.5;body=self._selected_body()
-        if body is not None:
-            tabs=self.tabs
-            painter.save();painter.setClipRegion(self._contour_clip())
-            path=open_ear_path(tabs.x()+body.left()+.5,tabs.x()+body.right()+.5,tabs.y()+5.5,y,self.width()-.5)
-            fill=QPainterPath(path);fill.closeSubpath()
-            painter.fillPath(fill,QColor(visual.colors()['surface']))
-            painter.setPen(QPen(workspace_edge_color(),1.4,Qt.SolidLine,Qt.FlatCap));painter.drawPath(path)
-            painter.restore()
-        # Exactly one paint owner, baseline and contours share y/width/caps.
-        painter.setPen(QPen(workspace_edge_color(),1.4,Qt.SolidLine,Qt.FlatCap))
-        left=.5
-        for start,end in self.boundary_gaps():
-            if start>left:painter.drawLine(QPointF(left,y),QPointF(start,y))
-            left=max(left,end)
-        if left<self.width()-.5:painter.drawLine(QPointF(left,y),QPointF(self.width()-.5,y))
-        # The internal horizontal rules remain; only their two ends are open.
-        if body is not None:
-            painter.save();painter.setClipRegion(self.tabs._tab_viewport().translated(self.tabs.pos()))
-            painter.drawLine(QPointF(self.tabs.x()+body.left()+6,y),QPointF(self.tabs.x()+body.right()-6,y))
-            painter.restore()
-        if self.tools is not None and self.tools.isVisible():
-            r=self.tools.geometry()
-            painter.drawPath(open_ear_path(r.left()+.75,r.right()+.25,r.top()+.75,y,self.width()-.5))
-            painter.drawLine(QPointF(r.left()+6,y),QPointF(r.right()-6,y))
 
 
 class NavigationItem(QStyledItemDelegate):
@@ -669,7 +712,7 @@ class ContentPane(QWidget):
         path=QPainterPath();path.moveTo(0,0);path.lineTo(w,0);path.lineTo(w,h-radius)
         path.quadTo(w,h,w-radius,h);path.lineTo(radius,h);path.quadTo(0,h,0,h-radius);path.closeSubpath()
         mask=QRegion(path.toFillPolygon().toPolygon())
-        if self.property('gallery_workspace'):
+        if self.property('gallery_workspace') and not self.property('shared_structure'):
             # QRegion is integer/binary; leave the painted contour's AA fringe
             # intact instead of clipping its partially covered corner pixels.
             mask=mask.united(mask.translated(-1,0)).united(mask.translated(1,0))
@@ -678,13 +721,14 @@ class ContentPane(QWidget):
         self.setMask(mask)
 
     def paintEvent(self, event):
+        if self.property('shared_structure'):return
         p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);c=visual.colors()
         r=QRectF(self.rect()).adjusted(.5,0,-.5,-.5)
         radius=getattr(self,'corner_radius',12)
         path=QPainterPath();path.moveTo(r.left(),0);path.lineTo(r.right(),0)
         path.lineTo(r.right(),r.bottom()-radius);path.quadTo(r.right(),r.bottom(),r.right()-radius,r.bottom())
         path.lineTo(r.left()+radius,r.bottom());path.quadTo(r.left(),r.bottom(),r.left(),r.bottom()-radius);path.closeSubpath()
-        if not self.property('shared_surface'):p.fillPath(path,QColor(c['surface']))
+        p.fillPath(path,QColor(c['surface']))
         # Top boundary is owned by the attached tabs, never doubled here.
         path=QPainterPath();path.moveTo(r.left(),0);path.lineTo(r.left(),r.bottom()-radius)
         path.quadTo(r.left(),r.bottom(),r.left()+radius,r.bottom());path.lineTo(r.right()-radius,r.bottom())
@@ -749,8 +793,8 @@ class TabStrip(QTabBar):
 
     def tabLayoutChange(self):
         super().tabLayoutChange()
-        if self.location_divider and self.parentWidget() is not None:
-            self.parentWidget().update()
+        if self.location_divider and isinstance(self.parentWidget(),AttachedTabRow):
+            self.parentWidget().invalidate_structure()
 
     def _tab_viewport(self):
         # QTabBar owns scroll-button placement, including style/DPI changes.
@@ -815,6 +859,7 @@ class TabStrip(QTabBar):
             self._line_state=QPointF(3,0)
             visual.start_animation(self._line_motion, 250)
         self.update()
+        if isinstance(self.parentWidget(),AttachedTabRow):self.parentWidget().invalidate_structure()
 
     def resizeEvent(self,event):
         super().resizeEvent(event)
