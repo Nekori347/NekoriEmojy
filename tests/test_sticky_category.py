@@ -98,3 +98,20 @@ def test_filter_search_order_and_drag_do_not_leave_stale_owner(grouped):
     g.entry_model.invalidate();g.refresh_content();settle(s.app)
     bar.setValue(header(g,b).top()+90);settle(s.app)
     assert g.renderer.sticky.node_id==b
+
+
+def test_foreground_tag_panel_leaves_sticky_visible_and_real_collapse_anchored(grouped):
+    s=grouped;g=s.g;scope,a,b,nested=s.groups
+    host=g.tag_panel_host;bar=g.scroll_area.verticalScrollBar();sticky=g.renderer.sticky
+    for placement in ('top','bottom','left','right'):
+        host.set_placement(placement);host.set_expanded(True,persist=False);settle(s.app)
+        visible=g.available_gallery_rect()
+        bar.setValue(header(g,a).top()+200);settle(s.app)
+        assert sticky.isVisible() and sticky.node_id==a
+        assert visible.contains(sticky.geometry())
+    host.set_placement('top');settle(s.app)
+    visible=g.available_gallery_rect();bar.setValue(header(g,nested).top()+90);settle(s.app)
+    assert sticky.node_id==nested
+    QTest.mouseClick(sticky,Qt.LeftButton,pos=sticky.disclosure_rect().center());settle(s.app)
+    assert nested not in g._expanded_nodes
+    assert abs(header(g,nested).top()-bar.value()-visible.top())<=1

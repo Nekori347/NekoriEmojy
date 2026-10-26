@@ -278,6 +278,10 @@ class HoverPreviewPopup(QWidget):
 
         gap = 15
         max_popup_width = max(1, screen_rect.width() - gap * 2)
+        available_height=screen_rect.height()-gap*2
+        if container_rect is not None:
+            max_popup_width=min(max_popup_width,max(1,container_rect.width()-8))
+            available_height=min(available_height,container_rect.height()-8)
         display_size=min(int(size_config),max_popup_width)
         for _ in range(2):
             self.metadata_footer.setFixedWidth(max(1,display_size-8))
@@ -288,9 +292,11 @@ class HoverPreviewPopup(QWidget):
             rows=[row for row in rows if not row.isHidden()]
             metadata_height=(margins.top()+margins.bottom()+sum(row.sizeHint().height() for row in rows)
                              +self.meta_layout.spacing()*max(0,len(rows)-1))
-            display_size=min(display_size,max(1,screen_rect.height()-gap*2-metadata_height-24))
+            display_size=min(display_size,max(1,available_height-metadata_height-24))
         self.metadata_footer.setFixedHeight(metadata_height)
         total_height = display_size + metadata_height + 4
+        if container_rect is not None and total_height>available_height:
+            self.hide();return
         self.setFixedSize(display_size, total_height)
         
         # 只读取图片尺寸，不载入原图像素数据。

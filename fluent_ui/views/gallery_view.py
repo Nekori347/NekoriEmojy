@@ -989,23 +989,21 @@ class GalleryInterface(QWidget):
         # One indicator for the whole content area, owned here and only ever
         # moved: drawing the drop target never touches the real layout.
         self.drop_feedback = DropFeedback(self.grid_container)
-        self.drop_cancel_zone = DropCancelZone(self.scroll_area.viewport())
+        self.drop_cancel_zone = DropCancelZone(self.scroll_area.viewport(),bounds_provider=self.available_gallery_rect)
         self.drop_cancel_zone.entered.connect(self._clear_drop)
         self.drop_scroller = EdgeAutoScroller(self.scroll_area)
         self._drop_target = INVALID_TARGET
 
     def _build_tag_panel(self):
-        """The dock host wraps the gallery workspace, not the whole page.
+        """The single tag foreground stays inside the gallery viewport.
 
-        Hierarchy Header -> Attached Tabs -> Search -> Content Workspace, and
-        all four TagPanel placements are relative to that workspace: TOP is
-        Search -> TagPanel -> Gallery, BOTTOM is Search -> Gallery -> TagPanel,
-        LEFT/RIGHT are Search -> [TagPanel | Gallery]. Search therefore stays
-        outside the host in every placement, without a TOP special case.
+        Search/tabs/commands and scrollbars are outside its coverage. The
+        workspace keeps its geometry while the foreground extent changes.
         """
         self.tag_panel = TagPanel(self.tag_model, self.config, self.content_pane)
-        self.tag_panel_host = TagPanelHost(self.workspace, self.tag_panel, self.config, self.content_pane)
+        self.tag_panel_host = TagPanelHost(self.workspace, self.tag_panel, self.config, self.content_pane, viewport=self.scroll_area.viewport())
         self.content_pane.content_layout.addWidget(self.tag_panel_host, 1)
+        self.tag_panel_host.occlusion_changed.connect(self._tag_overlay_changed)
         self.tag_panel.tags_changed.connect(self._on_tags_changed)
         self.tag_panel.filter_requested.connect(self._toggle_tag)
         self.tag_panel.apply_requested.connect(self.apply_tag_to_paths)
@@ -2058,22 +2056,38 @@ class GalleryInterface(QWidget):
         self.renderer.sync(scroll_only=True)
         self._update_back_top()
 
+    def available_gallery_rect(self):
+        return self.tag_panel_host.available_rect(self.scroll_area.viewport()).intersected(self.scroll_area.viewport().rect())
+
+    def preview_container_rect(self,pane):
+        return self.tag_panel_host.available_rect(pane).intersected(pane.rect())
+
+    def _tag_overlay_changed(self):
+        if hasattr(self,'preview_controller'):self.preview_controller.cancel()
+        self._sync_hover_card()
+        if hasattr(self,'renderer'):self.renderer.sticky.sync()
+        if hasattr(self,'drop_cancel_zone') and self.drop_cancel_zone.isVisible():self.drop_cancel_zone._place()
+        self._update_back_top()
+
     def _update_back_top(self):
-        if hasattr(self, 'btn_back_top'):
-            bar = self.scroll_area.verticalScrollBar()
-            viewport = self.scroll_area.viewport()
-            visible = bar.maximum() > 0 and bar.value() > max(120, viewport.height())
-            if visible:
-                # NodeCard's whole row is clickable, including its rightmost
-                # disclosure target. Use the existing flow index so a card
-                # awaiting lazy construction cannot briefly sit under the
-                # floating button.
-                origin = self.grid_container.mapTo(viewport, QPoint())
-                for index in self.renderer.index.between(bar.value(), bar.value()+viewport.height()):
-                    if self._entries[index]['kind'] == 'node' and self.renderer.index.rects[index].translated(origin).intersects(self.btn_back_top.geometry()):
-                        visible = False
-                        break
-            self.btn_back_top.setVisible(visible)
+        if not hasattr(self,'btn_back_top'):return
+        bar=self.scroll_area.verticalScrollBar();viewport=self.scroll_area.viewport()
+        available=self.available_gallery_rect()
+        button=self.btn_back_top
+        button.move(max(available.left(),available.right()-41),max(available.top(),available.bottom()-41))
+        visible=bar.maximum()>0 and bar.value()>max(120,viewport.height())
+        if visible:
+            origin=self.grid_container.mapTo(viewport,QPoint())
+            # Keep the existing node-disclosure safety, preferring a nearby
+            # free lane before hiding. Only the visible flow index is read.
+            candidates=list(self.renderer.index.between(bar.value(),bar.value()+viewport.height()))
+            for index in reversed(candidates):
+                if self._entries[index]['kind']!='node':continue
+                rect=self.renderer.index.rects[index].translated(origin)
+                if rect.intersects(button.geometry()):button.move(button.x(),rect.top()-button.height()-4)
+            visible=available.contains(button.geometry())
+        button.setVisible(visible)
+        if visible:button.raise_()
 
     def _refresh_visible_thumbnails(self):
         self.renderer.sync()
@@ -2171,8 +2185,7 @@ class GalleryInterface(QWidget):
                 return True
         if obj == self.scroll_area.viewport() and event.type() == event.Type.Resize:
             if hasattr(self, 'btn_back_top'):
-                self.btn_back_top.move(max(0, obj.width()-42), max(0, obj.height()-42))
-                self.btn_back_top.raise_()
+                self._update_back_top()
             self._schedule_responsive_layout()
         if obj == self.scroll_area.viewport() and event.type() == event.Type.Wheel:
             if QApplication.keyboardModifiers() & Qt.ControlModifier:

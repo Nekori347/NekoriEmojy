@@ -107,7 +107,7 @@ def test_open_sheet_gaps_follow_tabs_clip_and_static_tools(surface):
     assert len(row.boundary_gaps())==1 and row.boundary_gaps()[0][0]<tools.x()
 
 
-def test_title_double_rule_and_dock_nonoverlap(surface):
+def test_title_double_rule_and_dock_overlay(surface):
     from PySide6.QtCore import QRect
     g=surface.g
     for width in (1180,760):
@@ -131,6 +131,6 @@ def test_title_double_rule_and_dock_nonoverlap(surface):
         host.set_placement(placement);host.set_expanded(True,persist=False);settle(surface.app)
         panel=QRect(host.panel.mapTo(host,QPoint()),host.panel.size())
         content=QRect(host.content.mapTo(host,QPoint()),host.content.size())
-        assert not panel.intersects(content)
+        assert panel.intersects(content)
         host.set_expanded(False,persist=False);settle(surface.app)
         assert not host.expanded

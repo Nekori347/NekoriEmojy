@@ -22,7 +22,8 @@ class StickyCategory(NodeCard):
 
     def sync(self):
         g=self.gallery;index=g.renderer.index
-        top=g.scroll_area.verticalScrollBar().value()
+        visible=g.available_gallery_rect()
+        top=g.scroll_area.verticalScrollBar().value()+visible.top()
         if (not index.tops or getattr(g,'_gallery_drag_session',None) or
                 (hasattr(g,'drop_cancel_zone') and g.drop_cancel_zone.isVisible())):
             self.hide();return
@@ -45,13 +46,14 @@ class StickyCategory(NodeCard):
         self.set_selected(g._entry_key(entry) in g.selected_keys)
         next_break=bisect_right(index.section_breaks,top)
         y=min(0,index.section_breaks[next_break]-top-rect.height()) if next_break<len(index.section_breaks) else 0
-        self.setGeometry(rect.x(),y,rect.width(),rect.height())
+        x=visible.left()+rect.x()
+        self.setGeometry(x,visible.top()+y,max(0,min(rect.width(),visible.right()-x+1)),rect.height())
         self.show();self.raise_()
         if rebound:self.sync_pointer_state()
 
     def _toggle(self,node_id):
         # The visible resource is about to disappear: anchor the real header.
-        self.gallery.toggle_node_expansion(node_id,anchor=(occurrence_id(self.content_entry),0))
+        self.gallery.toggle_node_expansion(node_id,anchor=(occurrence_id(self.content_entry),-self.gallery.available_gallery_rect().top()))
 
     def mouseMoveEvent(self,event):
         # A fixed presentation is not another category drag source.

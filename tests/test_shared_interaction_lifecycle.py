@@ -127,30 +127,16 @@ def test_checked_state_and_click_survive_transient_reset(scene, monkeypatch):
     assert clicks == [True, False] and not button.isChecked()
 
 
-def test_dock_rule_and_chevron_use_one_neutral_color(scene, monkeypatch):
-    from types import SimpleNamespace
+def test_header_collapse_chevron_uses_shared_neutral_color(scene,monkeypatch):
     from fluent_ui.components import panel_host
-    app, panel = scene
-    split = panel_host.PanelSplitter(Qt.Vertical, panel)
-    split.dock_host = SimpleNamespace(expanded=True, placement=TagPanelPlacement.BOTTOM)
-    split.addWidget(QWidget())
-    split.addWidget(QWidget())
-    split.setGeometry(0, 0, 420, 120)
-    split.setHandleWidth(8)
-    split.show()
-    app.processEvents()
-    handle = split.handle(1)
-    monkeypatch.setattr(QCursor, 'pos', lambda: panel.mapToGlobal(QPoint(500, 500)))
-    colors = []
-    original = panel_host.paint_dock_chevron
-
-    def observe(painter, points, active=False):
-        colors.append((painter.pen().color().name(), active))
-        original(painter, points, active)
-
-    monkeypatch.setattr(panel_host, 'paint_dock_chevron', observe)
-    handle.grab()
-    assert colors[-1] == (visual.colors()['text_secondary'], False)
+    app,panel=scene
+    button=panel_host.EdgeDockPanelChrome(panel,expanded=True);button.resize(24,24);button.show()
+    monkeypatch.setattr(QCursor,'pos',lambda:panel.mapToGlobal(QPoint(500,500)))
+    colors=[];original=panel_host.paint_dock_chevron
+    def observe(painter,points,active=False):
+        original(painter,points,active);colors.append((painter.pen().color().name(),active))
+    monkeypatch.setattr(panel_host,'paint_dock_chevron',observe)
+    button.grab();assert colors[-1]==(visual.colors()['text_secondary'],False)
 
 
 def test_splitter_keyboard_cue_ends_when_pointer_input_keeps_qt_focus(scene, monkeypatch):
@@ -181,3 +167,19 @@ def test_splitter_keyboard_cue_ends_when_pointer_input_keeps_qt_focus(scene, mon
     app.processEvents()
     assert handle.hasFocus()  # Qt focus intentionally remains; only input origin changes.
     assert handle.grab().toImage() == baseline
+
+
+def test_resize_handle_lost_capture_clears_drag_feedback(scene,monkeypatch):
+    from fluent_ui.components.panel_host import PanelSplitter
+    app,panel=scene
+    split=PanelSplitter(Qt.Vertical,panel)
+    split.addWidget(QWidget());split.addWidget(QWidget())
+    split.setGeometry(0,0,300,100);split.show();app.processEvents()
+    handle=split.handle(1)
+    monkeypatch.setattr(QCursor,'pos',lambda:panel.mapToGlobal(QPoint(500,500)))
+    baseline=handle.grab().toImage()
+    QTest.mousePress(handle,Qt.LeftButton,pos=handle.rect().center())
+    assert handle.grab().toImage()!=baseline
+    app.sendEvent(handle,QEvent(QEvent.UngrabMouse))
+    assert handle.grab().toImage()==baseline
+    QTest.mouseRelease(handle,Qt.LeftButton,pos=handle.rect().center())

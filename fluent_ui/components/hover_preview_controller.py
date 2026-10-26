@@ -273,7 +273,8 @@ class HoverPreviewController(QObject):
                 # Fixed mode: coordinates relative to the pane the overlay is
                 # attached to, and the hovered card's rect so the overlay can
                 # step aside when the card already sits in its corner.
-                container_rect = pane.rect()
+                bounds=getattr(self.owner,'preview_container_rect',None)
+                container_rect = bounds(pane) if bounds is not None else pane.rect()
                 anchor_rect = QRect(pane.mapFromGlobal(card.mapToGlobal(QPoint(0, 0))),
                                     card.size())
             self.popup.show_preview(

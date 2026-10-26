@@ -300,8 +300,9 @@ class DropCancelZone(QWidget):
     """A temporary receive surface; CANCEL consumes the drag without domain writes."""
     entered = Signal()
 
-    def __init__(self, host):
+    def __init__(self, host, *, bounds_provider=None):
         super().__init__(host)
+        self.bounds_provider=bounds_provider
         self.setAcceptDrops(True)
         self.setFocusPolicy(Qt.NoFocus)
         self._session = None
@@ -323,8 +324,9 @@ class DropCancelZone(QWidget):
 
     def _place(self):
         host = self.parentWidget()
-        width = max(1, min(260, host.width()-24))
-        self.setGeometry((host.width()-width)//2, max(0, host.height()-54), width, 42)
+        bounds=self.bounds_provider() if self.bounds_provider is not None else host.rect()
+        width = max(1, min(260, bounds.width()-24))
+        self.setGeometry(bounds.left()+(bounds.width()-width)//2,max(bounds.top(),bounds.bottom()-53),width,42)
 
     def eventFilter(self, obj, event):
         if obj is self.parentWidget() and event.type() == QEvent.Resize and self.isVisible():

@@ -1,8 +1,7 @@
 """Tag panel collapse/expand and its unified three-state sort.
 
-Collapsing is presentation and nothing else: an extent and a visibility flag
-move, the released space goes to the content pane through the splitter, and the
-outer window is never touched. Tag data, sort, search and selection survive it.
+Collapsing is presentation and nothing else: the foreground extent changes,
+while gallery and outer window geometry stay fixed. Tag data, sort, search and selection survive it.
 """
 import json
 import os
@@ -63,10 +62,10 @@ def extent_of(host, panel):
 
 def content_extent(host):
     """The content pane's extent, whichever end of the splitter it sits on."""
-    return host.splitter.sizes()[host.splitter.indexOf(host.content)]
+    return host.content.height() if host.horizontal else host.content.width()
 
 
-def test_collapse_hands_the_extent_to_the_content_and_restores_it(scene):
+def test_collapse_changes_only_overlay_extent_and_restores_it(scene):
     app, window, host, panel, content, config, model = scene
     assert host.expanded and host.horizontal
     outer = window.geometry()
@@ -79,7 +78,7 @@ def test_collapse_hands_the_extent_to_the_content_and_restores_it(scene):
     assert not host.expanded and panel.collapsed
     assert not panel.index_body.isVisible()
     assert extent_of(host, panel) == panel.collapsed_extent()
-    assert content_extent(host) - content_before == expanded - extent_of(host, panel) + visual.COMPACT_CONTROLS.splitter_extent - host.splitter.handleWidth()
+    assert content_extent(host) == content_before
     # The user's extent is remembered, not replaced by the collapsed one.
     assert config.get('tag_panel_horizontal_extent') == 154
     assert config.get('tag_panel_expanded') is False
@@ -130,7 +129,7 @@ def test_each_placement_collapses_on_its_own_axis(scene, placement, horizontal):
     host.set_expanded(False)
     settle(app)
     assert extent_of(host, panel) == panel.collapsed_extent()
-    assert content_extent(host) - content_before == expanded - extent_of(host, panel) + visual.COMPACT_CONTROLS.splitter_extent - host.splitter.handleWidth()
+    assert content_extent(host) == content_before
     # The other axis keeps its own value untouched.
     assert config.get('tag_panel_horizontal_extent') == 154
     assert config.get('tag_panel_vertical_extent') == 240
@@ -141,16 +140,16 @@ def test_each_placement_collapses_on_its_own_axis(scene, placement, horizontal):
 
 
 @pytest.mark.parametrize('placement', ['top', 'bottom', 'left', 'right'])
-def test_handle_chevron_and_whole_rail_action(scene, placement):
+def test_header_chevron_and_whole_collapsed_rail_action(scene, placement):
     from PySide6.QtTest import QTest
     app, window, host, panel, content, config, model = scene
     host.set_placement(placement)
     settle(app)
     handle = host.splitter.handle(1)
-    points = handle.chevron_points()
+    points = panel.btn_collapse.chevron_points()
     axis = (lambda p: p.y()) if host.horizontal else (lambda p: p.x())
     assert (axis(points[1]) < axis(points[0])) == (placement in ('top', 'left'))
-    QTest.mouseClick(handle, Qt.LeftButton, pos=handle.ear_rect(True).center())
+    QTest.mouseClick(panel.btn_collapse,Qt.LeftButton)
     settle(app)
     assert not host.expanded and panel.chrome.isVisible()
     assert not panel.header.isVisible() and not panel.index_body.isVisible()
@@ -160,7 +159,7 @@ def test_handle_chevron_and_whole_rail_action(scene, placement):
     QTest.mouseClick(panel.chrome, Qt.LeftButton, pos=panel.chrome.rect().bottomRight()-QPoint(1, 1))
     settle(app)
     assert host.expanded
-    assert not hasattr(panel, 'btn_collapse')
+    assert panel.btn_collapse.parentWidget() is panel.header
 
 
 def test_collapsed_thickness_uses_theme_chrome_metrics_not_expanded_header(scene, monkeypatch):
@@ -487,7 +486,7 @@ def test_collapse_rebuilds_no_gallery_card_and_no_window_rect(tmp_path, monkeypa
 
         host.set_expanded(False)
         settle(app)
-        assert content_extent(host) > content_before
+        assert content_extent(host) == content_before
         assert refreshes == [] and collects == []
         assert gallery.renderer.created == created
         assert list(gallery._all_card_widgets) == cards
@@ -504,9 +503,9 @@ def test_collapse_rebuilds_no_gallery_card_and_no_window_rect(tmp_path, monkeypa
         gallery.close()
         settle(app)
 
-    # The host and the panel only ever move the splitter between the two
-    # widgets they already own; no outer-window geometry call exists in them.
+    # Content geometry stays full-size; only the local foreground splitter
+    # changes its allocation. There is no native outer-window move here.
     for cls in (TagPanelHost,):
         source = inspect.getsource(cls)
-        assert '.resize(' not in source and 'setGeometry' not in source
+        assert host.content.geometry()==host.rect()  # foreground geometry is allowed; the gallery stays full-size
         assert 'SetWindowPos' not in source

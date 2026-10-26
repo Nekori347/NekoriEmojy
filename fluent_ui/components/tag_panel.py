@@ -464,6 +464,8 @@ class TagPanel(QWidget):
         self.btn_sort.set_mode(self.sort_mode)
         self.btn_sort.mode_changed.connect(self._on_sort_cycled)
         row.addWidget(self.btn_sort)
+        self.btn_collapse=EdgeDockPanelChrome(self,expanded=True)
+        self.btn_collapse.setFixedSize(24,24);row.addWidget(self.btn_collapse)
         self.btn_new = TransparentToolButton(FIF.NEW_TAG, header)
         bind_text(self.btn_new, '新建标签', 'setToolTip')
         bind_text(self.btn_new, '新建标签', 'setAccessibleName')
@@ -558,7 +560,7 @@ class TagPanel(QWidget):
 
     def _fit_collapsed_identity(self):
         """Counts yield before command targets or the title; never grow chrome."""
-        available = self.header.width() - (self.btn_sort.width() + self.btn_new.width()
+        available = self.header.width() - (self.btn_sort.width() + self.btn_collapse.width()
                     + self.title_label.sizeHint().width() + 5*visual.COMPACT_CONTROLS.spacing)
         self.count_label.setVisible(available >= self.count_label.sizeHint().width())
         self.title_label.setToolTip(t('标签'))
@@ -590,6 +592,7 @@ class TagPanel(QWidget):
 
     def set_panel_placement(self, placement):
         self._placement = TagPanelPlacement(placement)
+        if hasattr(self,'btn_collapse'):self.btn_collapse.update()
 
     # -- content -------------------------------------------------------
     def set_items(self, items, selected=None):
@@ -676,7 +679,7 @@ class TagPanel(QWidget):
 
     def refresh_theme(self):
         self.flow.refresh_theme()
-        self.chrome.update()
+        self.chrome.update();self.btn_collapse.update()
         self.update()
 
     def paintEvent(self, event):
@@ -684,11 +687,14 @@ class TagPanel(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         palette = visual.colors()
         painter.setPen(Qt.NoPen)
-        if self.collapsed:return
-        painter.setBrush(QColor(palette['surface_alt']))
-        painter.drawRect(self.rect())
+        material=QColor(palette['surface_overlay'])
+        if self.collapsed:
+            material.setAlpha(210);painter.fillRect(self.rect(),material);return
+        title_y=self.header.mapTo(self,QPoint()).y()+self.header.height()
+        material.setAlpha(175);painter.fillRect(QRect(0,title_y,self.width(),self.height()-title_y),material)
+        material.setAlpha(210);painter.fillRect(QRect(0,0,self.width(),title_y),material)
         painter.setPen(QPen(QColor(palette['border_soft']),1))
-        painter.drawLine(8,30,self.width()-8,30) if not self.collapsed else None
+        painter.drawLine(8,title_y,self.width()-8,title_y)
         painter.end()
 
     # -- tag operations ------------------------------------------------
