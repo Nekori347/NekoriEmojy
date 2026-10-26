@@ -613,7 +613,7 @@ class ImportPackThread(QThread):
             self.imported_count = imported_count
             if not self._cancelled() and self.export_path:
                 if fail_count:
-                    raise ValueError(t("表情入库未全部成功，未导出表情合集。请使用相同 ID 重试以补齐索引和收藏夹。") + "\n" + "\n".join(failures[:5]))
+                    raise ValueError(t("部分表情未能保存到表情库，因此未生成 ZIP。已保存的表情会保留，可使用相同 ID 重试。") + "\n" + "\n".join(failures[:5]))
                 if not imported_count:
                     raise ValueError(t("没有可导出的表情，所有表情均获取失败。")
                                      + "\n" + "\n".join(self.skipped_details))
@@ -913,7 +913,7 @@ class TGStickerInterface(QWidget):
 
         self.importSelectedButton = translated(PrimaryPushButton, FIF.SAVE, t('入库选中'), self.actionBar)
         self.importAllButton = translated(PushButton, FIF.APPLICATION, t('入库全部'), self.actionBar)
-        self.exportPackageButton = translated(PushButton, FIF.SAVE, t('导出为表情合集'), self.actionBar)
+        self.exportPackageButton = translated(PushButton, FIF.SAVE, '保存到表情库并导出…', self.actionBar)
         self.exportPackageButton.setToolTip(t("将当前表情合集全部清洗入库到 ID 同名收藏夹，并导出为 ID.zip"))
         self.selectAllButton = translated(PushButton, t('全选已加载'), self.actionBar)
         self.clearSelectionButton = translated(PushButton, t('清空选择'), self.actionBar)
@@ -1916,7 +1916,7 @@ class TGStickerInterface(QWidget):
         if os.path.exists(export_path) and (QMessageBox.Yes if dialogs.confirm(self, t("覆盖表情合集"), t("文件已存在，是否覆盖？\n{path}").format(path=export_path)) else QMessageBox.No) != QMessageBox.Yes:
             return
         self._set_busy(True)
-        self.tooltip.show(t("正在导出表情合集"), t("正在下载并清洗表情..."))
+        self.tooltip.show(t("正在导出表情合集"), t("正在下载并保存表情…"))
         worker = ImportPackThread(
             self._get_configured_downloader(), storage, list(self.all_stickers),
             package_id, parent=self, export_path=export_path,
@@ -1952,7 +1952,7 @@ class TGStickerInterface(QWidget):
         if callable(refresh):
             refresh()
         self.log(message)
-        self.tooltip.fail(t("表情合集导出失败"), message)
+        self.tooltip.fail(t("保存或导出表情合集失败"), message)
 
     def importSelected(self):
         """将选中的贴纸下载并导入到资源库"""

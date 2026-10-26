@@ -392,7 +392,7 @@ class SettingsCenter(QWidget):
                      "sidebar_icon_size", self.config.get("sidebar_icon_size", 20), 14, 48, 1, self),
             "sidebar_icon_size", 20))
         section.add_row(self._track(
-            RangeRow("图库节点图标大小", "独立调整右侧图库分类节点的图标尺寸。",
+            RangeRow("图库分类图标大小", "调整右侧图库中分类节点的图标大小，不影响左侧分类树。",
                      "gallery_node_icon_size", self.config.get("gallery_node_icon_size", 22), 14, 48, 1, self),
             "gallery_node_icon_size", 22))
         section = self._section('标签面板')

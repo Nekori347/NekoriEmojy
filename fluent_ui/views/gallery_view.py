@@ -1106,23 +1106,20 @@ class GalleryInterface(QWidget):
         layout.addSpacing(12)
 
         self.btn_add_to = translated(PushButton, "加入分类", self.command_bar)
-        bind_text(self.btn_add_to, "复用已有资源加入目标分类，保留原分类关系和文件。", 'setToolTip')
         self.btn_add_to.clicked.connect(lambda: self._batch_assign(copy=True))
         layout.addWidget(self.btn_add_to)
 
         self.btn_move_to = translated(PushButton, "移动到分类", self.command_bar)
-        bind_text(self.btn_move_to, "移动所选来源的分类关系；其它分类关系保留。", 'setToolTip')
         self.btn_move_to.clicked.connect(lambda: self._batch_assign(copy=False))
         layout.addWidget(self.btn_move_to)
 
         self.btn_tags = translated(PushButton, "编辑标签", self.command_bar)
-        bind_text(self.btn_tags, "编辑所选资源的标签归属", 'setToolTip')
         self.btn_tags.clicked.connect(self._batch_tags)
         layout.addWidget(self.btn_tags)
 
         self.btn_arrange = DropDownButton(self.command_bar)
         bind_text(self.btn_arrange, '调整位置', 'setText')
-        bind_text(self.btn_arrange, '调整来源分类中的持久位置；搜索或显示排序时不可用。', 'setToolTip')
+        bind_text(self.btn_arrange, '调整所选内容在来源分类中的手动顺序；搜索或临时排序时不可用。', 'setToolTip')
         self.arrange_menu = RoundMenu(parent=self.btn_arrange)
         for label, front in (('移到最前', True), ('移到最后', False)):
             action = translated(Action, label, parent=self.arrange_menu)
@@ -1610,7 +1607,7 @@ class GalleryInterface(QWidget):
             self.location_rail.set_path([dict(id=self.current_node,name=t('最近使用'))],None)
             self.location_rail.set_counts(t('表情 {count} 张').format(count=len(self._entries)))
         for field, label in (('no_tag', '无标签'), ('unclassified', '未分类'),
-                             ('is_gif', '动图'), ('is_static', '静态表情'), ('missing', '已失效的表情')):
+                             ('is_gif', '动图'), ('is_static', '静态表情'), ('missing', '找不到文件的表情')):
             if getattr(self.filter_state, field):
                 self.chip_layout.addWidget(self._make_chip(t(label), lambda f=field: self._update_filter(f, False), self.chip_container, active=True))
         self.context_strip.setVisible(self.filter_state.is_active())
@@ -1731,6 +1728,7 @@ class GalleryInterface(QWidget):
         self._rebuild_context_strip()
         self._sync_command_bar()
         self._update_placeholder()
+        self._update_resource_sort_label()
 
     def refresh_theme(self):
         self.sidebar.update_theme()
@@ -1863,7 +1861,6 @@ class GalleryInterface(QWidget):
         self.btn_add_to.setEnabled(resource_only and ActionPolicy.enabled('category_membership', context))
         self.btn_tags.setEnabled(resource_only and ActionPolicy.enabled('tag_edit', context))
         self.btn_delete.setEnabled(resource_only and ActionPolicy.enabled('delete', context))
-        bind_text(self.btn_delete, ActionPolicy.delete_label(context), 'setToolTip')
         missing_only = bool(resources) and not context.existing
         bind_text(self.btn_delete, '移除记录' if missing_only else '删除资源', 'setText')
         if getattr(self, '_delete_missing_icon', None) != missing_only:
@@ -1873,9 +1870,17 @@ class GalleryInterface(QWidget):
         self.btn_move_to.setEnabled(node_only or (resource_only and ActionPolicy.enabled('category_membership', context)
                                     and any(e['_parent'] != ROOT for e in resources)))
         self.btn_arrange.setEnabled(bool(entries) and self._exact_placement_available())
-        for button in (self.btn_add_to,self.btn_tags,self.btn_delete,self.btn_more):
-            button.setToolTip(t('此操作仅支持表情；请先取消所选分类节点。') if nodes else (ActionPolicy.delete_label(context) if button is self.btn_delete else button.text()))
-        self.btn_move_to.setToolTip(t('混合选择不能一次移动到分类；请分别选择节点或表情。') if nodes and resources else self.btn_move_to.text())
+        for button, source in (
+            (self.btn_add_to, '将所选表情加入目标分类，保留原有分类关系和文件。'),
+            (self.btn_tags, '编辑所选表情的标签'),
+            (self.btn_delete, ActionPolicy.delete_label(context)),
+            (self.btn_more, '更多'),
+        ):
+            bind_text(button, '此操作仅支持表情；请先取消所选分类节点。' if nodes else source, 'setToolTip')
+        move_hint = ('混合选择不能一次移动到分类；请分别选择节点或表情。' if nodes and resources else
+                     '移动到分类' if nodes or not resources else
+                     '将所选表情从来源分类移到目标分类，其他分类关系保持不变。')
+        bind_text(self.btn_move_to, move_hint, 'setToolTip')
         visible = self.entry_model.projected
         self.btn_select_all.setEnabled(bool(visible))
         select_label = '取消全选' if visible and len(visible)==len(self.selected_keys) else '全选当前结果'
@@ -2444,7 +2449,7 @@ class GalleryInterface(QWidget):
         hint = ('只删除索引记录，磁盘文件不会被改动。' if missing_only else
                 '文件会进入 Windows 系统回收站，索引记录同时移除。' if len(context.existing) == len(paths) else
                 '现有文件进入 Windows 回收站；失效表情只移除索引记录。')
-        hint = t(hint) + '\n' + t('此操作影响资源及其所有分类关系，不只是从当前分类移除。')
+        hint = t(hint) + '\n' + t('此操作会删除表情及其全部分类关联，并非仅从当前分类移除。')
         if recycle_drop:
             hint += '\n' + t('Windows 回收站可能已接收拖放副本。此处确认是否删除图库原件；取消会保留原件，但不会移除回收站中的副本。')
         if not dialogs.confirm(self.window(), t(ActionPolicy.delete_label(context)),
@@ -3725,7 +3730,7 @@ class GalleryInterface(QWidget):
         label = {ResourceSort.MANUAL: '自定义顺序', ResourceSort.RECENT_ADDED: '最近添加',
                  ResourceSort.OLDEST_ADDED: '最早添加'}[ResourceSort(self.content_sort)]
         self.btn_content_sort.setIcon({ResourceSort.MANUAL:FIF.MANUAL_ORDER,ResourceSort.RECENT_ADDED:FIF.RECENT_ADDED,ResourceSort.OLDEST_ADDED:FIF.OLDEST_ADDED}[ResourceSort(self.content_sort)])
-        bind_text(self.btn_content_sort, t('表情显示排序') + ' · ' + t(label), 'setToolTip')
+        self.btn_content_sort.setToolTip(t('表情显示排序') + ' · ' + t(label))
         self.btn_content_sort.setAccessibleName(self.btn_content_sort.toolTip())
         for mode, action in getattr(self, 'resource_sort_actions', {}).items():
             action.setChecked(mode == self.content_sort)
@@ -3832,7 +3837,7 @@ class GalleryInterface(QWidget):
                     move.triggered.connect(lambda: self._apply_drop_action(paths, target, False, sources, position))
                     menu.addAction(move)
                     if any(parent == ROOT for parent in sources.values()):
-                        hint = Action(t('全部表情来源项仅加入目标分类，其它分类关系保留'), parent=menu)
+                        hint = Action(t('从“全部表情”拖入时，只加入目标分类，保留原有分类关系。'), parent=menu)
                         hint.setEnabled(False)
                         menu.addAction(hint)
                 label = t('加入分类「{name}」').format(name=title)

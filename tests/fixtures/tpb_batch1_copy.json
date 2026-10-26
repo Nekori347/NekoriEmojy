@@ -1,0 +1,134 @@
+{
+  "approved": {
+    "036": {
+      "zh": "找不到文件的表情",
+      "zh_TW": "找不到檔案的表情",
+      "en": "Emotes with missing files",
+      "ja": "ファイルが見つからないスタンプ"
+    },
+    "039": {
+      "zh": "加入分类",
+      "zh_TW": "加入分類",
+      "en": "Add to category",
+      "ja": "カテゴリに追加"
+    },
+    "041": {
+      "zh": "从当前分类移除",
+      "zh_TW": "從目前分類移除",
+      "en": "Remove from current category",
+      "ja": "現在のカテゴリから外す"
+    },
+    "054": {
+      "zh": "全选当前结果",
+      "zh_TW": "全選目前結果",
+      "en": "Select all current results",
+      "ja": "現在の結果をすべて選択"
+    },
+    "058": {
+      "zh": "此操作仅支持表情；请先取消所选分类节点。",
+      "zh_TW": "此操作僅支援表情；請先取消選取的分類節點。",
+      "en": "This action only works with emotes. Deselect the category nodes first.",
+      "ja": "この操作はスタンプのみ対象です。選択中のカテゴリを解除してください。"
+    },
+    "059": {
+      "zh": "混合选择不能一次移动到分类；请分别选择节点或表情。",
+      "zh_TW": "分類節點與表情無法一起移動至分類；請分別選取後操作。",
+      "en": "Category nodes and emotes cannot be moved together. Select and move each type separately.",
+      "ja": "カテゴリとスタンプをまとめて移動することはできません。種類ごとに選択して移動してください。"
+    },
+    "061": {
+      "zh": "已选 {value_0} 项（{value_1} 张表情，{value_2} 个节点）",
+      "zh_TW": "已選 {value_0} 項（{value_1} 張表情，{value_2} 個節點）",
+      "en": "{value_0} selected ({value_1} emotes, {value_2} category nodes)",
+      "ja": "{value_0} 件選択（スタンプ {value_1} 件、カテゴリ {value_2} 件）"
+    },
+    "062": {
+      "zh": "将所选表情加入目标分类，保留原有分类关系和文件。",
+      "zh_TW": "將選取的表情加入目標分類，保留原有分類關聯和檔案。",
+      "en": "Add selected emotes to the target category without removing them from other categories or changing their files.",
+      "ja": "選択したスタンプを移動先のカテゴリに追加します。他のカテゴリとの関連やファイルは変更しません。"
+    },
+    "063": {
+      "zh": "将所选表情从来源分类移到目标分类，其他分类关系保持不变。",
+      "zh_TW": "將選取的表情從來源分類移至目標分類，其他分類關聯維持不變。",
+      "en": "Move selected emotes from their source categories to the target category. Other category memberships remain unchanged.",
+      "ja": "選択したスタンプを元のカテゴリから移動先のカテゴリへ移動します。他のカテゴリとの関連は変更しません。"
+    },
+    "064": {
+      "zh": "编辑所选表情的标签",
+      "zh_TW": "編輯所選表情的標籤",
+      "en": "Edit tags for selected emotes",
+      "ja": "選択したスタンプのタグを編集"
+    },
+    "065": {
+      "zh": "调整所选内容在来源分类中的手动顺序；搜索或临时排序时不可用。",
+      "zh_TW": "調整所選內容在來源分類中的手動順序；搜尋或暫時排序時無法使用。",
+      "en": "Change the manual order of selected items in their source categories. Unavailable during search or temporary sorting.",
+      "ja": "選択した項目の元カテゴリ内での手動順序を変更します。検索中や一時的な並べ替え中は使用できません。"
+    },
+    "074": {
+      "zh": "此操作会删除表情及其全部分类关联，并非仅从当前分类移除。",
+      "zh_TW": "此操作會刪除表情及其所有分類關聯，而不只是從目前分類移除。",
+      "en": "This deletes the emotes and all their category memberships, not just their membership in the current category.",
+      "ja": "現在のカテゴリから外すだけでなく、スタンプとすべてのカテゴリとの関連も削除します。"
+    },
+    "081": {
+      "zh": "加入分类「{name}」",
+      "zh_TW": "加入分類「{name}」",
+      "en": "Add to “{name}”",
+      "ja": "「{name}」に追加"
+    },
+    "082": {
+      "zh": "从“全部表情”拖入时，只加入目标分类，保留原有分类关系。",
+      "zh_TW": "從「全部表情」拖入時，只會加入目標分類，原有分類關聯不變。",
+      "en": "Dragging from All emotes adds items to the target category without changing their existing category memberships.",
+      "ja": "「すべてのスタンプ」からドラッグした場合、移動先のカテゴリに追加し、既存のカテゴリとの関連は変更しません。"
+    },
+    "141": {
+      "zh": "名称：图库分类图标大小\n副描述：调整右侧图库中分类节点的图标大小，不影响左侧分类树。",
+      "zh_TW": "名稱：圖庫分類圖示大小\n副描述：調整右側圖庫中分類的圖示大小，不影響左側分類樹。",
+      "en": "Name: Gallery category icon size\nDescription: Adjust category icon size in the gallery without changing the category tree icons.",
+      "ja": "名前：ギャラリーのカテゴリアイコンサイズ\n説明：ギャラリー内のカテゴリアイコンの大きさを調整します。左側のカテゴリツリーには影響しません。"
+    },
+    "220": {
+      "zh": "保存到表情库并导出…",
+      "zh_TW": "儲存至表情庫並匯出…",
+      "en": "Save to library and export…",
+      "ja": "ライブラリに保存して書き出す…"
+    },
+    "222": {
+      "zh": "输入表情合集 ID（用于分类名称和 ZIP 文件名）。\n表情会先保存到库中；若使用已有分类，也会导出其中原有表情。中途取消或失败不会撤销已保存的内容。",
+      "zh_TW": "輸入表情合集 ID（用於分類名稱及 ZIP 檔名）。\n表情會先儲存至表情庫；若使用現有分類，也會一併匯出其中的表情。中途取消或失敗不會撤銷已儲存的內容。",
+      "en": "Enter a collection ID (used for the category name and ZIP filename).\nEmotes are saved to the library first. If an existing category is reused, its current emotes are included. Canceling or failing does not undo items already saved.",
+      "ja": "コレクション ID を入力してください（カテゴリ名と ZIP ファイル名に使用します）。\nスタンプは先にライブラリに保存されます。既存のカテゴリを使用する場合、そのカテゴリ内のスタンプも書き出されます。途中でキャンセルまたは失敗しても、保存済みの内容は元に戻りません。"
+    },
+    "225": {
+      "zh": "正在下载并保存表情…",
+      "zh_TW": "正在下載並儲存表情…",
+      "en": "Downloading and saving emotes…",
+      "ja": "スタンプをダウンロードして保存しています…"
+    },
+    "226": {
+      "zh": "部分表情未能保存到表情库，因此未生成 ZIP。已保存的表情会保留，可使用相同 ID 重试。",
+      "zh_TW": "部分表情未能儲存至表情庫，因此未產生 ZIP。已儲存的表情會保留，可使用相同 ID 重試。",
+      "en": "Some emotes could not be saved to the library, so no ZIP was created. Previously saved emotes remain. Retry with the same ID.",
+      "ja": "一部のスタンプをライブラリに保存できなかったため、ZIP は作成されませんでした。保存済みのスタンプは残ります。同じ ID で再試行できます。"
+    },
+    "229": {
+      "zh": "保存或导出表情合集失败",
+      "zh_TW": "儲存或匯出表情合集失敗",
+      "en": "Failed to save or export the collection",
+      "ja": "コレクションの保存または書き出しに失敗しました"
+    }
+  },
+  "partial": {
+    "044": {
+      "source": "复制文件路径",
+      "zh_TW": "複製檔案路徑"
+    },
+    "073": {
+      "source": "现有文件进入 Windows 回收站；失效表情只移除索引记录。",
+      "zh_TW": "現有檔案會移至 Windows 資源回收筒；找不到檔案的表情僅移除索引記錄。"
+    }
+  }
+}
