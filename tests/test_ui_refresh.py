@@ -76,3 +76,59 @@ def test_card_hover_dominates_selected_and_short_top_mark(surface):
         card._hovered=False;card.is_selected=True
         assert card.grab().toImage()==selected
     finally:card.close();card.deleteLater()
+
+
+def test_open_sheet_gaps_follow_tabs_clip_and_static_tools(surface):
+    from test_tab_overflow import own_paint
+    from PySide6.QtWidgets import QToolButton
+    from PySide6.QtTest import QTest
+    from PySide6.QtGui import QRegion
+    g=surface.g;row=g.tab_row;tabs=g.category_tabs;tools=g.size_slider.parentWidget()
+    for width in (1180,760):
+        g.resize(width,760);settle(surface.app)
+        tabs.set_tabs(['Scope']+['Category '+str(i) for i in range(12)])
+        for index in (0,6,11):
+            tabs.setCurrentIndex(index);settle(surface.app)
+            image=own_paint(row);gaps=row.boundary_gaps()
+            body=tabs.content_tab_rect(index)
+            visible=tabs._tab_viewport().intersected(QRegion(body.adjusted(-7,0,7,0))).boundingRect()
+            if not visible.isEmpty():
+                x=tabs.x()+visible.center().x()
+                assert any(a<=x<=b for a,b in gaps)
+                assert image.pixelColor(x,row.height()-1).alpha()==0
+            assert (tools.x(),tools.x()+tools.width()) in gaps
+            assert image.pixelColor(tools.x()+tools.width()//2,row.height()-1).alpha()==0
+            assert g.btn_recent.geometry().left()>=5
+            assert g.btn_recent.geometry().top()>=4
+            assert g.size_slider.geometry().right()<=tools.width()-6
+        before=tools.geometry();QTest.mouseClick(g.btn_recent,Qt.LeftButton);settle(surface.app)
+        assert tools.geometry()==before
+    tabs.hide();settle(surface.app)
+    assert row.boundary_gaps()==[(tools.x(),tools.x()+tools.width())]
+
+
+def test_title_double_rule_and_dock_nonoverlap(surface):
+    from PySide6.QtCore import QRect
+    g=surface.g
+    for width in (1180,760):
+        g.resize(width,760);settle(surface.app)
+        band=g.top_bar;rail=g.location_rail;image=band.grab().toImage()
+        y=rail.y()+rail.height()+2
+        spans=[]
+        for color in ('#DF52AC','#FFF500','#00E5FF'):
+            xs=[x for x in range(image.width()) if image.pixelColor(x,y).name()==color.lower()]
+            assert xs
+            spans.append((min(xs),max(xs)))
+        assert max(b-a for a,b in spans)-min(b-a for a,b in spans)<=1
+        assert abs((spans[-1][1]+1-spans[0][0])/(rail.width()-24)-.618)<.02
+        assert spans[0][0]==rail.x()+24
+        assert all(3<=spans[i+1][0]-spans[i][1]-1<=5 for i in (0,1))
+    host=g.tag_panel_host
+    # Establish UI-C feasibility using the actual four-way split allocation.
+    for placement in ('top','bottom','left','right'):
+        host.set_placement(placement);host.set_expanded(True,persist=False);settle(surface.app)
+        panel=QRect(host.panel.mapTo(host,QPoint()),host.panel.size())
+        content=QRect(host.content.mapTo(host,QPoint()),host.content.size())
+        assert not panel.intersects(content)
+        host.set_expanded(False,persist=False);settle(surface.app)
+        assert not host.expanded

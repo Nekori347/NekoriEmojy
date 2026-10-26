@@ -4,13 +4,14 @@ Glass navigation | opaque workspace -> hierarchy -> attached tabs -> raised
 resource sheet. The tag dock is an auxiliary surface inside the sheet. No
 storage, selection, navigation or drag decisions are made here.
 """
-from PySide6.QtCore import Qt,QTimer,QSize
+from PySide6.QtCore import Qt,QTimer,QSize,QRectF
+from PySide6.QtGui import QPainter,QColor
 from PySide6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QBoxLayout,QLabel,QSizePolicy
 from fluent_ui import visual
 from services.i18n import t
 from fluent_ui.icons import Icon as I
 from fluent_ui.components.controls import TransparentToolButton,SplitPushButton,SearchLineEdit
-from fluent_ui.components.navigation import HierarchyLocationHeader,TabStrip,ContentPane,AttachedTabRow
+from fluent_ui.components.navigation import HierarchyLocationHeader,TabStrip,ContentPane,AttachedTabRow,WorkspaceTools
 from fluent_ui.components.interaction_controls import IconDropDownButton,ResourceSortIcon,FilterCheckboxFlyout
 from fluent_ui.components.panel_host import PanelSplitter
 from fluent_ui.components.safe_round_menu import SafeRoundMenu
@@ -21,6 +22,20 @@ from .surfaces import Surface,CommandWell
 
 class HeadingBand(QWidget):
     """The location and current-view commands share one compact working band."""
+    def paintEvent(self,event):
+        layout=self.layout()
+        if not layout or layout.count()<1:return
+        rail=layout.itemAt(0).widget()
+        if not rail or not rail.isVisible():return
+        # The original grey rule remains in the header. Use the free band
+        # immediately below it, without moving the title/search or growing it.
+        width=max(0,rail.width()-24)*.618
+        segment=max(0,(width-8)/3)
+        p=QPainter(self);p.setPen(Qt.NoPen)
+        for index,color in enumerate(('#DF52AC','#FFF500','#00E5FF')):
+            p.setBrush(QColor(color))
+            p.drawRect(QRectF(rail.x()+24+index*(segment+4),rail.y()+rail.height()+2,segment,2))
+
     def resizeEvent(self,event):
         super().resizeEvent(event)
         layout=self.layout()
@@ -64,6 +79,7 @@ def build_workbench(g):
     g.tab_row.setFixedHeight(g.category_tabs.height())
     g.right_layout.addWidget(g.tab_row)
     g.content_pane=ContentPane(g.right_container)
+    g.content_pane.setProperty('gallery_workspace',True)
     g.content_pane.content_layout.setContentsMargins(1,0,1,1)
     g.right_layout.addWidget(g.content_pane,1)
 
@@ -105,8 +121,8 @@ def build_workbench(g):
     g.filter_flyout=FilterCheckboxFlyout(g.btn_filter)
     g.filter_flyout.changed.connect(g._update_filter);g.filter_flyout.clear_requested.connect(g._clear_filter)
     g.top_bar_layout.addWidget(g.search_surface,1)
-    size_host=QWidget(g.tab_row);size_host.setFixedHeight(28)
-    size_row=QHBoxLayout(size_host);size_row.setContentsMargins(0,0,6,0);size_row.setSpacing(0);size_row.setAlignment(Qt.AlignVCenter)
+    size_host=WorkspaceTools(g.tab_row);size_host.setFixedHeight(38)
+    size_row=QHBoxLayout(size_host);size_row.setContentsMargins(6,5,8,5);size_row.setSpacing(0);size_row.setAlignment(Qt.AlignVCenter)
     glyph=IconWidget(I.PHOTO,size_host);glyph.setFixedSize(16,16);bind_text(glyph,'缩略图大小','setToolTip');size_row.addWidget(glyph,0,Qt.AlignVCenter)
     visual.theme.changed.connect(glyph.update)
     g.size_slider=SoftframeSlider(Qt.Horizontal,size_host);g.size_slider.setFixedWidth(88)
@@ -125,6 +141,7 @@ def build_workbench(g):
     g.btn_recent.clicked.connect(g.toggle_recent_view)
     size_row.insertWidget(0,g.btn_recent,0,Qt.AlignVCenter);size_row.insertSpacing(1,5)
     tab_layout.addSpacing(8);tab_layout.addWidget(size_host,0,Qt.AlignRight|Qt.AlignBottom)
+    g.tab_row.bind_structure(g.category_tabs,size_host)
 
     g.content_pane.corner_radius=10
     g.workspace=Surface('raised',g.content_pane,radius=9,edge=False)

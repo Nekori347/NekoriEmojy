@@ -341,16 +341,63 @@ def sort_named(items, mode):
     return SortProjection.from_display(mode).project(items, name=lambda item: item['name'])
 
 
-class AttachedTabRow(QWidget):
-    """Continue the content boundary under the trailing projection control."""
-    def __init__(self, parent=None):
+def workspace_edge_color():
+    """Neutral ink for the gallery sheet and its two open connections."""
+    color=QColor(visual.colors()['text_secondary']);color.setAlpha(160)
+    return color
+
+
+class WorkspaceTools(QWidget):
+    """Static, input-neutral open contour around the existing tools."""
+    def __init__(self,parent=None):
         super().__init__(parent)
         visual.theme.changed.connect(self.update)
 
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setPen(QPen(QColor(visual.colors()['border']), 1))
-        painter.drawLine(0, self.height()-1, self.width(), self.height()-1)
+    def paintEvent(self,event):
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
+        r=QRectF(self.rect()).adjusted(.75,.75,-.75,0);radius=7
+        path=QPainterPath();path.moveTo(r.left(),r.bottom())
+        path.lineTo(r.left(),r.top()+radius);path.quadTo(r.left(),r.top(),r.left()+radius,r.top())
+        path.lineTo(r.right()-radius,r.top());path.quadTo(r.right(),r.top(),r.right(),r.top()+radius)
+        path.lineTo(r.right(),r.bottom())
+        p.setPen(QPen(workspace_edge_color(),1.4));p.setBrush(Qt.NoBrush);p.drawPath(path)
+
+
+class AttachedTabRow(QWidget):
+    """One sheet boundary with real gaps for the selected tab and tool group."""
+    def __init__(self,parent=None):
+        super().__init__(parent);self.tabs=None;self.tools=None
+        visual.theme.changed.connect(self.update)
+
+    def bind_structure(self,tabs,tools):
+        self.tabs,self.tools=tabs,tools
+        tabs.currentChanged.connect(self.update)
+        for widget in (tabs,tools):widget.installEventFilter(self)
+        for button in tabs._scroll_buttons:button.clicked.connect(self.update)
+
+    def eventFilter(self,obj,event):
+        if event.type() in (QEvent.Move,QEvent.Resize,QEvent.Show,QEvent.Hide,QEvent.LayoutRequest):self.update()
+        return super().eventFilter(obj,event)
+
+    def boundary_gaps(self):
+        gaps=[]
+        if self.tabs is not None and self.tabs.isVisible() and self.tabs.currentIndex()>=0:
+            tabs=self.tabs;body=tabs.content_tab_rect(tabs.currentIndex())
+            # Use Qt's visible tab projection, including clipping by its arrows.
+            visible=tabs._tab_viewport().intersected(QRegion(body.adjusted(-7,0,7,0))).boundingRect()
+            if not visible.isEmpty():gaps.append((tabs.x()+visible.left(),tabs.x()+visible.right()+1))
+        if self.tools is not None and self.tools.isVisible():
+            gaps.append((self.tools.x(),self.tools.x()+self.tools.width()))
+        return sorted((max(0,a),min(self.width(),b)) for a,b in gaps if b>0 and a<self.width())
+
+    def paintEvent(self,event):
+        painter=QPainter(self);painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(QPen(workspace_edge_color(),1.4))
+        y=self.height()-.7;left=0
+        for start,end in self.boundary_gaps():
+            if start>left:painter.drawLine(QPointF(left,y),QPointF(start,y))
+            left=max(left,end)
+        if left<self.width():painter.drawLine(QPointF(left,y),QPointF(self.width(),y))
 
 
 class NavigationItem(QStyledItemDelegate):
@@ -602,7 +649,7 @@ class ContentPane(QWidget):
         path=QPainterPath();path.moveTo(r.left(),0);path.lineTo(r.left(),r.bottom()-radius)
         path.quadTo(r.left(),r.bottom(),r.left()+radius,r.bottom());path.lineTo(r.right()-radius,r.bottom())
         path.quadTo(r.right(),r.bottom(),r.right(),r.bottom()-radius);path.lineTo(r.right(),0)
-        p.setPen(QPen(QColor(c['border_soft']),1));p.drawPath(path)
+        p.setPen(QPen(workspace_edge_color(),1.4) if self.property('gallery_workspace') else QPen(QColor(c['border_soft']),1));p.drawPath(path)
 
 
 class TabStrip(QTabBar):
@@ -659,6 +706,11 @@ class TabStrip(QTabBar):
         if watched in self._scroll_buttons and event.type() == QEvent.EnabledChange:
             watched.setCursor(Qt.PointingHandCursor if watched.isEnabled() else Qt.ArrowCursor)
         return super().eventFilter(watched, event)
+
+    def tabLayoutChange(self):
+        super().tabLayoutChange()
+        if self.location_divider and self.parentWidget() is not None:
+            self.parentWidget().update()
 
     def _tab_viewport(self):
         # QTabBar owns scroll-button placement, including style/DPI changes.
@@ -799,12 +851,14 @@ class TabStrip(QTabBar):
         y = self.height()-0.5
         selected = self.content_tab_rect(self.currentIndex()) if self.currentIndex() >= 0 else None
         # Neutral pane boundary, with a separate rounded active contour.
-        painter.setPen(QPen(QColor(c['border']), 1))
-        if selected:
-            painter.drawLine(0, int(y), selected.left(), int(y))
-            painter.drawLine(selected.right(), int(y), self.width(), int(y))
-        else:
-            painter.drawLine(0, int(y), self.width(), int(y))
+        edge=workspace_edge_color() if self.location_divider else QColor(c['border'])
+        painter.setPen(QPen(edge,1.4 if self.location_divider else 1))
+        if not self.location_divider:
+            if selected:
+                painter.drawLine(0, int(y), selected.left(), int(y))
+                painter.drawLine(selected.right(), int(y), self.width(), int(y))
+            else:
+                painter.drawLine(0, int(y), self.width(), int(y))
         boundary = QPainterPath()
         if selected:
             left, right = selected.left()+0.5, selected.right()+0.5
@@ -820,7 +874,7 @@ class TabStrip(QTabBar):
             fill = QPainterPath(boundary)
             fill.closeSubpath()
             painter.fillPath(fill, QColor(c['surface']))
-        painter.setPen(QPen(QColor(c['border']), 1))
+        painter.setPen(QPen(edge,1.4 if self.location_divider else 1))
         painter.drawPath(boundary)
         if self.location_divider and self.count() > 1:
             x = self.tabRect(0).right()-visual.TAB_LOCATION_GAP//2
