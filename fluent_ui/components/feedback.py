@@ -49,14 +49,19 @@ class Toast(QFrame):
         self.natural_width=min(420,label.sizeHint().width()+48)
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
-        self.timer.timeout.connect(self._expire)
-        self.timer.start(duration)
+        from fluent_ui.components.notification_timing import DisplayDeadline, CountdownLine
+        self.deadline = DisplayDeadline(self.timer, self)
+        self.deadline.expired.connect(self._expire)
+        self.countdown = CountdownLine(self, self.deadline)
+        self.deadline.start(duration)
 
     def showEvent(self,event):
         super().showEvent(event)
+        self.deadline.set_presented(True)
         self._motion.stop();self._motion.setStartValue(0.0);self._motion.setEndValue(1.0);visual.start_animation(self._motion, visual.MOTION.feedback)
 
     def _expire(self):
+        self.deadline.stop()
         self._exiting=True
         self._motion.stop();self._motion.setStartValue(self._opacity.opacity());self._motion.setEndValue(0.0);visual.start_animation(self._motion, visual.MOTION.feedback)
 
@@ -65,13 +70,29 @@ class Toast(QFrame):
             self.expired.emit(self)
 
     def enterEvent(self, event):
-        self.timer.stop()
-        self._exiting=False;self._motion.stop();self._opacity.setOpacity(1)
+        if not self._exiting:
+            self.deadline.pause()
+            self._motion.stop();self._opacity.setOpacity(1)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        self.timer.start(self.duration)
+        self.deadline.resume()
         super().leaveEvent(event)
+
+    def reannounce(self):
+        self._motion.stop()
+        self._exiting=False
+        self._opacity.setOpacity(1)
+        self.deadline.start(self.duration,self.message)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.countdown.setGeometry(5, self.height()-2, max(0, self.width()-10), 1)
+
+    def hideEvent(self, event):
+        self.deadline.set_presented(False)
+        self.deadline.resume()
+        super().hideEvent(event)
 
 
 class FeedbackHost(QObject):
@@ -193,7 +214,7 @@ class FeedbackHost(QObject):
         for item in self.toasts:
             if item.message == message:
                 if not item.underMouse():
-                    item.timer.start(item.duration)
+                    item.reannounce()
                 return
         while len(self.toasts) >= 3:
             self._remove_toast(self.toasts[0])
@@ -207,6 +228,7 @@ class FeedbackHost(QObject):
 
     def _remove_toast(self, item):
         if item in self.toasts:
+            item.deadline.stop()
             self.toasts.remove(item)
             self.toast_layout.removeWidget(item)
             item.deleteLater()
