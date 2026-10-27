@@ -111,6 +111,7 @@ class NekoriPackageService:
         root = Path(self.index.root)
         total = len(manifest["resources"]) + len(manifest["nodes"]) + 1
         step = 0
+        written = skipped = 0
 
         with staged_export_path(target_path, cancel_check) as temporary, zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as archive:
             for entry in manifest["resources"]:
@@ -121,8 +122,13 @@ class NekoriPackageService:
                 try:
                     if source.is_file():
                         archive.write(source, entry["package_path"])
-                except OSError as exc:
-                    print(f"[WARNING] 打包资源失败: {source}: {exc}")
+                        written += 1
+                    else:
+                        skipped += 1
+                except OSError:
+                    # Keep the existing package schema/order; report omissions
+                    # separately rather than claiming every manifest item was written.
+                    skipped += 1
                 step += 1
                 if progress:
                     progress(step, total, '写入资源（工作单元）: ' + entry["display_name"])
@@ -154,7 +160,7 @@ class NekoriPackageService:
             archive.writestr(MANIFEST_NAME, json.dumps(manifest, ensure_ascii=False, indent=2))
         if progress:
             progress(total, total, "完成")
-        return {"resources": len(manifest["resources"]), "nodes": len(manifest["nodes"])}
+        return {"resources": written, "nodes": len(manifest["nodes"]), "skipped": skipped}
 
 
     # ------------------------------------------------------------------

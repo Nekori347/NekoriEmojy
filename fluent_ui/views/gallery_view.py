@@ -654,10 +654,14 @@ class CategorySidebar(Surface):
         service = ExchangeExportService(storage=self.storage)
         try:
             labels = {v: k for k, v in self.storage.category_labels().items()}
-            run_exchange_task(self.window(), "正在导出分类",
+            manifest = run_exchange_task(self.window(), "正在导出分类",
                               lambda progress, cancel: service.export_zip(target, [labels.get(node_id, node["name"])], progress,
                                                                         cancel_check=cancel), cancellable=True)
-            if self.gallery_view:
+            if manifest.get('skipped'):
+                from fluent_ui.components.feedback import feedback_for
+                feedback_for(self.window()).notice(t('导出完成'), target + '\n' +
+                    t('有 {count} 个文件未能导出（如格式不支持或读取失败）。').format(count=len(manifest['skipped'])))
+            elif self.gallery_view:
                 self.gallery_view.show_success(t("导出完成"), target)
         except ExportCancelled:
             from fluent_ui.components.feedback import feedback_for
@@ -700,6 +704,7 @@ class CategorySidebar(Surface):
 
         menu.addSeparator()
         action_export = translated(Action, "导出此分类为表情合集…", parent=menu)
+        bind_text(action_export, '仅导出此分类中的表情，不包含子分类。', 'setToolTip')
         action_export.triggered.connect(lambda: self.export_node(node_id))
         menu.addAction(action_export)
 
@@ -3051,7 +3056,7 @@ class GalleryInterface(QWidget):
             self.storage.force_reload()
             self.sidebar.refresh_list(self.current_node)
             self.on_images_changed()
-            message = t('新增 {value_0} 个，跳过 {value_1} 个').format(value_0=saved, value_1=skipped)
+            message = t('新增 {value_0} 个，未新增 {value_1} 个；重复项仍可能合并分类关系或标签。').format(value_0=saved, value_1=skipped)
             if service.warnings:
                 message += "\n" + "\n".join(map(str, service.warnings))
             self.show_success(t("导入完成"), message)
@@ -3071,6 +3076,9 @@ class GalleryInterface(QWidget):
             return
         dialog = dialogs.NekoriDialog(owner, t("选择要导出的分类"))
         layout = dialog.body
+        scope_hint = translated(QLabel, '仅导出所选分类直接包含的表情；子分类需要单独选择。', dialog)
+        scope_hint.setWordWrap(True)
+        layout.addWidget(scope_hint)
         choices = QListWidget(dialog)
         for name in categories:
             item = QListWidgetItem(name, choices)
@@ -3105,7 +3113,7 @@ class GalleryInterface(QWidget):
                 service.export_zip(path, selected_categories, progress, cancel_check=cancel), cancellable=True)
             message = t('表情合集已保存到\n{value_0}').format(value_0=path)
             if manifest.get("skipped"):
-                message += "\n" + t("跳过 {count} 个不支持的文件").format(count=len(manifest['skipped']))
+                message += "\n" + t("有 {count} 个文件未能导出（如格式不支持或读取失败）。").format(count=len(manifest['skipped']))
             feedback_for(owner).notice(t("导出完成"), message) if manifest.get("skipped") else feedback_for(owner).toast(t("导出完成"), message)
         except ExportCancelled:
             feedback_for(owner).notice(t('导出已停止'), t('未完成的临时文件已清理，原有目标文件保持不变。'))

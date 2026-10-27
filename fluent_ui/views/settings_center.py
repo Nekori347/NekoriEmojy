@@ -577,7 +577,13 @@ class SettingsCenter(QWidget):
         except Exception as exc:
             self.show_error(t("导出失败"), str(exc))
             return
-        self.show_success(t("导出完成"), t('表情 {value_0} 项，分类 {value_1} 个\n{value_2}').format(value_0=manifest['resources'], value_1=manifest['nodes'], value_2=path))
+        if manifest.get('skipped'):
+            from fluent_ui.components.feedback import feedback_for
+            feedback_for(self.window()).notice(t('导出不完整'),
+                t('已导出 {written} 张表情，另有 {skipped} 张未能写入。请检查来源文件后重试。').format(
+                    written=manifest['resources'], skipped=manifest['skipped']) + '\n' + path, warning=True)
+        else:
+            self.show_success(t("导出完成"), t('表情 {value_0} 项，分类 {value_1} 个\n{value_2}').format(value_0=manifest['resources'], value_1=manifest['nodes'], value_2=path))
 
     def import_nekori_package(self):
         from services.nekori_package import NekoriPackageService

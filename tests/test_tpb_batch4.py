@@ -94,3 +94,104 @@ def test_approved_similarity_translations():
             assert t(r['source']) == r['values'][lang], (r['id'], lang)
             assert fields(r['source']) == fields(r['values'][lang])
     i18n_engine.load_language('zh')
+
+
+def test_native_export_reports_written_and_omitted_resources(tmp_path, monkeypatch):
+    import zipfile
+    from services.nekori_package import NekoriPackageService
+    root = tmp_path / 'library'
+    root.mkdir()
+    (root / 'good.bin').write_bytes(b'generated good data')
+    (root / 'unreadable.bin').write_bytes(b'generated inaccessible data')
+    entries = [dict(relative_path=n, package_path='images/'+n, display_name=n)
+               for n in ('good.bin', 'missing.bin', 'unreadable.bin')]
+    service = NekoriPackageService(SimpleNamespace(index=SimpleNamespace(root=root)))
+    monkeypatch.setattr(service, 'build_manifest', lambda **_: dict(resources=entries, nodes=[]))
+    original = zipfile.ZipFile.write
+    def write(archive, filename, *args, **kwargs):
+        if Path(filename).name == 'unreadable.bin':
+            raise PermissionError('Generated read failure')
+        return original(archive, filename, *args, **kwargs)
+    monkeypatch.setattr(zipfile.ZipFile, 'write', write)
+    target = tmp_path / 'test.zip'
+    result = service.export(target)
+    assert result['resources'] == 1
+    assert result['skipped'] == 2
+    with zipfile.ZipFile(target) as archive:
+        assert archive.testzip() is None
+        assert len(json.loads(archive.read('nekori.json'))['resources']) == 3
+        assert archive.read('images/good.bin') == b'generated good data'
+    assert (root / 'good.bin').read_bytes() == b'generated good data'
+
+
+@pytest.mark.parametrize('skipped', [0, 2])
+def test_both_share_export_entries_show_same_omission_notice(tmp_path, monkeypatch, skipped):
+    from fluent_ui.views.gallery_view import CategorySidebar, GalleryInterface
+    from fluent_ui.components import feedback, exchange_task_dialog
+    monkeypatch.setattr('fluent_ui.views.gallery_view.QFileDialog.getExistingDirectory', lambda *_: str(tmp_path))
+    monkeypatch.setattr('fluent_ui.views.gallery_view.QFileDialog.getSaveFileName', lambda *_: (str(tmp_path/'result.zip'), ''))
+    monkeypatch.setattr(exchange_task_dialog, 'run_exchange_task', lambda *_a, **_k: {'skipped': ['generated']*skipped})
+    host = Mock()
+    monkeypatch.setattr('services.exchange_export.ExchangeExportService', lambda **_: Mock())
+    monkeypatch.setattr(feedback, 'feedback_for', lambda *_: host)
+    storage = SimpleNamespace(node=lambda _: {'name':'Generated'}, category_labels=lambda: {'Generated':'node-id'})
+    sidebar = SimpleNamespace(window=lambda: object(), storage=storage, gallery_view=Mock(), _error=Mock())
+    gallery = SimpleNamespace(window=lambda: object(), storage=storage)
+    for lang in LANGS:
+        i18n_engine.load_language(lang)
+        host.reset_mock()
+        CategorySidebar.export_node(sidebar, 'node-id')
+        if skipped:
+            assert M['E2']['values'][lang].format(count=skipped) in host.notice.call_args.args[1]
+        else:
+            assert not host.notice.called
+        host.reset_mock()
+        GalleryInterface._export_exchange_package(gallery)
+        call = host.notice.call_args if skipped else host.toast.call_args
+        assert call
+        if skipped:
+            assert M['E2']['values'][lang].format(count=skipped) in call.args[1]
+    i18n_engine.load_language('zh')
+
+
+@pytest.mark.parametrize('skipped', [0, 2, 3])
+def test_native_export_entry_distinguishes_incomplete(tmp_path, monkeypatch, skipped):
+    from fluent_ui.views.settings_center import SettingsCenter
+    from fluent_ui.components import feedback, exchange_task_dialog
+    target = str(tmp_path / 'result.zip')
+    monkeypatch.setattr('fluent_ui.views.settings_center.QFileDialog.getSaveFileName', lambda *_: (target, ''))
+    monkeypatch.setattr('services.nekori_package.NekoriPackageService', lambda *_: Mock())
+    monkeypatch.setattr(exchange_task_dialog, 'run_exchange_task', lambda *_a, **_k: dict(resources=3-skipped, nodes=1, skipped=skipped))
+    host = Mock()
+    monkeypatch.setattr(feedback, 'feedback_for', lambda *_: host)
+    view = SimpleNamespace(storage=None, window=lambda:None, show_success=Mock(), show_error=Mock())
+    for lang in LANGS:
+        i18n_engine.load_language(lang)
+        view.show_success.reset_mock();host.reset_mock()
+        SettingsCenter.export_nekori_package(view)
+        assert not view.show_error.called
+        if skipped:
+            assert not view.show_success.called
+            assert host.notice.call_args.args == (M['E4-title']['values'][lang],
+                M['E4-body']['values'][lang].format(written=3-skipped, skipped=skipped)+'\n'+target)
+            assert host.notice.call_args.kwargs['warning'] is True
+        else:
+            assert target in view.show_success.call_args.args[1]
+    i18n_engine.load_language('zh')
+
+
+def test_share_import_summary_preserves_counts_and_raw_warnings(monkeypatch):
+    from fluent_ui.views.gallery_view import GalleryInterface
+    from fluent_ui.components import exchange_task_dialog
+    warning = 'Generated optional icon unavailable'
+    monkeypatch.setattr('services.exchange_import.ExchangeImportService', lambda **_: SimpleNamespace(warnings=[warning]))
+    monkeypatch.setattr('fluent_ui.views.gallery_view.QFileDialog.getOpenFileName', lambda *_: ('generated.zip', ''))
+    monkeypatch.setattr(exchange_task_dialog, 'run_exchange_task', lambda *_: (2, 3))
+    view = SimpleNamespace(window=lambda:None, import_thread=None, storage=Mock(), sidebar=Mock(),
+        current_node='generated-id', on_images_changed=Mock(), show_success=Mock(), show_error=Mock())
+    for lang in LANGS:
+        i18n_engine.load_language(lang)
+        GalleryInterface._import_exchange_package(view)
+        assert view.show_success.call_args.args[1] == M['E1']['values'][lang].format(value_0=2, value_1=3)+'\n'+warning
+        assert not view.show_error.called
+    i18n_engine.load_language('zh')
