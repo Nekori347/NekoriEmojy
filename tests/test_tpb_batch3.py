@@ -32,6 +32,13 @@ def test_exact_approved_values_and_no_other_translation_changes():
         if lang!='zh':
             assert help['values'][lang].splitlines()[3]=='2. '+M['qq-folder-naming']['values'][lang]
             assert help['values'][lang].splitlines()[:3]+help['values'][lang].splitlines()[4:] == old[help['legacy_source']].splitlines()[:3]+old[help['legacy_source']].splitlines()[4:]
+        # Exact whole-dictionary guard now also permits the locked fourth batch.
+        fourth=json.loads((root/'tests/fixtures/tpb_batch4_copy.json').read_text(encoding='utf-8'))
+        for r in fourth['records']:
+            assert r['source'] not in {row['source'] for row in DATA['records']}
+            expected[r['source']]=r['values'][lang]
+        if lang=='zh_TW':
+            expected[fourth['tw_correction']['source']]=fourth['tw_correction']['value']
         actual=json.loads((root/path).read_text(encoding='utf-8'))
         assert actual==expected,lang
 

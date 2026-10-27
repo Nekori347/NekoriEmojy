@@ -76,7 +76,7 @@ class UpdateCheckButton(PushButton):
         center=update_center();release=center.release
         self.available=bool(release);self.setProperty('update_available',self.available)
         label='检查中…' if center.state=='checking' else '检查更新'
-        if release:label='立即更新' if not release.get('manual_only') and (install_root()/MANIFEST).is_file() else '获取更新'
+        if release:label='下载更新' if not release.get('manual_only') and (install_root()/MANIFEST).is_file() else '获取更新'
         self.setText(t(label));self.setEnabled(center.state!='checking')
         self.setToolTip(t('更新失败，请重试或打开发布页') if center.state=='error' else '')
         self.update()

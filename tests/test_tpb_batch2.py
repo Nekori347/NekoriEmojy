@@ -25,21 +25,36 @@ def test_exact_mapping_and_unapproved_values_unchanged():
         for row in RECORDS:
             if lang in row['values']:
                 expected[row['source']] = row['values'][lang]
+        # Batch four explicitly supersedes one old TW value and adds new keys;
+        # none of this batch's approved records may be changed.
+        fourth = json.loads((ROOT/'tests/fixtures/tpb_batch4_copy.json').read_text(encoding='utf-8'))
+        for row in fourth['records']:
+            assert row['source'] not in {r['source'] for r in RECORDS}
+            expected[row['source']] = row['values'][lang]
+        if lang == 'zh_TW':
+            expected[fourth['tw_correction']['source']] = fourth['tw_correction']['value']
         # Later approved batches may add keys; this batch's locked values stay exact.
         assert all(actual.get(key) == value for key, value in expected.items()), lang
 
 
-def test_settings_logic_identical_except_approved_literals():
+def test_settings_logic_outside_fourth_batch_export_is_unchanged():
     path = 'fluent_ui/views/settings_center.py'
     old = ast.parse(subprocess.check_output(['git', 'show', f"{DATA['baseline']}:{path}"], cwd=ROOT).decode('utf-8'))
     changes = {r['previous']: r['source'] for r in RECORDS}
+    fourth = json.loads((ROOT/'tests/fixtures/tpb_batch4_copy.json').read_text(encoding='utf-8'))
+    changes['查看本地日志，或导出脱敏日志与版本环境；不包含表情资源及应用配置。'] = next(r['source'] for r in fourth['records'] if r['id']=='D1')
     class Approved(ast.NodeTransformer):
         def visit_Constant(self, node):
             if isinstance(node.value, str):
                 node.value = changes.get(node.value, node.value)
             return node
     actual = ast.parse((ROOT / path).read_text(encoding='utf-8'))
-    assert ast.dump(Approved().visit(old)) == ast.dump(actual)
+    class OtherMethods(ast.NodeTransformer):
+        def visit_FunctionDef(self, node):
+            # Newly authorized incomplete-export handling has its own real
+            # service and callback tests in test_tpb_batch4.py.
+            return None if node.name == 'export_nekori_package' else node
+    assert ast.dump(OtherMethods().visit(Approved().visit(old))) == ast.dump(OtherMethods().visit(actual))
 
 
 def test_live_settings_language_and_conflict_states(surface, settings):

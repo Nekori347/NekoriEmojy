@@ -83,6 +83,30 @@ def test_similarity_failure_and_cancelling_refresh(similarity):
         assert v.status.text() == M['missing-12']['values'][lang]
 
 
+@pytest.mark.parametrize('features', [None, []])
+def test_similarity_start_and_rematch_keep_state_on_language_change(similarity, monkeypatch, features):
+    worker = Mock()
+    monkeypatch.setattr('fluent_ui.views.similarity_view.SimilarityWorker', lambda *_:worker)
+    similarity.start_worker([], features)
+    key = 'missing-06' if features is None else 'missing-07'
+    for lang in LANGS:
+        i18n_engine.load_language(lang)
+        assert similarity.status.text() == M[key]['values'][lang]
+        assert similarity.worker is worker
+    worker.start.assert_called_once()
+
+
+def test_similarity_result_counts_are_group_members_not_failures(similarity):
+    v = similarity
+    v.render_page = Mock()
+    v.worker = SimpleNamespace(error='', cancelled=False, features=[], groups=[[1,2], [3,4,5]],
+        failures=[('generated.png', 'Generated error')], deleteLater=Mock())
+    v.worker_finished()
+    for lang in LANGS:
+        i18n_engine.load_language(lang)
+        assert v.status.text() == M['R1']['values'][lang].format(groups=2, entries=5)+'\n'+M['R2']['values'][lang].format(failed=1)
+
+
 def test_approved_similarity_translations():
     from string import Formatter
     fields = lambda s: sorted(n for _, n, _, _ in Formatter().parse(s) if n is not None)
@@ -194,4 +218,53 @@ def test_share_import_summary_preserves_counts_and_raw_warnings(monkeypatch):
         GalleryInterface._import_exchange_package(view)
         assert view.show_success.call_args.args[1] == M['E1']['values'][lang].format(value_0=2, value_1=3)+'\n'+warning
         assert not view.show_error.called
+    i18n_engine.load_language('zh')
+
+
+def test_full_dictionary_diff_is_only_the_approved_fourth_batch():
+    import subprocess
+    from string import Formatter
+    root = Path(__file__).resolve().parents[1]
+    fields = lambda s: sorted(n for _, n, _, _ in Formatter().parse(s) if n is not None)
+    for lang in LANGS:
+        path = f'translations/{lang}.json'
+        expected = json.loads(subprocess.check_output(['git', 'show', f"{DATA['baseline']}:{path}"], cwd=root).decode('utf-8'))
+        for r in DATA['records']:
+            assert fields(r['source']) == fields(r['values'][lang]), (r['id'], lang)
+            expected[r['source']] = r['values'][lang]
+        if lang == 'zh_TW':
+            expected[DATA['tw_correction']['source']] = DATA['tw_correction']['value']
+        assert json.loads((root/path).read_text(encoding='utf-8')) == expected
+
+
+def test_update_labels_follow_download_manual_and_prepared_stages(tmp_path, monkeypatch):
+    from fluent_ui.components.update_dialog import UpdateDialog
+    from fluent_ui.components.update_center import UpdateCheckButton
+    from services.update_service import MANIFEST
+    service = SimpleNamespace(root=tmp_path)
+    center = SimpleNamespace(release=None, state='idle')
+    monkeypatch.setattr('fluent_ui.components.update_center.update_center', lambda: center)
+    monkeypatch.setattr('fluent_ui.components.update_center.install_root', lambda: tmp_path)
+    button = Mock()
+    view = SimpleNamespace(service=service, release_changed=Mock(), check_state_changed=Mock(),
+        latest_label=Mock(), status=Mock(), notes=Mock(), action_button=Mock(), check_button=Mock(),
+        page_button=Mock(), _fit_content=Mock())
+    view.notes.document.return_value.size.return_value.height.return_value = 100
+    for lang in LANGS:
+        i18n_engine.load_language(lang)
+        (tmp_path/MANIFEST).write_text('{}', encoding='utf-8')
+        release = dict(version='0.0.0-generated', notes='Generated release notes')
+        center.release = release
+        UpdateDialog._checked(view, release)
+        assert view.action_button.setText.call_args.args[0] == M['U1']['values'][lang]
+        UpdateCheckButton.refresh(button)
+        assert button.setText.call_args.args[0] == M['U1']['values'][lang]
+        release['manual_only'] = True
+        UpdateDialog._checked(view, release)
+        UpdateCheckButton.refresh(button)
+        assert view.action_button.setText.call_args.args[0] == t('获取更新')
+        assert button.setText.call_args.args[0] == t('获取更新')
+        UpdateDialog._prepared(view, dict(version='0.0.0-generated'))
+        assert view.action_button.setText.call_args.args[0] == t('重启并更新')
+        assert view.prepared
     i18n_engine.load_language('zh')

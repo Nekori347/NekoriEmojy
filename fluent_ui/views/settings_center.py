@@ -677,7 +677,7 @@ class SettingsCenter(QWidget):
             'auto_check_updates', self.config.get('auto_check_updates', True), self),
             'auto_check_updates', True))
         self.diagnostics_row=ActionRow(
-            '诊断资料', '查看本地日志，或导出脱敏日志与版本环境；不包含表情资源及应用配置。',
+            '诊断资料', '查看本地日志，或导出经脱敏处理的日志及版本、系统运行信息；不包含表情文件或应用配置文件，也不会自动上传。',
             [('查看日志',self._open_logs,False),('导出诊断资料…',self._export_diagnostics,False)],self)
         section.add_row(self.diagnostics_row)
         self.update_badge=QLabel(self.version_row)
