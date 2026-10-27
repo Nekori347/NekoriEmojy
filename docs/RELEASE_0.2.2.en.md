@@ -55,3 +55,17 @@ Windows x64 installer and portable editions are available. OCR remains an option
 Back up your emoji library and settings before upgrading. User data may be stored separately from the application folder; do not delete your user-data directory when updating.
 
 For bug reports and feature suggestions, use the new in-app feedback entry or visit [GitHub Issues](https://github.com/Nekori347/NekoriEmojy/issues).
+
+## Download v0.2.2
+
+| Windows download | Which one to choose |
+| --- | --- |
+| **[Windows installer (recommended)](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.2/NekoriEmojy-Setup-0.2.2.exe)** | For most users: download and run the installer. |
+| [Windows portable package](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.2/NekoriEmojy-0.2.2-Windows-Portable.zip) | Download the ZIP and extract it to use the app. User data is not necessarily stored in the program folder. |
+
+- **OCR is optional** and can be installed from app settings when needed. Most users do not need to download an OCR ZIP or JSON file manually first; ordinary sticker management does not require OCR.
+- `BUILD_INFO.json`, `RELEASE_INFO.json`, and `NekoriOCR-win-x64-1.metadata.json` contain build, release, and OCR component metadata for diagnostics or the component installation process. They are not app installers.
+- `SHA256SUMS.txt` lets you verify the SHA-256 checksums of downloaded files.
+- `NekoriEmojy-0.2.2-Source.zip` and GitHub's automatically provided Source code ZIP / tar.gz are for reading the code or building the project yourself. They are not needed for everyday use.
+
+[View the full Release and all assets](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.2)

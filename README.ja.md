@@ -6,17 +6,17 @@ Windows 向けのローカルスタンプ管理ツールです。
 
 スタンプの収集、整理、検索、送信に使えます。カテゴリ、タグ、検索に加え、普段の操作をもう少し直接行えるようにしています。表示されているスタンプをドラッグして整理し、よく使う操作にはいくつものメニューを経由せずにアクセスできることを目指しています。
 
-## v0.2.1 をダウンロード
+## v0.2.2 をダウンロード
 
 | Windows 向けダウンロード | 選び方 |
 | --- | --- |
-| **[Windows インストーラー版（推奨）](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.1/NekoriEmojy-Setup-0.2.1.exe)** | 通常はこちらを選び、ダウンロードしたインストーラーを実行してください。 |
-| [Windows ポータブル版](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.1/NekoriEmojy-0.2.1-Windows-Portable.zip) | ZIP をダウンロードし、解凍して使用します。ユーザーデータが必ずプログラムのフォルダに保存されるわけではありません。 |
+| **[Windows インストーラー版（推奨）](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.2/NekoriEmojy-Setup-0.2.2.exe)** | 通常はこちらを選び、ダウンロードしたインストーラーを実行してください。 |
+| [Windows ポータブル版](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.2/NekoriEmojy-0.2.2-Windows-Portable.zip) | ZIP をダウンロードし、解凍して使用します。ユーザーデータが必ずプログラムのフォルダに保存されるわけではありません。 |
 
 - OCR は任意導入です。必要になったときにアプリの設定からインストールできます。
 - ソースコードと SHA-256 チェックサムファイルは、リリースの全アセット一覧にあります。
 
-[リリース全体とすべてのアセットを見る](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.1)
+[リリース全体とすべてのアセットを見る](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.2)
 
 <!-- 公開素材の制作：下の画像には、独立したデモライブラリで撮影した実際のソフトウェア画面を使用する。画面内の自然言語は一時的にサルカズ文字の字形で表示する。フォント、変換コード、デモデータベースを正式配布物に含めない。「终末地」サブカテゴリで、先頭の4枚 → 折りたたみ可能な「陈千语」カテゴリノード → 残りの直下のスタンプ、という並びを示す。素材のルートフォルダ「表情」をカテゴリにしない。 -->
 
@@ -24,7 +24,7 @@ Windows 向けのローカルスタンプ管理ツールです。
   <img src="docs/media/hero.png" alt="NekoriEmojy のメインパネル：カテゴリ、サブカテゴリ、スタンプと混在するカテゴリノード、タグパネル" width="100%">
 </p>
 
-[**最新版をダウンロード**](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.1) · [**不具合報告**](https://github.com/Nekori347/NekoriEmojy/issues) · [**主な機能**](#features)
+[**最新版をダウンロード**](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.2) · [**不具合報告**](https://github.com/Nekori347/NekoriEmojy/issues) · [**主な機能**](#features)
 
 ---
 
@@ -275,7 +275,7 @@ Suzu 形式のスタンプ共有パッケージもエクスポートできます
 <a id="download"></a>
 ## ダウンロードと使い方
 
-最新版は [GitHub Releases](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.1) から入手できます。
+最新版は [GitHub Releases](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.2) から入手できます。
 
 現在、Windows x64 向けに2つの利用方法を用意しています。
 

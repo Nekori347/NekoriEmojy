@@ -61,3 +61,17 @@
 从旧版升级前，建议备份表情库及个人配置。软件数据可能保存在独立目录中，不要通过删除用户数据目录来更新程序。
 
 如遇到问题或有功能建议，可使用软件内「反馈与建议」或前往 [GitHub Issues](https://github.com/Nekori347/NekoriEmojy/issues)。
+
+## 下载 v0.2.2
+
+| Windows 下载 | 适用方式 |
+| --- | --- |
+| **[Windows 安装版（推荐）](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.2/NekoriEmojy-Setup-0.2.2.exe)** | 适合普通用户，下载安装程序后正常使用。 |
+| [Windows 免安装版](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.2/NekoriEmojy-0.2.2-Windows-Portable.zip) | 下载 ZIP，解压后使用；用户数据不一定保存在软件目录。 |
+
+- **OCR 为可选组件**，可从软件设置中按需安装。普通用户无需先手动下载 OCR ZIP 或 JSON，普通表情管理不依赖 OCR。
+- `BUILD_INFO.json`、`RELEASE_INFO.json` 和 `NekoriOCR-win-x64-1.metadata.json` 是构建、发行和 OCR 组件元数据，供诊断或组件安装流程使用，不是主程序安装包。
+- `SHA256SUMS.txt` 用于核对下载文件的 SHA-256 校验值。
+- `NekoriEmojy-0.2.2-Source.zip` 及 GitHub 自动提供的 Source code ZIP / tar.gz 面向阅读源码或自行构建的用户，日常使用无需下载。
+
+[查看完整 Release 与全部附件](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.2)

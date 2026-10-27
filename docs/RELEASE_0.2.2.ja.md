@@ -57,3 +57,17 @@ Windows x64 向けのインストーラー版とポータブル版を提供し�
 更新前にスタンプライブラリと設定をバックアップすることをおすすめします。ユーザーデータはアプリ本体とは別の場所に保存される場合があるため、更新時にデータフォルダを削除しないでください。
 
 不具合報告や機能提案は、アプリ内のフィードバック機能または [GitHub Issues](https://github.com/Nekori347/NekoriEmojy/issues) から送信できます。
+
+## v0.2.2 をダウンロード
+
+| Windows 向けダウンロード | 選び方 |
+| --- | --- |
+| **[Windows インストーラー版（推奨）](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.2/NekoriEmojy-Setup-0.2.2.exe)** | 通常はこちらを選び、ダウンロードしたインストーラーを実行してください。 |
+| [Windows ポータブル版](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.2/NekoriEmojy-0.2.2-Windows-Portable.zip) | ZIP をダウンロードし、解凍して使用します。ユーザーデータが必ずプログラムのフォルダに保存されるわけではありません。 |
+
+- **OCR は任意導入**で、必要に応じてアプリの設定からインストールできます。通常は OCR の ZIP や JSON を先に手動でダウンロードする必要はなく、基本的なスタンプ管理に OCR は不要です。
+- `BUILD_INFO.json`、`RELEASE_INFO.json`、`NekoriOCR-win-x64-1.metadata.json` は、診断やコンポーネントのインストール処理で使うビルド・リリース・OCR コンポーネントのメタデータです。アプリのインストーラーではありません。
+- `SHA256SUMS.txt` は、ダウンロードしたファイルの SHA-256 チェックサムを照合するためのものです。
+- `NekoriEmojy-0.2.2-Source.zip` と GitHub が自動で用意する Source code ZIP / tar.gz は、コードを読んだり自分でビルドしたりする方向けです。通常の利用には必要ありません。
+
+[リリース全体とすべてのアセットを見る](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.2)
