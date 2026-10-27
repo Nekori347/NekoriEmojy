@@ -317,11 +317,6 @@ class NekoriWindow(FramelessWindow):
     def nativeEvent(self, event_type, message):
         msg = self._native_message
         ctypes.memmove(ctypes.byref(msg), int(message), ctypes.sizeof(msg))
-        # Windows supplies the hit-test in LOWORD(lParam), not wParam (HWND).
-        # Reset a stale edge cursor, then let Qt apply a control's own cursor.
-        # All move/resize hit testing remains in the existing window library.
-        if msg.message == win32con.WM_SETCURSOR and (msg.lParam & 0xffff) == win32con.HTCLIENT:
-            win32gui.SetCursor(win32gui.LoadCursor(0, win32con.IDC_ARROW))
         event_code, hwnd = msg.message, msg.hWnd
         if event_code == win32con.WM_STYLECHANGING and ctypes.c_ssize_t(msg.wParam).value == win32con.GWL_STYLE:
             # Qt can rebuild GWL_STYLE without recreating the HWND. Preserve the
