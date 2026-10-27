@@ -78,7 +78,7 @@ class NotificationClearButton(TransparentToolButton):
 
 
 class NoticeCover(QFrame):
-    """The result channel beside the live task, never above its controls."""
+    """A temporary foreground notice above the independently updating task."""
     def __init__(self,view):
         super().__init__(view.window);self.view=view;self.hide()
         self.front=QFrame(self);self.front.setObjectName('CaptionNoticeCover')
@@ -101,7 +101,7 @@ class NoticeCover(QFrame):
         text=(t(caption) if hasattr(caption,'source') else caption) or job['title']+(' · '+job['content'].replace('\n',' ') if job['content'] else '')
         trailing=28+(24 if job['details'] else 0)+(82 if job['resume'] else 0)
         area=self.view.notice_area
-        width=min(area.width(),self.label.fontMetrics().horizontalAdvance(text)+16+22+trailing)
+        width=min(max(1,area.width()-24),self.label.fontMetrics().horizontalAdvance(text)+16+22+trailing)
         self.setGeometry(area.center().x()-width//2,area.y(),width,area.height())
         self.front.setGeometry(self.rect())
         self.countdown.setGeometry(5,self.height()-2,max(0,self.width()-10),2)
@@ -350,13 +350,9 @@ class CaptionFeedback(QObject):
         h=self.host;left,right=self.bounds();available=max(1,right-left)
         self.header_area=QRect(left,8,available,24)
         self.notice_area=QRect(self.header_area)
-        task_width=available
-        if self.primary and self.overlay:
-            job=h.named_tasks[self.overlay]
-            notice_min=80+(24 if job['details'] else 0)+(82 if job['resume'] else 0)
-            task_width=min(max(140,round(available*.55)),max(1,available-notice_min-8))
-            self.notice_area=QRect(left+task_width+8,8,max(1,available-task_width-8),24)
-        h.strip.setGeometry(left,8,task_width,24)
+        # The foreground notice shares this area; it never takes width away
+        # from the live task. Its own close action remains above covered inputs.
+        h.strip.setGeometry(self.header_area)
         self._layout_row(h.strip,h.state_icon,h.title_label,h.progress,h.count_label,self.actions,is_task)
 
     def _layout_row(self,row,icon,label,progress,count,operations,active):

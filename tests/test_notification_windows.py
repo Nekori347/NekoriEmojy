@@ -45,7 +45,7 @@ def test_shared_host_geometry_and_dual_channels(tmp_path,monkeypatch):
                 h.toast('Generated second',kind='info')
                 enter(app,u.cover);enter(app,u.controls);QTest.mouseClick(u.ear,Qt.LeftButton);QTest.qWait(25)
                 assert u.opened and u.clear_button.isVisible()
-                assert not h.strip.geometry().intersects(u.cover.geometry())
+                assert h.strip.geometry().contains(u.cover.geometry())
                 assert w.rect().contains(h.strip.geometry()) and w.rect().contains(u.cover.geometry())
                 assert not QRect(u.clear_button.mapTo(w,QPoint()),u.clear_button.size()).intersects(u.panel.geometry())
                 for control in (u.clear_button,u.ear):
@@ -61,13 +61,13 @@ def test_shared_host_geometry_and_dual_channels(tmp_path,monkeypatch):
                     w.grab().save(str(target/f'notification-fixed-{theme.value}-{os.environ.get("QT_SCALE_FACTOR","1")}.png'))
                 QTest.mouseClick(u.clear_button,Qt.LeftButton,pos=QPoint(1,1));app.processEvents()
                 assert list(h.named_tasks)==['job'] and not u.opened and not u.ear.isVisible()
-    # Actual intermediate frames use the same control band and disjoint channels.
+    # Actual intermediate frames use the same control band and layered channels.
     config.update({'ui_animations_enabled':True});visual.theme.motion_changed.emit()
     h.toast('Generated animation',kind='success');enter(app,h.strip);u.ear.click()
     QTest.qWait(80)
     assert 0<u.expansion<1 and not u.clear_button.isVisible()
     assert not QRect(u.ear.mapTo(w,QPoint()),u.ear.size()).intersects(u.panel.geometry())
-    assert not h.strip.geometry().intersects(u.cover.geometry())
+    assert h.strip.geometry().contains(u.cover.geometry())
     u.deadline.resume();u.deadline.start(1000,u.overlay)
     QTest.qWait(60)
     assert u.cover.countdown.isVisible() and 0<u.deadline.fraction<1

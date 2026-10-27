@@ -48,16 +48,32 @@ def test_controls_visibility_and_hit_geometry(scene):
     h.remove_task(u.pending[0]);app.processEvents()
     assert not u.opened and not u.ear.isVisible() and not u.clear_button.isVisible()
 
-def test_task_and_result_have_disjoint_regions(scene):
-    _,w,h,u=scene
+@pytest.mark.parametrize('width',[1080,680])
+def test_notice_overlays_full_width_live_task_without_restarting_it(scene,width):
+    app,w,h,u=scene
+    w.resize(width,520);app.processEvents()
     cancel=Mock();h.upsert_task('job','Generated task',current=3,total=10,cancel=cancel)
+    original=h.strip.geometry();track=h.progress.geometry()
     h.toast('Generated result',kind='success')
     assert h.strip.isVisible() and u.cover.isVisible() and h.progress.isVisible()
-    assert not h.strip.geometry().intersects(u.cover.geometry())
+    assert h.strip.geometry()==original and h.progress.geometry()==track
+    assert h.strip.geometry().contains(u.cover.geometry())
+    assert abs(u.cover.geometry().center().x()-original.center().x())<=1
+    assert w.childAt(u.cover.mapTo(w,QPoint(2,2))) in (u.cover,u.cover.front)
     h.upsert_task('job','Generated task',current=7,total=10,cancel=cancel)
-    assert h.progress.value()==7
-    h.clear_completed()
-    assert h.named_tasks['job']['current']==7 and not cancel.called
+    assert h.progress.value()==7 and h.count_label.text()=='7 / 10'
+    assert h.named_tasks['job']['cancel'] is cancel and u.cover.isVisible()
+    # Normal expiry reveals the latest progress without recreating the job.
+    job=h.named_tasks['job'];u.deadline.start(30,u.overlay)
+    QTest.qWait(65)
+    assert u.overlay is None and not u.cover.isVisible()
+    assert h.named_tasks['job'] is job and h.progress.value()==7
+    assert h.strip.geometry()==original and not cancel.called
+    # Closing a foreground result has an independent action from task cancel.
+    h.toast('Generated another result',kind='success');u.cover.close.click()
+    assert u.overlay is None and not cancel.called
+    h.action_button.click();cancel.assert_called_once()
+
 
 def test_toast_hover_keeps_remaining_time(scene):
     app,w,_,_=scene
