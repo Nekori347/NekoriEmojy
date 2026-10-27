@@ -47,7 +47,7 @@ def test_sort_refresh_and_language_switch_do_not_translate_composed_text(surface
         i18n_engine.load_language(lang);settle(surface.app)
         for mode,label in [('manual','自定义顺序'),('recent_added','最近添加'),('oldest_added','最早添加')]:
             g.set_content_sort(mode);g._update_resource_sort_label()
-            assert g.btn_content_sort.toolTip()==str(t('表情显示排序'))+' · '+str(t(label))
+            assert g.btn_content_sort.toolTip()==t({'manual':'表情排序：手动','recent_added':'表情排序：最近添加','oldest_added':'表情排序：最早添加'}[mode])
             assert '[MISSING:' not in g.btn_content_sort.toolTip()
         assert surface.storage.entries_of(surface.parent)==before
     i18n_engine.load_language('zh')

@@ -234,6 +234,8 @@ def test_full_dictionary_diff_is_only_the_approved_fourth_batch():
             expected[r['source']] = r['values'][lang]
         if lang == 'zh_TW':
             expected[DATA['tw_correction']['source']] = DATA['tw_correction']['value']
+        notifications=json.loads((root/'tests/fixtures/notification_tooltip_copy.json').read_text(encoding='utf-8'))
+        for row in notifications:expected[row['source']]=row['values'][lang]
         assert json.loads((root/path).read_text(encoding='utf-8')) == expected
 
 

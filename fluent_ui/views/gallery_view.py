@@ -3735,10 +3735,10 @@ class GalleryInterface(QWidget):
         self.refresh_content()
 
     def _update_resource_sort_label(self):
-        label = {ResourceSort.MANUAL: '自定义顺序', ResourceSort.RECENT_ADDED: '最近添加',
-                 ResourceSort.OLDEST_ADDED: '最早添加'}[ResourceSort(self.content_sort)]
+        label = {ResourceSort.MANUAL: '表情排序：手动', ResourceSort.RECENT_ADDED: '表情排序：最近添加',
+                 ResourceSort.OLDEST_ADDED: '表情排序：最早添加'}[ResourceSort(self.content_sort)]
         self.btn_content_sort.setIcon({ResourceSort.MANUAL:FIF.MANUAL_ORDER,ResourceSort.RECENT_ADDED:FIF.RECENT_ADDED,ResourceSort.OLDEST_ADDED:FIF.OLDEST_ADDED}[ResourceSort(self.content_sort)])
-        self.btn_content_sort.setToolTip(t('表情显示排序') + ' · ' + t(label))
+        self.btn_content_sort.setToolTip(t(label))
         self.btn_content_sort.setAccessibleName(self.btn_content_sort.toolTip())
         for mode, action in getattr(self, 'resource_sort_actions', {}).items():
             action.setChecked(mode == self.content_sort)

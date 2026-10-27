@@ -39,6 +39,9 @@ def test_exact_approved_values_and_no_other_translation_changes():
             expected[r['source']]=r['values'][lang]
         if lang=='zh_TW':
             expected[fourth['tw_correction']['source']]=fourth['tw_correction']['value']
+        # Later approved notification/sorting mapping adds only these keys.
+        notifications=json.loads((root/'tests/fixtures/notification_tooltip_copy.json').read_text(encoding='utf-8'))
+        for row in notifications:expected[row['source']]=row['values'][lang]
         actual=json.loads((root/path).read_text(encoding='utf-8'))
         assert actual==expected,lang
 

@@ -52,12 +52,15 @@ class SortCycleButton(QToolButton):
 
     def refresh(self, *_):
         from fluent_ui.icons import Icon
-        label = {SortProjection.MANUAL: '手动顺序', SortProjection.A_Z: '名称 A→Z', SortProjection.Z_A: '名称 Z→A'}[self.mode]
         self.setText('')
         self.setIcon({SortProjection.MANUAL: Icon.MANUAL_ORDER, SortProjection.A_Z: Icon.SORT_ASC, SortProjection.Z_A: Icon.SORT_DESC}[self.mode].icon())
         self.setIconSize(QSize(16,16))
         self.setFixedWidth(visual.COMPACT_CONTROLS.action_extent)
-        self.setToolTip(f'{t(self.title)} · {t(label)}\n{t("临时显示排序，不改动手动顺序")}')
+        source = {
+            '分类显示排序': {SortProjection.MANUAL: '分类排序：手动', SortProjection.A_Z: '分类排序：名称 A→Z', SortProjection.Z_A: '分类排序：名称 Z→A'},
+            '标签显示排序': {SortProjection.MANUAL: '标签排序：手动', SortProjection.A_Z: '标签排序：名称 A→Z', SortProjection.Z_A: '标签排序：名称 Z→A'},
+        }[self.title][self.mode]
+        self.setToolTip(t(source))
         self.setAccessibleName(self.toolTip())
         c = visual.colors()
         self.setStyleSheet(f'QToolButton {{ color: {c["text_primary"]}; border: none; background: transparent; }} '

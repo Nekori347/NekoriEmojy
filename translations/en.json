@@ -1770,5 +1770,17 @@
   "仅导出此分类中的表情，不包含子分类。": "Export emotes directly in this category, excluding subcategories.",
   "导出不完整": "Export incomplete",
   "已导出 {written} 张表情，另有 {skipped} 张未能写入。请检查来源文件后重试。": "Exported {written} emotes; {skipped} could not be included. Check the source files before retrying.",
-  "查看本地日志，或导出经脱敏处理的日志及版本、系统运行信息；不包含表情文件或应用配置文件，也不会自动上传。": "View local logs or export redacted logs and version/system information. Emote files and app configuration files are excluded; nothing is uploaded automatically."
+  "查看本地日志，或导出经脱敏处理的日志及版本、系统运行信息；不包含表情文件或应用配置文件，也不会自动上传。": "View local logs or export redacted logs and version/system information. Emote files and app configuration files are excluded; nothing is uploaded automatically.",
+  "分类排序：手动": "Category order: Manual",
+  "分类排序：名称 A→Z": "Category order: Name A→Z",
+  "分类排序：名称 Z→A": "Category order: Name Z→A",
+  "标签排序：手动": "Tag order: Manual",
+  "标签排序：名称 A→Z": "Tag order: Name A→Z",
+  "标签排序：名称 Z→A": "Tag order: Name Z→A",
+  "表情排序：手动": "Emote order: Manual",
+  "表情排序：最近添加": "Emote order: Recently added",
+  "表情排序：最早添加": "Emote order: Oldest added",
+  "展开通知": "Expand notifications",
+  "收起通知": "Collapse notifications",
+  "清除成功与信息提示": "Clear success and info notifications"
 }
