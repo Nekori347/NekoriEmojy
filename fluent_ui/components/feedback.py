@@ -87,7 +87,7 @@ class Toast(QFrame):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self.countdown.setGeometry(5, self.height()-2, max(0, self.width()-10), 1)
+        self.countdown.setGeometry(5, self.height()-3, max(0, self.width()-10), 2)
 
     def hideEvent(self, event):
         self.deadline.set_presented(False)
@@ -436,13 +436,14 @@ class FeedbackHost(QObject):
         return False
 
 
-    def upsert_task(self,key,title,*,current=0,total=0,state='running',content='',kind='import',cancel=None,resume=None,details='',action_text=None,phase=''):
+    def upsert_task(self,key,title,*,current=0,total=0,state='running',content='',kind='import',cancel=None,resume=None,details='',action_text=None,phase='',caption=None):
         """Update the existing job identity; presentation never starts or cancels work."""
         if self._dismissed_task_states.get(key)==state and state not in {'running','waiting'}:return
         if state in {'running','waiting'}:self._dismissed_task_states.pop(key,None)
         previous=self.named_tasks.get(key)
         value=dict(title=clean_message(title),current=current,total=total,state=state,content=clean_message(content),kind=kind,cancel=cancel,resume=resume,details=str(details),action_text=action_text)
         value['phase']=phase
+        value['caption']=caption
         if previous==value:return
         if not previous or previous.get('state')!=state:
             from services.crash_evidence import breadcrumb

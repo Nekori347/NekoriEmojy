@@ -55,6 +55,28 @@ class TaskMaterial(QWidget):
             p.fillRect(QRect(0,24,self.width(),self.height()-24),fill)
 
 
+class NotificationControlSurface(QWidget):
+    """The two existing actions share one local, thin outline."""
+    def paintEvent(self,event):
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QPen(QColor(visual.colors()['border_soft']),1));p.setBrush(task_material())
+        p.drawRoundedRect(QRectF(self.rect()).adjusted(.5,.5,-.5,-.5),7,7)
+
+
+class NotificationClearButton(TransparentToolButton):
+    def paintEvent(self,event):
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);c=visual.colors()
+        p.setOpacity(1 if self.isEnabled() else .45)
+        r=QRectF(self.rect()).adjusted(1,1,-1,-1)
+        if self._hover or self.isDown():
+            fill=QColor(c['text']);fill.setAlphaF(.12 if self.isDown() else .07*self._hover)
+            p.setPen(Qt.NoPen);p.setBrush(fill);p.drawRoundedRect(r,5,5)
+        if self.keyboard_focus_visible():
+            p.setPen(QPen(QColor(c['accent']),1));p.setBrush(Qt.NoBrush);p.drawRoundedRect(r,5,5)
+        color=c['danger'] if self._hover or self.isDown() else c['text_secondary']
+        Icon.DELETE.render(p,QRectF((self.width()-14)/2,(self.height()-14)/2,14,14),fill=color)
+
+
 class NoticeCover(QFrame):
     """The result channel beside the live task, never above its controls."""
     def __init__(self,view):
@@ -67,7 +89,7 @@ class NoticeCover(QFrame):
         bind_text(self.close,'关闭','setToolTip');self.close.clicked.connect(view.host.dismiss)
         self.detail=TransparentToolButton(Icon.INFO,self.front);self.detail.setFixedSize(20,20)
         bind_text(self.detail,'查看详情','setToolTip');self.detail.clicked.connect(view.show_current_details)
-        self.action=PushButton(self.front);self.action.ghost=True;self.action.setFixedSize(76,22)
+        self.action=PushButton(self.front);self.action.ghost=True;self.action.setFixedSize(76,20)
         self.action.clicked.connect(lambda:view.host._task_action(view.overlay))
         from fluent_ui.components.notification_timing import CountdownLine
         self.countdown=CountdownLine(self.front,view.deadline)
@@ -75,19 +97,20 @@ class NoticeCover(QFrame):
     def present(self,key,job):
         h=self.view.host
         self.key=key
-        text=job['title']+(' · '+job['content'].replace('\n',' ') if job['content'] else '')
+        caption=job.get('caption')
+        text=(t(caption) if hasattr(caption,'source') else caption) or job['title']+(' · '+job['content'].replace('\n',' ') if job['content'] else '')
         trailing=28+(24 if job['details'] else 0)+(82 if job['resume'] else 0)
         area=self.view.notice_area
         width=min(area.width(),self.label.fontMetrics().horizontalAdvance(text)+16+22+trailing)
         self.setGeometry(area.center().x()-width//2,area.y(),width,area.height())
         self.front.setGeometry(self.rect())
-        self.countdown.setGeometry(5,self.height()-2,max(0,self.width()-10),1)
+        self.countdown.setGeometry(5,self.height()-2,max(0,self.width()-10),2)
         c=visual.colors();fill=QColor(c['window_base']);r,g,b,_=fill.getRgb()
         self.front.setStyleSheet(f'QFrame#CaptionNoticeCover {{background:rgba({r},{g},{b},214);border:1px solid {c["border_soft"]};border-radius:5px;}} QLabel {{background:transparent;border:none;}}')
         glyph,tone=appearance(job);self.icon.setPixmap(glyph.icon(color=tone).pixmap(16,16))
         self.label.setText(text);self.label.setToolTip(text);self.label.setStyleSheet('color:'+tone)
         self.action.setVisible(bool(job['resume']));self.action.setText(job['action_text'] or t('继续'))
-        self.action.move(self.width()-112,(self.height()-22)//2)
+        self.action.move(self.width()-112,(self.height()-20)//2)
         width=max(1,self.width()-trailing-38)
         x=8
         self.icon.setGeometry(x,(self.height()-16)//2,16,16);self.label.setGeometry(x+22,0,width,self.height())
@@ -126,8 +149,6 @@ class TaskEar(ButtonPaint,QAbstractButton):
         p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);c=visual.colors()
         p.setOpacity(1 if self.isEnabled() else .45)
         tone=c['accent'] if self._hover or self.isDown() else c['text_secondary']
-        p.setPen(QPen(QColor(tone if self.isDown() else c['border_soft']),1));p.setBrush(task_material())
-        p.drawRoundedRect(QRectF(self.rect()).adjusted(.5,.5,-.5,-.5),7,7)
         if self.keyboard_focus_visible():
             p.setPen(QPen(QColor(c['accent']),1));p.setBrush(Qt.NoBrush)
             p.drawRoundedRect(QRectF(self.rect()).adjusted(2,2,-2,-2),5,5)
@@ -165,13 +186,15 @@ class CaptionFeedback(QObject):
         self.scroll.setWidget(self.content);self.scroll.viewport().setAutoFillBackground(False)
         from fluent_ui.presentation.scrollbar import install_scrollbars
         install_scrollbars(self.panel)
-        self.ear=TaskEar(self);self.cover=NoticeCover(self)
-        self.clear_button=TransparentToolButton(Icon.DELETE,window);self.clear_button.setFixedSize(22,22)
-        self.clear_button.setProperty('role','danger')
+        self.controls=NotificationControlSurface(window);self.controls.hide()
+        self.ear=TaskEar(self);self.ear.setParent(self.controls)
+        self.cover=NoticeCover(self)
+        self.clear_button=NotificationClearButton(Icon.DELETE,self.controls);self.clear_button.setFixedSize(22,22)
         bind_text(self.clear_button,'清除成功与信息提示','setToolTip')
         bind_text(self.clear_button,'清除成功与信息提示','setAccessibleName')
         self.clear_button.clicked.connect(host.clear_completed)
         self.clear_button.installEventFilter(self)
+        self.controls.installEventFilter(self)
         self.panel.installEventFilter(self);self.ear.installEventFilter(self)
         self.cover.installEventFilter(self);host.strip.installEventFilter(self)
         QApplication.instance().focusChanged.connect(self._focus_changed)
@@ -194,8 +217,7 @@ class CaptionFeedback(QObject):
     def reparent(self,window):
         if self.window is window:return
         self.window.removeEventFilter(self);self.window=window
-        self.panel.setParent(window);self.ear.setParent(window);self.material.setParent(window);self.cover.setParent(window);window.installEventFilter(self)
-        self.clear_button.setParent(window)
+        self.panel.setParent(window);self.controls.setParent(window);self.material.setParent(window);self.cover.setParent(window);window.installEventFilter(self)
         self._watch_caption(window)
         self.refresh()
 
@@ -282,7 +304,7 @@ class CaptionFeedback(QObject):
         focus=QApplication.focusWidget()
         return self.window.isActiveWindow() and focus_input().keyboard and focus is not None and any(
             root.isVisible() and (focus is root or root.isAncestorOf(focus))
-            for root in (self.host.strip,self.cover,self.panel,self.ear,self.clear_button))
+            for root in (self.host.strip,self.cover,self.panel,self.controls,self.ear,self.clear_button))
 
     def _focus_changed(self,*_):
         if not isValid(self.window):return
@@ -291,14 +313,20 @@ class CaptionFeedback(QObject):
 
     def _sync_timeout(self):
         pause=self.window.isVisible() and (self._has_focus() or any(
-            w in self.hovered for w in (self.cover,self.panel,self.ear,self.clear_button)))
+            w in self.hovered for w in (self.cover,self.panel,self.controls,self.ear,self.clear_button)))
         self.deadline.pause() if pause else self.deadline.resume()
 
     def _controls(self):
         eligible=len(self.host.named_tasks)>=2 and self.window.isVisible()
         show=eligible and (self.opened or bool(self.hovered) or self._has_focus() or self.leave_timer.isActive())
         self.ear.setVisible(show)
-        self.clear_button.setVisible(eligible and self.opened and self.expansion>=.999 and bool(self.host.clearable_tasks()))
+        focus=QApplication.focusWidget()
+        control_focus=focus_input().keyboard and focus is not None and self.window.isActiveWindow() and any(
+            root.isVisible() and (focus is root or root.isAncestorOf(focus)) for root in (self.controls,self.panel))
+        interacting=bool(self.hovered.intersection((self.controls,self.panel,self.ear,self.clear_button))) or control_focus
+        leaving=self.leave_timer.isActive() and not self.clear_button.isHidden()
+        self.clear_button.setVisible(eligible and self.opened and self.expansion>=.999 and bool(self.host.clearable_tasks()) and (interacting or leaving))
+        self.controls.setVisible(show)
         source='收起通知' if self.opened else '展开通知'
         if self.ear.toolTip()!=t(source):bind_text(self.ear,source,'setToolTip')
         if self.ear.accessibleName()!=t(source):bind_text(self.ear,source,'setAccessibleName')
@@ -484,7 +512,7 @@ class CaptionFeedback(QObject):
         self.layout_header(self.primary in h.named_tasks)
         desired=sum(row[0].height()+2 for row in h._named_widgets.values())+10
         top=self.header_area.bottom()+2
-        control_height=max(self.clear_button.height(),self.ear.height())
+        control_height=max(self.clear_button.height(),self.ear.height())+4
         gap=4
         height=min(desired,280,max(0,self.window.height()-top-control_height-2*gap))
         extent=round(height*self.expansion)
@@ -494,19 +522,20 @@ class CaptionFeedback(QObject):
         self._controls()
         # Both controls share a real band after the rows; neither enters the
         # viewport or cover. The collapsed surface has no reserved empty band.
-        clear_width=self.clear_button.width()+6 if self.clear_button.isVisible() else 0
-        group_width=clear_width+self.ear.width()
+        clear_width=self.clear_button.width()+6 if not self.clear_button.isHidden() else 0
+        group_width=clear_width+self.ear.width()+4
         x=self.header_area.center().x()-group_width//2
         y=top+extent+gap
-        self.clear_button.move(x,y)
-        self.ear.move(x+clear_width,y+(control_height-self.ear.height())//2)
+        self.controls.setGeometry(x,y,group_width,control_height)
+        self.clear_button.move(2,(control_height-self.clear_button.height())//2)
+        self.ear.move(2+clear_width,(control_height-self.ear.height())//2)
         area=self.header_area.adjusted(-4,0,4,0)
         if extent:
             area.setLeft(self.panel.x()-4)
             area.setBottom(y+control_height+gap)
         self.material.setGeometry(area)
         self.material.setVisible(bool(self.primary or extent) and self.window.isVisible())
-        self.material.raise_();h.strip.raise_();self.panel.raise_();self.ear.raise_();self.clear_button.raise_()
+        self.material.raise_();h.strip.raise_();self.panel.raise_();self.controls.raise_()
         if self.overlay in h.named_tasks:self.cover.present(self.overlay,h.named_tasks[self.overlay])
         else:self.cover.hide();self.cover.key=None
         self.material.update();self.ear.update()
@@ -517,7 +546,7 @@ class CaptionFeedback(QObject):
         kind=event.type()
         if kind in (QEvent.FocusIn,QEvent.FocusOut,QEvent.KeyPress):
             self._focus_changed()
-        if obj in (self.ear,self.panel,self.clear_button,self.cover,self.host.strip):
+        if obj in (self.controls,self.ear,self.panel,self.clear_button,self.cover,self.host.strip):
             if kind==QEvent.Enter:
                 self.hovered.add(obj);self.leave_timer.stop();self.reposition()
             elif kind==QEvent.Leave:
@@ -530,7 +559,7 @@ class CaptionFeedback(QObject):
             if kind in (QEvent.Resize,QEvent.Show):self.refresh()
             elif kind==QEvent.Hide:
                 self.hovered.clear();self.leave_timer.stop();self._sync_timeout()
-                self.host.strip.hide();self.panel.hide();self.ear.hide();self.clear_button.hide();self.material.hide();self.cover.hide();self.ear.motion.stop()
+                self.host.strip.hide();self.panel.hide();self.controls.hide();self.ear.hide();self.clear_button.hide();self.material.hide();self.cover.hide();self.ear.motion.stop()
             elif kind==QEvent.WindowDeactivate:
                 self.hovered.clear()
                 if self.opened or self.ear.isVisible():self.leave_timer.start()

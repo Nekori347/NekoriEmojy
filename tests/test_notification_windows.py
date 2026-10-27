@@ -4,7 +4,7 @@ os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 import importlib,json,subprocess
 from pathlib import Path
 from unittest.mock import Mock
-from PySide6.QtCore import QPoint,Qt,QEvent
+from PySide6.QtCore import QPoint,Qt,QEvent,QRect
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 from qfluentwidgets import Theme,setTheme
@@ -43,11 +43,11 @@ def test_shared_host_geometry_and_dual_channels(tmp_path,monkeypatch):
                 h.upsert_task('job','Generated progress',current=3,total=10,cancel=lambda:None)
                 h.toast('Generated result',content='Generated temporary notice',kind='success')
                 h.toast('Generated second',kind='info')
-                enter(app,u.cover);QTest.mouseClick(u.ear,Qt.LeftButton);QTest.qWait(25)
+                enter(app,u.cover);enter(app,u.controls);QTest.mouseClick(u.ear,Qt.LeftButton);QTest.qWait(25)
                 assert u.opened and u.clear_button.isVisible()
                 assert not h.strip.geometry().intersects(u.cover.geometry())
                 assert w.rect().contains(h.strip.geometry()) and w.rect().contains(u.cover.geometry())
-                assert not u.clear_button.geometry().intersects(u.panel.geometry())
+                assert not QRect(u.clear_button.mapTo(w,QPoint()),u.clear_button.size()).intersects(u.panel.geometry())
                 for control in (u.clear_button,u.ear):
                     for x,y in ((1,1),(control.width()-2,1),(1,control.height()-2),(control.width()-2,control.height()-2)):
                         assert w.childAt(control.mapTo(w,QPoint(x,y))) is control,(lang,width,control.geometry())
@@ -66,12 +66,12 @@ def test_shared_host_geometry_and_dual_channels(tmp_path,monkeypatch):
     h.toast('Generated animation',kind='success');enter(app,h.strip);u.ear.click()
     QTest.qWait(80)
     assert 0<u.expansion<1 and not u.clear_button.isVisible()
-    assert not u.ear.geometry().intersects(u.panel.geometry())
+    assert not QRect(u.ear.mapTo(w,QPoint()),u.ear.size()).intersects(u.panel.geometry())
     assert not h.strip.geometry().intersects(u.cover.geometry())
     u.deadline.resume();u.deadline.start(1000,u.overlay)
     QTest.qWait(60)
     assert u.cover.countdown.isVisible() and 0<u.deadline.fraction<1
-    assert u.cover.countdown.height()==1
+    assert u.cover.countdown.height()==2
     image=u.cover.countdown.grab().toImage()
     from PySide6.QtGui import QColor
     assert image.pixelColor(0,0)==QColor(visual.accent())

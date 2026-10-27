@@ -1782,5 +1782,7 @@
   "表情排序：最早添加": "Emote order: Oldest added",
   "展开通知": "Expand notifications",
   "收起通知": "Collapse notifications",
-  "清除成功与信息提示": "Clear success and info notifications"
+  "清除成功与信息提示": "Clear success and info notifications",
+  "导入完成 · 新增 {added} 张": "Import complete · {added} added",
+  "处理完成 · 跳过 {skipped} 张": "Processing complete · {skipped} skipped"
 }

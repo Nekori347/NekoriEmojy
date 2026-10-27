@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import Mock
 from types import SimpleNamespace
 import pytest
-from PySide6.QtCore import Qt, QEvent, QPoint, QAbstractAnimation
+from PySide6.QtCore import Qt, QEvent, QPoint, QAbstractAnimation, QRect
 from PySide6.QtGui import QEnterEvent
 from PySide6.QtWidgets import QApplication, QWidget
 from PySide6.QtTest import QTest
@@ -38,10 +38,10 @@ def test_controls_visibility_and_hit_geometry(scene):
     assert not u.ear.isVisible()
     enter(app,u.cover);app.processEvents()
     assert u.ear.isVisible() and not u.clear_button.isVisible()
-    u.ear.click();app.processEvents()
+    enter(app,u.controls);u.ear.click();app.processEvents()
     assert u.opened and u.clear_button.isVisible()
-    assert not u.clear_button.geometry().intersects(u.cover.geometry())
-    assert not u.clear_button.geometry().intersects(u.panel.geometry())
+    assert not QRect(u.clear_button.mapTo(w,QPoint()),u.clear_button.size()).intersects(u.cover.geometry())
+    assert not QRect(u.clear_button.mapTo(w,QPoint()),u.clear_button.size()).intersects(u.panel.geometry())
     for x,y in [(1,1),(20,1),(1,20),(20,20),(11,11)]:
         hit=w.childAt(u.clear_button.mapTo(w,QPoint(x,y)))
         assert hit is u.clear_button
@@ -115,7 +115,7 @@ def test_clear_scope_preserves_active_and_actionable_results(scene):
     h.upsert_task('detail','Generated detail',state='info',details='Generated details')
     h.upsert_task('resume','Generated resume',state='success',resume=resume)
     h.upsert_task('plain','Generated plain',state='success')
-    enter(app,h.strip);u.ear.click();app.processEvents()
+    enter(app,h.strip);enter(app,u.controls);u.ear.click();app.processEvents()
     assert u.clear_button.isVisible()
     u.clear_button.click()
     assert set(h.named_tasks)=={'job','warning','detail','resume'}
@@ -157,7 +157,7 @@ def test_distinct_record_visibility_matrix(scene,states):
     if len(states)>=2:
         enter(app,h.strip if u.primary else u.cover);app.processEvents()
         assert u.ear.isVisible()
-        u.ear.click();app.processEvents()
+        enter(app,u.controls);u.ear.click();app.processEvents()
         assert u.opened
         assert u.clear_button.isVisible()==bool(h.clearable_tasks())
     elif states:

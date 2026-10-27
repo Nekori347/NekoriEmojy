@@ -500,10 +500,16 @@ class CheckBox(FluentCheck):
         p.setPen(QColor(c['text']))
         p.setFont(self.font())
         p.drawText(self.rect().adjusted(29, 0, -2, 0), Qt.AlignVCenter, self.text())
-        if self.hasFocus():
-            p.setPen(QPen(QColor(c['accent']), 1, Qt.DotLine))
-            p.setBrush(Qt.NoBrush)
-            p.drawRoundedRect(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 5, 5)
+        if self.focus_indicator_visible():
+            self.paint_focus_indicator(p)
+
+    def focus_indicator_visible(self):
+        return self.hasFocus()
+
+    def paint_focus_indicator(self, painter):
+        painter.setPen(QPen(QColor(visual.colors()['accent']), 1, Qt.DotLine))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 5, 5)
 
 
 class LineEdit(FluentLineEdit):

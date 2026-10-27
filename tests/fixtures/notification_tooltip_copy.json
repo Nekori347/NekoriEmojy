@@ -127,5 +127,25 @@
       "en": "Clear success and info notifications",
       "ja": "成功・情報通知を消去"
     }
+  },
+  {
+    "id": "import-added",
+    "source": "导入完成 · 新增 {added} 张",
+    "values": {
+      "zh": "导入完成 · 新增 {added} 张",
+      "zh_TW": "匯入完成 · 新增 {added} 張",
+      "en": "Import complete · {added} added",
+      "ja": "取り込み完了 · {added} 件追加"
+    }
+  },
+  {
+    "id": "import-skipped",
+    "source": "处理完成 · 跳过 {skipped} 张",
+    "values": {
+      "zh": "处理完成 · 跳过 {skipped} 张",
+      "zh_TW": "處理完成 · 略過 {skipped} 張",
+      "en": "Processing complete · {skipped} skipped",
+      "ja": "処理完了 · {skipped} 件スキップ"
+    }
   }
 ]

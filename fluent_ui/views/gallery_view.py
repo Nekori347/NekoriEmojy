@@ -2883,6 +2883,7 @@ class GalleryInterface(QWidget):
         for key,request in tuple(self.imports.requests.items()):
             job=self.ocr.jobs.get(key,{})
             state=request.state;details='\n'.join(request.errors)
+            caption=None
             summary=t('新增 {saved} 张，已处理重复 {duplicates} 张，跳过 {skipped} 张，失败 {failed} 张').format(
                 saved=request.saved,duplicates=request.duplicates,skipped=request.skipped,failed=request.failed)
             if state=='waiting':title=t('等待导入表情');outcome='waiting';done=0;total=request.total
@@ -2917,7 +2918,12 @@ class GalleryInterface(QWidget):
                 summary+=' · '+t('文字识别失败 {count} 张').format(count=job['failed'])
                 details+='\n'+job.get('error','')
                 if outcome=='success':outcome='partial'
-            host.upsert_task(key,title,current=done,total=total,state=outcome,content=summary,kind='import',
+            if state=='completed' and request.kind!='migration' and not request.failed and not job.get('failed') and not getattr(request,'kept',0):
+                if request.saved and not (request.duplicates or request.skipped):
+                    caption=t('导入完成 · 新增 {added} 张').format(added=request.saved)
+                elif request.skipped and not (request.saved or request.duplicates):
+                    caption=t('处理完成 · 跳过 {skipped} 张').format(skipped=request.skipped)
+            host.upsert_task(key,title,current=done,total=total,state=outcome,content=summary,kind='import',caption=caption,
                 cancel=lambda k=key:self.imports.cancel(k),details=details.strip(),
                 resume=(lambda k=key,kind='ocr' if state=='ocr_interrupted' else 'import':self._recovery_options(k,kind)) if state in {'interrupted','waiting_source','ocr_interrupted'} else None,
                 action_text=t('查看恢复选项') if state in {'interrupted','waiting_source','ocr_interrupted'} else None,

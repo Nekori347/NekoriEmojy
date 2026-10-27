@@ -15,7 +15,7 @@ def test_clear_completed_button_preserves_actionable_records_and_collapses():
     host.upsert_task('success','Done',state='success')
     host.upsert_task('info','Notice',state='info')
     host.upsert_task('resume','Resume',state='success',resume=lambda:None)
-    ui=host._caption_ui;app.sendEvent(host.strip,QEvent(QEvent.Enter));folded=QSignalSpy(ui.fold.finished);ui.ear.click()
+    ui=host._caption_ui;app.sendEvent(host.strip,QEvent(QEvent.Enter));app.sendEvent(ui.controls,QEvent(QEvent.Enter));folded=QSignalSpy(ui.fold.finished);ui.ear.click()
     if ui.expansion<.999:assert folded.wait(2000)
     assert ui.opened and ui.clear_button.isVisible(), (ui.expansion,host.clearable_tasks(),owner.isVisible())
     QTest.mouseClick(ui.clear_button,Qt.LeftButton)

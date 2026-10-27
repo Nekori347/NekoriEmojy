@@ -1,11 +1,33 @@
 """Compare the real duplicate candidates, streaming animated frames with Pillow."""
 from pathlib import Path
-from PySide6.QtCore import Qt,QTimer
-from PySide6.QtGui import QImage,QPixmap
+from PySide6.QtCore import Qt,QTimer,QRectF
+from PySide6.QtGui import QImage,QPixmap,QPen,QColor
 from PySide6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QLabel
 from services.i18n import t,translated
 from fluent_ui.components.hover_preview import PreviewImage
 from fluent_ui.components.dialogs import NekoriDialog
+
+from fluent_ui.components.controls import ButtonPaint, CheckBox
+from fluent_ui import visual
+
+
+class DuplicateApplyCheckBox(ButtonPaint, CheckBox):
+    """Only this row uses the shared input-origin focus ring, without a full-row dot box."""
+    def __init__(self,parent):
+        super().__init__(parent)
+        self._init_surface()
+        self.setFocusPolicy(Qt.StrongFocus)
+
+    def paintEvent(self,event):
+        CheckBox.paintEvent(self,event)
+
+    def focus_indicator_visible(self):
+        return self.keyboard_focus_visible()
+
+    def paint_focus_indicator(self,painter):
+        width=min(self.width()-4,self.fontMetrics().horizontalAdvance(self.text())+34)
+        painter.setPen(QPen(QColor(visual.accent()),1));painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(QRectF(2,2,max(0,width),max(0,self.height()-4)),4,4)
 
 
 class CandidatePreview(PreviewImage):
@@ -71,12 +93,11 @@ class DuplicateBatchDialog(NekoriDialog):
     """One batch decision window; decode only the currently compared pair."""
     def __init__(self,parent,candidates,storage,decide):
         super().__init__(parent,t('处理重复表情'))
-        from fluent_ui.components.controls import CheckBox
         self.setModal(False);self.setWindowModality(Qt.NonModal);self.resize(760,510)
         self.candidates=candidates;self.storage=storage;self.choices=[];self.previews=[]
         self.counter=QLabel(self);self.body.addWidget(self.counter)
         self.comparison=QHBoxLayout();self.body.addLayout(self.comparison)
-        self.apply_all=CheckBox(self);self.body.addWidget(self.apply_all)
+        self.apply_all=DuplicateApplyCheckBox(self);self.body.addWidget(self.apply_all)
         self.add_button('跳过此项',on_click=lambda:self.select('skip'))
         self.add_button('保留两者',on_click=lambda:self.select('keep'))
         self.add_button('使用已存在文件导入',role='primary',on_click=lambda:self.select('reuse'))
