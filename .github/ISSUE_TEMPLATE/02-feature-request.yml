@@ -1,0 +1,39 @@
+{
+  "name": "Feature Request / 功能建议",
+  "description": "分享功能建议，可使用任意语言。 / Share a feature suggestion in any language.",
+  "body": [
+    {
+      "type": "textarea",
+      "id": "suggestion",
+      "attributes": {
+        "label": "建议内容 / Suggestion",
+        "description": "说明你希望增加或改善什么。 / Describe what you would like to add or improve."
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "use-case",
+      "attributes": {
+        "label": "使用场景 / Use case",
+        "description": "说明你会在什么情况下使用这项功能。 / Describe when you would use this feature."
+      },
+      "validations": {
+        "required": false
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "references",
+      "attributes": {
+        "label": "参考资料或补充说明 / References or additional details",
+        "description": "可提供相关资料或其它补充信息。 / Add relevant references or other details."
+      },
+      "validations": {
+        "required": false
+      }
+    }
+  ]
+}

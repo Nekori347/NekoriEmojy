@@ -1,0 +1,61 @@
+{
+  "name": "Bug Report / 问题反馈",
+  "description": "报告使用中遇到的问题，可使用任意语言。 / Report a problem in any language.",
+  "body": [
+    {
+      "type": "textarea",
+      "id": "description",
+      "attributes": {
+        "label": "问题描述 / Description",
+        "description": "说明遇到的问题。 / Describe what went wrong."
+      },
+      "validations": {
+        "required": true
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "steps",
+      "attributes": {
+        "label": "复现步骤 / Steps to reproduce",
+        "description": "如果可以，请列出操作步骤。 / If possible, list the steps to reproduce."
+      },
+      "validations": {
+        "required": false
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "expected-actual",
+      "attributes": {
+        "label": "预期与实际结果 / Expected and actual results",
+        "description": "说明预期发生什么，以及实际发生了什么。 / Describe what you expected and what actually happened."
+      },
+      "validations": {
+        "required": false
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "environment",
+      "attributes": {
+        "label": "软件版本和环境 / Version and environment",
+        "description": "可粘贴关于页复制的环境信息。 / You can paste the environment info copied from About."
+      },
+      "validations": {
+        "required": false
+      }
+    },
+    {
+      "type": "textarea",
+      "id": "additional",
+      "attributes": {
+        "label": "截图或其它补充信息 / Screenshots or additional information",
+        "description": "可附上截图或其它有助于说明问题的内容。 / Attach screenshots or other relevant details."
+      },
+      "validations": {
+        "required": false
+      }
+    }
+  ]
+}

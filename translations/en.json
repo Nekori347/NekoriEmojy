@@ -1784,5 +1784,8 @@
   "收起通知": "Collapse notifications",
   "清除成功与信息提示": "Clear success and info notifications",
   "导入完成 · 新增 {added} 张": "Import complete · {added} added",
-  "处理完成 · 跳过 {skipped} 张": "Processing complete · {skipped} skipped"
+  "处理完成 · 跳过 {skipped} 张": "Processing complete · {skipped} skipped",
+  "复制环境信息": "Copy environment info",
+  "已复制环境信息": "Environment info copied",
+  "无法打开浏览器，已复制反馈链接": "Unable to open the browser. Feedback link copied."
 }

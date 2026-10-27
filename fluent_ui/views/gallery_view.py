@@ -3659,6 +3659,7 @@ class GalleryInterface(QWidget):
 
     def _show_tools_menu(self):
         menu = RoundMenu(parent=self)
+        from fluent_ui.components.user_feedback import open_feedback
         from fluent_ui.components.ocr_controls import recognize_all,offer_install
         from services.ocr_service import ocr_service
         service=ocr_service(self.storage)
@@ -3677,6 +3678,7 @@ class GalleryInterface(QWidget):
             (FIF.APPLICATION, 'QQ 导入', self.qq_requested.emit),
             (FIF.DOWNLOAD, 'Telegram 导入', self.tg_requested.emit),
             (FIF.INFO, '关于', self.about_requested.emit),
+            (FIF.CHAT, '反馈与建议', lambda:open_feedback(self)),
         ):
             action = translated(Action, icon, label, parent=menu)
             action.triggered.connect(callback)

@@ -39,5 +39,6 @@ def test_exact_approved_translation_diff():
     for lang in ('zh','zh_TW','en','ja'):
         path=f'translations/{lang}.json'
         expected=json.loads(subprocess.check_output(['git','show',f'5529adb:{path}'],cwd=root).decode('utf-8'))
-        for row in COPY:expected[row['source']]=row['values'][lang]
+        feedback_copy=json.loads((root/'tests/fixtures/user_feedback_copy.json').read_text(encoding='utf-8'))
+        for row in COPY+feedback_copy:expected[row['source']]=row['values'][lang]
         assert json.loads((root/path).read_text(encoding='utf-8'))==expected
