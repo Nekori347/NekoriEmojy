@@ -1,5 +1,56 @@
 # 排序 Tooltip 与通知栏交互定向事实调查
 
+## 4795e52 人工验收失败后的定向返工（2026-10-27）
+
+**上一轮45项机器检查通过，但维护者实际Demo视觉验收失败。** 下方“正式整改实施结果”仅是4795e52阶段记录，不代表本轮最终事实。本轮源码 **fc5deb4**，已完成实际应用窗口定向检查，仍待维护者视觉验收；没有把机器验证改写为人工通过。
+
+### 运行版本与旧Tooltip
+
+发现运行Demo PID76284启动于01:02:06，runtime记录为60d4d7e，早于当日174d9bf/3577821/4795e52。不是仅凭仓库HEAD认定运行源码已更新。旧实例没有对象查询入口，未注入或臆称已读取其toolTip；通过固定启动脚本正常停止后重开，基线新进程实际toolTip及GlobalToolTipFilter文本均为“分类排序：手动”。没有证据支持新代码仍由过滤器缓存旧文字。Python venv启动器及其子进程不是两个Library实例；独立正式安装进程未停止或修改。
+
+最终固定Demo PID13272，运行源码fc5deb4。实际入口Source/tools/development_demo.py，解释器Source/.venv/Scripts/pythonw.exe，实际加载fluent_ui/components/navigation.py及caption_feedback.py来自本仓库；刷新函数code filename同源，真实按钮和过滤器文本一致。有效ui_animations_enabled=True。记录提交只修改文档，运行代码版本仍为fc5deb4。
+
+### 本轮绘制、状态与结果责任
+
+- CaptionFeedback现有控制区内局部共用薄线圆角Surface，既有SVG清理按钮与TaskEar共用材质、中心线和间距；正常清理图标为中性色，仅Hover/Pressed强调危险色。TaskEar不再重复绘制独立外框。不改变列表/任务行主体外观，不新增通知宿主。
+- 清理仅在多记录、展开终态、有原clearable且列表/控制区域实际悬停或对应键盘焦点时显示；收起立即隐藏，离开沿原桥接时限收纳。父级控制区无资格时整体隐藏，没有空白底座。清理仍只移除合法展示记录，不取消活动任务或删除数据库任务。
+- 原DisplayDeadline、QTimer及remaining/total仍为唯一时间来源。NoticeCover与普通Toast线高改为2逻辑px，位于自身底边；NoticeCover内部按钮留出底边绘制空间，外部高度/位置不变。关闭动效只停细线绘制，超时继续。没有新增超时来源。
+- GalleryInterface._sync_background_tasks通过现有FeedbackHost可选caption呈现两个批准的纯结果：仅新增、仅主动跳过。四语言精确接入，完整统计仍留原展开行。没有更改结果计数或成功/失败判定。
+- **混合结果仍沿旧模板，未自行造译文。** 原字段saved、duplicates、skipped、failed及kept/OCR失败/迁移/取消等分支均保持；例如新增+重复、新增+跳过、新增+失败、全部失败，不冒充获批的纯新增或纯跳过。后续若要求这些主栏同样去零，需要指导AI提供正式四语言混合模板。
+- 重复弹窗虚线来自项目共享CheckBox自绘hasFocus分支，不是据截图猜测的Qt原生样式。仅DuplicateApplyCheckBox使用已有ButtonPaint输入来源，鼠标焦点不画框，键盘焦点画围绕文字/复选框的紧凑实线Accent提示。通用CheckBox默认行为不改，Tab/Space仍有效。
+
+### 真实应用窗口证据
+
+实际MainWindow及其FeedbackHost、NoticeCover、真实DuplicateBatchDialog，使用生成任务和生成图片；没有运行真实导入/删除/下载。通过固定Demo入口临时只读诊断在正常Qt事件循环取得对象与有限操作，诊断逻辑不进入源码提交。图像为实际可见桌面截图，不是离屏渲染。
+
+本地证据目录：DevData/ui-refresh/live-rework（未跟踪、未上传，含必要Demo上下文）；runtime.json记录PID/模块/文字/测量和数据检查。11张图片分别为：
+
+|文件|实际状态|
+|---|---|
+|01-current-tooltip.png|分类手动态单行新Tooltip|
+|02-countdown-full.png|真实剩余3392/3500ms，96.9%|
+|03-countdown-half.png|1742/3500ms，49.8%|
+|04-countdown-low.png|688/3500ms，19.7%|
+|05-collapsed-no-clear.png|多记录收起，无清理|
+|06-shared-control-and-channels.png|展开共用薄线控制区，进度和临时结果并存|
+|07-left-controls-hidden.png|离开后清理收纳；截图时列表已收起，仅桥接耳朵短暂可见|
+|08-added-four.png|导入完成 · 新增 4 张|
+|09-skipped-one.png|处理完成 · 跳过 1 张|
+|10-duplicate-mouse.png|鼠标勾选无全行虚线|
+|11-duplicate-keyboard.png|键盘焦点紧凑实线，Space切换|
+
+倒计时实际屏幕像素位于窗口y30、31两行，Accent #737cff；三图连续像素宽367/187/73，与真实比例同步，非主窗口顶部主题线。实际逻辑高度2，非仅检查对象存在。
+
+1150逻辑px实际窗宽：任务[92,8,524,24]，临时通知[724,8,218,24]，列表[80,33,964,162]，共用控制区[533,199,68,26]，清理[535,201,22,22]，耳朵[563,205,36,14]。按钮角点命中对应自身；与列表/封面不重叠。清理不调用生成任务取消回调。复选框整行728px，键盘提示仅120px；Tab移出、Backtab返回、Space切换均通过。
+
+### 验证与保护
+
+40项直接相邻测试通过（通知交互/返工、排序文案、Tooltip、共享输入生命周期及反馈）；11张实际应用状态截图完成，代码模块路径、真实Tooltip、倒计时像素和按钮命中已核对。本轮实际桌面证据为Win11当前主题/DPI，不外推Win10或其它DPI；历史深浅/150%结果保留其原测试范围，不能替代本轮维护者验收。
+
+固定Demo前后全部7表逐行一致：resources132、nodes54、content433、recent15、library_meta6、image_features132、task_checkpoints0。临时验证记录已清理，Demo保持运行；正式版及原始Library、Suzu未操作。七处W01实验原差异保留且未暂存；W02暂停、W03未启用。没有Push/打包/发布或关闭Issue。
+
+---
+
 ## 正式整改实施结果（2026-10-27）
 
 本节替代下方“只调查、未修复”的当前状态；下方原始事实保留为 **5529adb历史快照**。正式授权基线5529adb，源码 **174d9bf**（排序完整绑定/锁定翻译）、**3577821**（控制区/双通道/真实剩余时间/倒计时）。两者已本地提交、机器验证，仍待维护者人工体验；记录提交及最终HEAD见CURRENT/#37。不扩展通知中心或窗口宿主。
