@@ -1,0 +1,300 @@
+{
+  "baseline": "ae7f5c7",
+  "authority": "TP-B fourth approved mapping, 2026-10-27",
+  "records": [
+    {
+      "id": "missing-01",
+      "source": "导出已停止",
+      "values": {
+        "zh": "导出已停止",
+        "zh_TW": "匯出已停止",
+        "en": "Export stopped",
+        "ja": "書き出しを停止しました"
+      }
+    },
+    {
+      "id": "missing-02",
+      "source": "未完成的临时文件已清理，原有目标文件保持不变。",
+      "values": {
+        "zh": "未完成的临时文件已清理，原有目标文件保持不变。",
+        "zh_TW": "未完成的暫存檔案已清除，原有目標檔案維持不變。",
+        "en": "Incomplete temporary files were removed. The existing destination file was not changed.",
+        "ja": "未完成の一時ファイルを削除しました。既存の出力先ファイルは変更されていません。"
+      }
+    },
+    {
+      "id": "missing-03",
+      "source": "仅静态图",
+      "values": {
+        "zh": "仅静态图",
+        "zh_TW": "僅靜態圖片",
+        "en": "Still images only",
+        "ja": "静止画のみ"
+      }
+    },
+    {
+      "id": "missing-04",
+      "source": "仅动图",
+      "values": {
+        "zh": "仅动图",
+        "zh_TW": "僅動圖",
+        "en": "Animated images only",
+        "ja": "アニメーション画像のみ"
+      }
+    },
+    {
+      "id": "missing-05",
+      "source": "范围已变更，请点击开始扫描。",
+      "values": {
+        "zh": "范围已变更，请点击开始扫描。",
+        "zh_TW": "範圍已變更，請按一下「開始掃描」。",
+        "en": "Scope changed. Start a new scan.",
+        "ja": "対象範囲が変更されました。スキャンを開始してください。"
+      }
+    },
+    {
+      "id": "missing-06",
+      "source": "正在扫描…",
+      "values": {
+        "zh": "正在扫描…",
+        "zh_TW": "正在掃描…",
+        "en": "Scanning…",
+        "ja": "スキャン中…"
+      }
+    },
+    {
+      "id": "missing-07",
+      "source": "正在重新匹配…",
+      "values": {
+        "zh": "正在重新匹配…",
+        "zh_TW": "正在重新比對…",
+        "en": "Rematching…",
+        "ja": "再照合中…"
+      }
+    },
+    {
+      "id": "missing-08",
+      "source": "扫描",
+      "values": {
+        "zh": "扫描",
+        "zh_TW": "掃描",
+        "en": "Scanning",
+        "ja": "スキャン中"
+      }
+    },
+    {
+      "id": "missing-09",
+      "source": "匹配",
+      "values": {
+        "zh": "匹配",
+        "zh_TW": "比對",
+        "en": "Matching",
+        "ja": "照合中"
+      }
+    },
+    {
+      "id": "missing-10",
+      "source": "续",
+      "values": {
+        "zh": "续",
+        "zh_TW": "續",
+        "en": "cont.",
+        "ja": "続き"
+      }
+    },
+    {
+      "id": "missing-11",
+      "source": "扫描失败：",
+      "values": {
+        "zh": "扫描失败：",
+        "zh_TW": "掃描失敗：",
+        "en": "Scan failed:",
+        "ja": "スキャンに失敗しました："
+      }
+    },
+    {
+      "id": "missing-12",
+      "source": "正在取消…",
+      "values": {
+        "zh": "正在取消…",
+        "zh_TW": "正在取消…",
+        "en": "Cancelling…",
+        "ja": "キャンセル中…"
+      }
+    },
+    {
+      "id": "missing-13",
+      "source": "已取消，已完成的特征缓存可在下次扫描时复用。",
+      "values": {
+        "zh": "已取消，已完成的特征缓存可在下次扫描时复用。",
+        "zh_TW": "已取消；已完成的特徵快取可在下次掃描時重複使用。",
+        "en": "Cancelled. Previously generated feature data can be reused on the next scan.",
+        "ja": "キャンセルしました。作成済みの特徴データは次回のスキャンで再利用できます。"
+      }
+    },
+    {
+      "id": "missing-14",
+      "source": "上一张",
+      "values": {
+        "zh": "上一张",
+        "zh_TW": "上一張",
+        "en": "Previous",
+        "ja": "前へ"
+      }
+    },
+    {
+      "id": "missing-15",
+      "source": "下一张",
+      "values": {
+        "zh": "下一张",
+        "zh_TW": "下一張",
+        "en": "Next",
+        "ja": "次へ"
+      }
+    },
+    {
+      "id": "missing-16",
+      "source": "选择删除",
+      "values": {
+        "zh": "选择删除",
+        "zh_TW": "勾選刪除",
+        "en": "Mark for deletion",
+        "ja": "削除対象にする"
+      }
+    },
+    {
+      "id": "missing-17",
+      "source": "删除所选",
+      "values": {
+        "zh": "删除所选",
+        "zh_TW": "刪除所選",
+        "en": "Delete selected",
+        "ja": "選択項目を削除"
+      }
+    },
+    {
+      "id": "missing-18",
+      "source": "正在删除所选表情…",
+      "values": {
+        "zh": "正在删除所选表情…",
+        "zh_TW": "正在刪除所選表情…",
+        "en": "Deleting selected emotes…",
+        "ja": "選択したスタンプを削除中…"
+      }
+    },
+    {
+      "id": "missing-19",
+      "source": "删除失败：",
+      "values": {
+        "zh": "删除失败：",
+        "zh_TW": "刪除失敗：",
+        "en": "Deletion failed:",
+        "ja": "削除に失敗しました："
+      }
+    },
+    {
+      "id": "R1",
+      "source": "找到 {groups} 组疑似相似表情，共涉及 {entries} 张表情。",
+      "values": {
+        "zh": "找到 {groups} 组疑似相似表情，共涉及 {entries} 张表情。",
+        "zh_TW": "找到 {groups} 組疑似相似表情，共涉及 {entries} 張表情。",
+        "en": "Found {groups} groups of potentially similar emotes, containing {entries} emotes in total.",
+        "ja": "類似している可能性があるスタンプを {groups} グループ、計 {entries} 件見つけました。"
+      }
+    },
+    {
+      "id": "R2",
+      "source": "有 {failed} 个文件无法读取，已跳过。",
+      "values": {
+        "zh": "有 {failed} 个文件无法读取，已跳过。",
+        "zh_TW": "有 {failed} 個檔案無法讀取，已略過。",
+        "en": "{failed} files could not be read and were skipped.",
+        "ja": "{failed} 件のファイルを読み込めなかったため、スキップしました。"
+      }
+    },
+    {
+      "id": "E1",
+      "source": "新增 {value_0} 个，未新增 {value_1} 个；重复项仍可能合并分类关系或标签。",
+      "values": {
+        "zh": "新增 {value_0} 个，未新增 {value_1} 个；重复项仍可能合并分类关系或标签。",
+        "zh_TW": "新增 {value_0} 個，未新增 {value_1} 個；重複項目仍可能合併分類關聯或標籤。",
+        "en": "Added {value_0}; {value_1} were not added as new items. Duplicates may still have category memberships or tags merged.",
+        "ja": "新規追加 {value_0} 件、未追加 {value_1} 件。重複項目ではカテゴリとの関連やタグが統合される場合があります。"
+      }
+    },
+    {
+      "id": "E2",
+      "source": "有 {count} 个文件未能导出（如格式不支持或读取失败）。",
+      "values": {
+        "zh": "有 {count} 个文件未能导出（如格式不支持或读取失败）。",
+        "zh_TW": "有 {count} 個檔案未能匯出（例如格式不支援或讀取失敗）。",
+        "en": "{count} files were not exported (for example, due to unsupported formats or read failures).",
+        "ja": "{count} 件のファイルを書き出せませんでした（形式非対応や読み込み失敗など）。"
+      }
+    },
+    {
+      "id": "E3",
+      "source": "仅导出所选分类直接包含的表情；子分类需要单独选择。",
+      "values": {
+        "zh": "仅导出所选分类直接包含的表情；子分类需要单独选择。",
+        "zh_TW": "僅匯出所選分類直屬的表情；子分類需另外選取。",
+        "en": "Only emotes directly in the selected categories are included. Select subcategories separately.",
+        "ja": "選択したカテゴリ直下のスタンプのみを書き出します。子カテゴリは別途選択してください。"
+      }
+    },
+    {
+      "id": "D1",
+      "source": "查看本地日志，或导出经脱敏处理的日志及版本、系统运行信息；不包含表情文件或应用配置文件，也不会自动上传。",
+      "values": {
+        "zh": "查看本地日志，或导出经脱敏处理的日志及版本、系统运行信息；不包含表情文件或应用配置文件，也不会自动上传。",
+        "zh_TW": "查看本機日誌，或匯出經去識別化處理的日誌及版本、系統執行資訊；不包含表情檔案或應用程式設定檔，也不會自動上傳。",
+        "en": "View local logs or export redacted logs and version/system information. Emote files and app configuration files are excluded; nothing is uploaded automatically.",
+        "ja": "ローカルログを確認するか、機密情報を一部伏せたログとバージョン・システム情報を書き出します。スタンプ画像やアプリの設定ファイルは含まれず、自動送信も行いません。"
+      }
+    },
+    {
+      "id": "E3-sidebar",
+      "source": "仅导出此分类中的表情，不包含子分类。",
+      "values": {
+        "zh": "仅导出此分类中的表情，不包含子分类。",
+        "zh_TW": "僅匯出此分類中的表情，不包含子分類。",
+        "en": "Export emotes directly in this category, excluding subcategories.",
+        "ja": "このカテゴリ直下のスタンプのみを書き出し、子カテゴリは含めません。"
+      }
+    },
+    {
+      "id": "E4-title",
+      "source": "导出不完整",
+      "values": {
+        "zh": "导出不完整",
+        "zh_TW": "匯出不完整",
+        "en": "Export incomplete",
+        "ja": "書き出しが不完全です"
+      }
+    },
+    {
+      "id": "E4-body",
+      "source": "已导出 {written} 张表情，另有 {skipped} 张未能写入。请检查来源文件后重试。",
+      "values": {
+        "zh": "已导出 {written} 张表情，另有 {skipped} 张未能写入。请检查来源文件后重试。",
+        "zh_TW": "已匯出 {written} 張表情，另有 {skipped} 張未能寫入。請檢查來源檔案後重試。",
+        "en": "Exported {written} emotes; {skipped} could not be included. Check the source files before retrying.",
+        "ja": "スタンプ {written} 件を書き出しましたが、{skipped} 件は含められませんでした。元のファイルを確認してから再試行してください。"
+      }
+    },
+    {
+      "id": "U1",
+      "source": "下载更新",
+      "values": {
+        "zh": "下载更新",
+        "zh_TW": "下載更新",
+        "en": "Download update",
+        "ja": "更新をダウンロード"
+      }
+    }
+  ],
+  "tw_correction": {
+    "source": "恢复整理结果，并合并重复表情的分类关系。",
+    "value": "還原整理結果，並合併重複表情的分類關聯。"
+  }
+}

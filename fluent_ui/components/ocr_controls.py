@@ -8,7 +8,7 @@ from services.ocr_service import ocr_service
 from services.i18n import t,i18n_engine,bind_text,translated
 
 STATES={'unrecognized':'尚未识别','ready':'已识别','empty':'未发现文字','failed':'识别失败'}
-TASKS={'running':'正在识别','completed':'识别完成','cancelled':'已停止识别','interrupted':'上次识别已中断','idle':'暂无识别任务'}
+TASKS={'running':'正在识别','completed':'识别处理结束','cancelled':'已停止识别','interrupted':'上次识别已中断','idle':'暂无识别任务','waiting_source':'识别来源不可用，任务待恢复'}
 
 
 def request_recognition(parent,storage,paths,force=False):
@@ -94,7 +94,16 @@ class OcrSettings(QObject):
             'ocr_auto',center.pending.get('ocr_auto',center.config.get('ocr_auto',False)))
         center._track(self.auto,'ocr_auto',False);section.add_row(self.auto)
         self.task=InfoRow('后台文字识别','补充识别会跳过已完成且未变化的表情。\n人工修改会保留；停止后可以继续。','')
-        self.task.controls.removeWidget(self.task.value_label)
+        # This value is a sentence, not a bounded numeric/path field.
+        old_value=self.task.value_label
+        self.task.controls.removeWidget(old_value)
+        self.task.value_label=QLabel(self.task)
+        self.task.value_label.setFont(old_value.font())
+        self.task.value_label.setProperty('role','data')
+        self.task.value_label.setWordWrap(True)
+        self.task.value_label.setTextFormat(Qt.PlainText)
+        self.task.value_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        old_value.hide();old_value.deleteLater()
         self.task.value_label.setAlignment(Qt.AlignLeft)
         self.task.layout().itemAt(0).layout().addWidget(self.task.value_label)
         self.task_info=QLabel(self.task);self.task_info.setWordWrap(True)
@@ -197,11 +206,11 @@ class OcrSettings(QObject):
         summary=s.summary
         state=t(TASKS.get(summary.get('state','idle'),'暂无识别任务'))
         processed=sum(summary.get(k,0) for k in ('done','failed','skipped'))
-        self.task.set_value(state)
+        self.task.value_label.setText(state)
         hint=''
         if summary.get('total'):
-            hint=t('已完成 {done} / {total} 张\n失败 {failed} 张 · 跳过 {skipped} 张').format(done=processed,total=summary['total'],failed=summary.get('failed',0),skipped=summary.get('skipped',0))
-        if summary.get('error'):hint+='\n'+t('部分表情未能识别，请查看详情或重试。')
+            hint=t('已处理 {done} / {total} 张\n失败 {failed} 张 · 跳过 {skipped} 张').format(done=processed,total=summary['total'],failed=summary.get('failed',0),skipped=summary.get('skipped',0))
+        if summary.get('error'):hint+='\n'+t('文字识别出现问题，请查看详情。')
         self.task_info.setText(hint);self.task_info.setVisible(bool(hint))
         self.supplement.setEnabled(s.available and not s.library_busy)
         self.retry.setEnabled(s.available and not s.library_busy)

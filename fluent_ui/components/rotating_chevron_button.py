@@ -48,12 +48,12 @@ class RotatingChevronButton(QWidget):
         if self._anim is not None:
             self._anim.stop()
         anim = QPropertyAnimation(self, b'angle', self)
-        from fluent_ui.visual import MOTION
+        from fluent_ui.visual import MOTION, start_animation
         anim.setDuration(MOTION.expand)
         anim.setEasingCurve(MOTION.easing)
         anim.setStartValue(self._angle)
         anim.setEndValue(float(angle))
-        anim.start()
+        start_animation(anim, MOTION.expand)
         self._anim = anim
 
     def enterEvent(self, e):

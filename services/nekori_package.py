@@ -10,18 +10,35 @@ import shutil
 import tempfile
 import zipfile
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from services.exchange_icons import IMAGE_SUFFIXES, resolve_icon_path
 from services.library_index import ROOT
+from services.export_control import check_export_cancelled, staged_export_path
 
 FORMAT = "nekori-package"
 FORMAT_VERSION = 1
 MANIFEST_NAME = "nekori.json"
+MAX_PACKAGE_FILES = 50000
+MAX_PACKAGE_BYTES = 8 * 1024 ** 3
+MAX_MANIFEST_BYTES = 16 * 1024 ** 2
 
 
 class NekoriPackageError(RuntimeError):
     pass
+
+
+def _package_path(root, name):
+    if not isinstance(name, str) or not name or '\x00' in name:
+        raise NekoriPackageError('资源包包含无效路径')
+    path = PurePosixPath(name.replace('\\', '/'))
+    if (path.is_absolute() or PureWindowsPath(name).drive or PureWindowsPath(name).is_reserved()
+            or '..' in path.parts or any(':' in p or p.endswith((' ', '.')) for p in path.parts)):
+        raise NekoriPackageError('资源包路径必须位于包内')
+    target = (root / Path(*path.parts)).resolve()
+    if not target.is_relative_to(root.resolve()):
+        raise NekoriPackageError('资源包路径必须位于包内')
+    return target
 
 
 class NekoriPackageService:
@@ -32,15 +49,17 @@ class NekoriPackageService:
     # ------------------------------------------------------------------
     # Export
     # ------------------------------------------------------------------
-    def build_manifest(self):
+    def build_manifest(self, *, cancel_check=None):
         node_positions = {}
         for node in self.index.nodes():
+            check_export_cancelled(cancel_check)
             for entry in self.index.content(node["id"]):
                 if entry["kind"] == "node":
                     node_positions[entry["id"]] = entry["position"]
 
         memberships = {}
         for row in self.index.memberships():
+            check_export_cancelled(cancel_check)
             memberships.setdefault(row["resource_id"], []).append(row)
 
         manifest = {
@@ -54,6 +73,7 @@ class NekoriPackageService:
         }
 
         for node in self.index.nodes():
+            check_export_cancelled(cancel_check)
             manifest["nodes"].append({
                 "id": node["id"],
                 "parent_id": node["parent_id"] or ROOT,
@@ -65,6 +85,7 @@ class NekoriPackageService:
             })
 
         for record in self.index.resources():
+            check_export_cancelled(cancel_check)
             manifest["resources"].append({
                 "id": record["id"],
                 "filename": record["filename"],
@@ -82,39 +103,64 @@ class NekoriPackageService:
             })
         return manifest
 
-    def export(self, target_path, progress=None):
-        manifest = self.build_manifest()
+    def export(self, target_path, progress=None, *, cancel_check=None):
+        check_export_cancelled(cancel_check)
+        if progress:
+            progress(0, 0, '正在读取合集结构')
+        manifest = self.build_manifest(cancel_check=cancel_check)
         root = Path(self.index.root)
         total = len(manifest["resources"]) + len(manifest["nodes"]) + 1
         step = 0
+        written = skipped = 0
 
-        with zipfile.ZipFile(target_path, "w", zipfile.ZIP_DEFLATED) as archive:
+        with staged_export_path(target_path, cancel_check) as temporary, zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as archive:
             for entry in manifest["resources"]:
+                check_export_cancelled(cancel_check)
+                if progress:
+                    progress(step, total, '写入资源（工作单元）: ' + entry["display_name"])
                 source = root / entry["relative_path"]
                 try:
                     if source.is_file():
                         archive.write(source, entry["package_path"])
-                except OSError as exc:
-                    print(f"[WARNING] 打包资源失败: {source}: {exc}")
+                        written += 1
+                    else:
+                        skipped += 1
+                except OSError:
+                    # Keep the existing package schema/order; report omissions
+                    # separately rather than claiming every manifest item was written.
+                    skipped += 1
                 step += 1
                 if progress:
-                    progress(step, total, entry["display_name"])
+                    progress(step, total, '写入资源（工作单元）: ' + entry["display_name"])
 
+            icon_assets = {}
             for node in manifest["nodes"]:
+                check_export_cancelled(cancel_check)
+                if progress:
+                    progress(step, total, '处理分类图标（工作单元）: ' + node["name"])
                 icon = node.get("icon") or ""
                 if icon and Path(icon).suffix.lower() in IMAGE_SUFFIXES:
                     source = Path(resolve_icon_path(self.index.root, icon))
+                    # The package carries its own asset, never the source machine's path.
+                    node['icon'] = ''
                     if source.is_file():
-                        archive.write(source, f"icons/{source.name}")
-                        node["icon_asset"] = f"icons/{source.name}"
+                        key = source.resolve()
+                        if key not in icon_assets:
+                            asset = f"icons/{node['id']}{source.suffix.lower()}"
+                            archive.write(source, asset)
+                            icon_assets[key] = asset
+                        node["icon_asset"] = icon_assets[key]
                 step += 1
                 if progress:
-                    progress(step, total, node["name"])
+                    progress(step, total, '处理分类图标（工作单元）: ' + node["name"])
 
+            check_export_cancelled(cancel_check)
+            if progress:
+                progress(step, total, '写入清单（工作单元）')
             archive.writestr(MANIFEST_NAME, json.dumps(manifest, ensure_ascii=False, indent=2))
         if progress:
             progress(total, total, "完成")
-        return {"resources": len(manifest["resources"]), "nodes": len(manifest["nodes"])}
+        return {"resources": written, "nodes": len(manifest["nodes"]), "skipped": skipped}
 
 
     # ------------------------------------------------------------------
@@ -124,6 +170,33 @@ class NekoriPackageService:
         staging = Path(tempfile.mkdtemp(prefix="nekori-package-"))
         try:
             with zipfile.ZipFile(package_path) as archive:
+                entries = archive.infolist()
+                if len(entries) > MAX_PACKAGE_FILES or sum(e.file_size for e in entries) > MAX_PACKAGE_BYTES:
+                    raise NekoriPackageError('资源包超过解压大小或文件数量上限')
+                seen = {}
+                for entry in entries:
+                    target = _package_path(staging, entry.filename)
+                    key = str(target).casefold()
+                    if ((entry.external_attr >> 16) & 0o170000) == 0o120000:
+                        raise NekoriPackageError('资源包包含符号链接')
+                    previous = seen.get(key)
+                    if previous:
+                        # Older native exports repeated shared icon assets. Only
+                        # byte-identical icon members are unambiguous and safe.
+                        if (entry.filename != previous.filename or not entry.filename.startswith('icons/')
+                                or entry.is_dir() or entry.file_size != previous.file_size):
+                            raise NekoriPackageError('资源包包含重复路径')
+                        with archive.open(previous) as first, archive.open(entry) as duplicate:
+                            while True:
+                                chunk = first.read(64 * 1024)
+                                if chunk != duplicate.read(64 * 1024):
+                                    raise NekoriPackageError('资源包包含内容冲突的重复图标')
+                                if not chunk:
+                                    break
+                    else:
+                        seen[key] = entry
+                    if str(target).casefold() == str(staging / MANIFEST_NAME).casefold() and entry.file_size > MAX_MANIFEST_BYTES:
+                        raise NekoriPackageError('资源包清单超过大小上限')
                 archive.extractall(staging)
             manifest_path = staging / MANIFEST_NAME
             if not manifest_path.is_file():
@@ -131,7 +204,36 @@ class NekoriPackageService:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             if manifest.get("format") != FORMAT:
                 raise NekoriPackageError("表情合集格式不受支持")
-            return self._restore(manifest, staging, progress)
+            # Keep safe legacy content, without following external references.
+            warnings = []
+            resources = []
+            for entry in manifest.get('resources', []):
+                try:
+                    _package_path(staging, entry.get('package_path'))
+                except NekoriPackageError:
+                    warnings.append('已跳过不安全的包外资源引用')
+                else:
+                    resources.append(entry)
+            skipped = len(manifest.get('resources', [])) - len(resources)
+            manifest['resources'] = resources
+            for node in manifest.get('nodes', []):
+                unsafe_icon = False
+                if node.get('icon_asset'):
+                    try:
+                        _package_path(staging, node['icon_asset'])
+                    except NekoriPackageError:
+                        node.pop('icon_asset')
+                        unsafe_icon = True
+                if not node.get('icon_asset') and node.get('icon'):
+                    icon = node['icon']
+                    if any(c in icon for c in '/\\:') or Path(icon).suffix.lower() in IMAGE_SUFFIXES:
+                        node['icon'] = ''
+                        unsafe_icon = True
+                if unsafe_icon:
+                    warnings.append('已跳过不安全的分类图片图标引用')
+            result = self._restore(manifest, staging, progress)
+            result.update(skipped=skipped, warnings=warnings, errors=list(warnings))
+            return result
         except zipfile.BadZipFile as exc:
             raise NekoriPackageError(f"压缩包无法读取: {exc}") from exc
         finally:
@@ -181,7 +283,7 @@ class NekoriPackageService:
         imported = duplicates = 0
         step = len(nodes)
         for entry in resources:
-            source = staging / entry["package_path"]
+            source = _package_path(staging, entry["package_path"])
             if source.is_file():
                 from services.resource_import import ImportSkipped
                 try:
@@ -241,8 +343,10 @@ class NekoriPackageService:
 
     def _apply_node_icon(self, node_id, node, staging):
         asset = node.get("icon_asset")
-        if asset and (staging / asset).is_file():
-            self.storage.set_node_icon(node_id, str(staging / asset))
+        if asset:
+            source = _package_path(staging, asset)
+            if source.is_file():
+                self.storage.set_node_icon(node_id, str(source))
         elif node.get("icon"):
             self.index.update_node(node_id, icon=node["icon"])
 

@@ -263,6 +263,8 @@ class ExchangeImportService:
         with zipfile.ZipFile(archive) as zip_file:
             names: set[str] = set()
             infolist = zip_file.infolist()
+            if len(infolist) > 50000 or sum(info.file_size for info in infolist) > 8 * 1024 ** 3:
+                raise ExchangeImportError('资源包超过解压大小或文件数量上限')
             total = len(infolist)
             for idx, info in enumerate(infolist):
                 if progress_callback:
@@ -398,6 +400,8 @@ class ExchangeImportService:
                     value = icon["text"]
                     if not isinstance(value, str) or not value.strip():
                         raise ValueError("文字图标为空")
+                    if any(c in value for c in '/\\:') or Path(value).suffix.lower() in IMAGE_SUFFIXES:
+                        raise ValueError('图片图标必须以包内图片资源提供')
                     icons[category["ref"]] = value
                 elif icon["type"] == "image":
                     if not isinstance(icon["asset_path"], str) or not icon["asset_path"].startswith("icons/"):

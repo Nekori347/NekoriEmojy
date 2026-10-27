@@ -6,17 +6,17 @@
 
 用于收藏、整理、查找和发送表情。除了分类、标签和搜索，也尝试让日常操作更直接一些：看到的表情可以拖动整理，常用的操作尽量不用绕几个菜单才能完成。
 
-## 下载 v0.2.1
+## 下载 v0.2.2
 
 | Windows 下载 | 适用方式 |
 | --- | --- |
-| **[Windows 安装版（推荐）](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.1/NekoriEmojy-Setup-0.2.1.exe)** | 适合普通用户，下载安装程序后正常使用。 |
-| [Windows 免安装版](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.1/NekoriEmojy-0.2.1-Windows-Portable.zip) | 下载 ZIP，解压后使用；用户数据不一定保存在软件目录。 |
+| **[Windows 安装版（推荐）](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.2/NekoriEmojy-Setup-0.2.2.exe)** | 适合普通用户，下载安装程序后正常使用。 |
+| [Windows 免安装版](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.2/NekoriEmojy-0.2.2-Windows-Portable.zip) | 下载 ZIP，解压后使用；用户数据不一定保存在软件目录。 |
 
 - OCR 为可选组件，可从软件设置中按需安装。
 - 源代码及 SHA-256 校验文件见完整 Release 附件。
 
-[查看完整 Release 与全部附件](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.1)
+[查看完整 Release 与全部附件](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.2)
 
 <!-- 发布制作：将下方图片替换为独立演示库中的真实软件截图；界面可见的自然语言统一用临时萨卡兹字形展示。不得把字体、转换代码或演示数据库打入正式发行包。截图须展示「终末地」子分类中：四张前置表情 → 「陈千语」可折叠分类节点 → 其它直属表情；不要把磁盘素材根目录「表情」当作分类。 -->
 
@@ -24,7 +24,7 @@
   <img src="docs/media/hero.png" alt="NekoriEmojy 主面板：分类、子分类、混合排列的分类节点与表情，以及标签面板" width="100%">
 </p>
 
-[**下载最新版本**](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.1) · [**问题反馈**](https://github.com/Nekori347/NekoriEmojy/issues) · [**功能速览**](#features)
+[**下载最新版本**](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.2) · [**问题反馈**](https://github.com/Nekori347/NekoriEmojy/issues) · [**功能速览**](#features)
 
 ---
 
@@ -275,7 +275,7 @@ NekoriEmojy 提供几种不同用途的数据导出方式：
 <a id="download"></a>
 ## 下载与使用
 
-前往 [GitHub Releases](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.1) 获取最新版本。
+前往 [GitHub Releases](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.2) 获取最新版本。
 
 目前准备了两种 Windows x64 使用方式：
 
@@ -296,6 +296,34 @@ NekoriEmojy 提供几种不同用途的数据导出方式：
 NekoriEmojy 是一个个人维护的 **Vibe Coding 项目**。功能规划、界面设计和交互调整主要依据个人使用需求，代码主要借助 AI 编写、修改与迭代。
 
 项目仍可能存在没有发现的缺陷，尤其是不同软件的拖动、发送和不同 Windows 环境下的行为差异。欢迎在 [GitHub Issues](https://github.com/Nekori347/NekoriEmojy/issues) 反馈可以复现的问题或提出改进建议。
+
+### 维护回归门槛
+
+每次变更统一执行 **责任层与依赖确认 → 基础冒烟及相邻回归 → 信息/数据安全检查 → 暂存审阅 → 阶段候选集成**，复用已有测试和诊断，不默认运行全仓测试或全量安全审计。
+
+1. 确认实际责任层、复现路径和修改边界，不只按症状追加补丁；旧问题复发更新/重开原 Issue，保留历史验收。
+2. 检查直接调用方、既有修复及共享层交叉风险。窗口须区分真实接收 HWND、连续缩放中的边界/内容/呈现、子窗口原生化、捕获、重开及材质；控件须区分 Hover/Pressed/Focus/Checked/Expanded 的生命周期。
+3. 做基础冒烟和依赖范围的相邻回归，再做阶段候选集成。`main.py --smoke-test` 必须使用独立配置/Library并避免真实发送、抢占快捷键；Windows 原生检查显式使用 `QT_QPA_PLATFORM=windows`。命中/最终尺寸正确不代替连续过程可见稳定；offscreen、真实桌面、机器验证和人工验收分别记录。受保护实验存在时，明确加载工作树还是已审阅提交，不把实验通过当成默认版本通过。
+4. 每次检查信息、隐私、文件/网络/删除边界；按下方规则和此次风险增加失败、取消及恢复验证，不机械删除合法兼容能力。
+5. 提交前检查**实际暂存区**：`git diff --cached --name-status`、`git diff --cached`。核对敏感值、私人配置/资源/日志/截图、缓存、无关文件和受保护实验；核对新增第三方发送、原件读写/删除边界，以及用户文案中是否混入开发机信息。疑似匹配必须看上下文，测试假值、正常字段和技术示例不等于泄密。
+6. 正式构建 Portable/Installer/源码附件/OCR 包时，另查实际输入及输出文件清单：复用 `release_layout` 正向清单、编译依赖清单和现有包清单，核对 Git 跟踪集合及实际压缩包/安装载荷，不仅依赖 `.gitignore`。排除本地凭据/配置实例、原始Library、私人资源/原始日志、DevData证据、编辑器临时文件、未批准实验补丁和意外外部资源/端点。没有授权不改写历史、替换已发布文件或上传任何证据。
+7. 回归失败先归因，解决或撤回引入问题的变更，再继续扩大范围；修改前即失败的检查保留对照和限制，不删断言来宣布全绿。维护者确认连续过程前，不关闭相关回归或进入最终发布验收；未测系统/DPI/打包形态不得写成已验收。
+
+**始终执行的信息、隐私和数据边界：**
+
+- 开发、测试、诊断、Issue、提交和发行物不无必要包含真实 Token/密钥/Cookies/认证信息、私人账号/聊天/资源名称、完整私库清单、可识别个人的配置/目录、私人截图及未脱敏日志。用生成样本、稳定且有意义的占位信息和必要摘要；真实配置留在用户本地，不顺手清理。保留架构、格式、字段、版本/提交关联、复现依据及合法示例，不删除技术上下文。
+- 外部文件名、包内路径、网络返回和配置均须经现有业务合同验证，不能决定任意文件读写；保护路径边界、目标文件、受管理原件和多分类引用。外拖继续交付独立副本；失败、取消及恢复不能破坏已可靠提交的数据。安全兼容可恢复部分继续保留，不以安全名义取消合法导入、迁移或旧配置能力。
+- 第三方数据发送范围不得静默扩大；复用现有 Token/代理/超时/重定向/隐私告知规则，不把自定义凭据发往非授权代理。日志/异常报告继续脱敏、轮转及有界留存，诊断只由用户主动导出，不自动上传。不另建权限、日志或安全框架；具体既有边界见 [轻量安全与兼容记录](docs/LIGHT_SECURITY_NETWORK_REVIEW.md)。
+- 普通操作 Tooltip 用面向用户的动作与结果表达，不写 AI 口吻、开发意图、内部状态名或开发机路径；必要技术详情留在合适的故障说明/诊断入口，不删除有用错误信息。
+
+| 修改风险 | 必要检查增量 |
+|---|---|
+| 普通图标/布局 | 基础信息检查和相邻 UI 回归 |
+| 窗口宿主/主题/共享控件 | 共享交互、状态、连续过程及材质/布局交叉回归 |
+| 网络/压缩包/删除/日志/凭据/原生桥接 | 对应安全边界、第三方发送与失败/取消/恢复路径 |
+| 正式构建 | 实际输入、跟踪集合与输出载荷专项检查 |
+
+不另建重复规范、测试台账或扫描平台；不因没有执行全量安全审计而放弃基本安全规则。有限验证与环境边界见 [窗口记录](docs/POST_0.2.1_WINDOW_CLOSEOUT.md) 和 [HSV 调查](docs/HSV_INTERACTION_INVESTIGATION.md)。
 
 ---
 

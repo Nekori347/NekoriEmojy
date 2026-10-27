@@ -3,6 +3,11 @@ import os
 import glob
 import warnings
 
+if __name__ == '__main__' and len(sys.argv)==4 and sys.argv[1]=='--diagnostic-writer':
+    from services.crash_evidence import collect_native
+    collect_native(sys.argv[2],sys.argv[3])
+    raise SystemExit(0)
+
 
 def _lock_ffmpeg_path_for_frozen_app():
     """在 Nuitka/PyInstaller 冻结环境中锁定随程序发布的 FFmpeg。"""
@@ -37,7 +42,7 @@ try:
 except ImportError:
     pass
 
-from PySide6.QtWidgets import QApplication
+from fluent_ui.components.runtime_diagnostics import DiagnosticApplication as QApplication
 from PySide6.QtCore import Qt, QTimer
 
 def main():
@@ -53,11 +58,13 @@ def main():
     app.setApplicationName("NekoriEmojy")
     app.setOrganizationName("Nekori")
     
-    from PySide6.QtCore import QSharedMemory
-    instance_key = "NekoriEmojy_App_Instance" if "--smoke-test" not in sys.argv else f"NekoriEmojy_Smoke_{os.getpid()}"
-    shared_memory = QSharedMemory(instance_key)
-    if not shared_memory.create(1):
-        sys.exit(0)
+    from services.single_instance import SingleInstance
+    instance = SingleInstance(app)
+    if not instance.start():
+        return
+
+    from services.crash_evidence import install as install_crash_evidence
+    install_crash_evidence()
 
     try:
         AutostartService().repair_registration()
@@ -125,6 +132,8 @@ def main():
     install_global_tooltips(app, int(config_service.get('tooltip_delay', 120)))
 
     window = MainWindow(storage_service, clipboard_service, config_service)
+    from fluent_ui.components.runtime_diagnostics import install_runtime_diagnostics
+    install_runtime_diagnostics(app, window)
     
     from services.app_icon import ApplicationIconService, set_app_user_model_id
     set_app_user_model_id()
@@ -216,10 +225,15 @@ def main():
         window.view_check_shortcut = QShortcut(QKeySequence('F9'), window)
         window.view_check_shortcut.activated.connect(toggle_empty_content)
     tray_icon.show()
+    from fluent_ui.components.clipboard_import_command import install_clipboard_import
+    install_clipboard_import(window, config_service, tray_icon)
     
     from services.autostart import should_start_hidden
     if not should_start_hidden(sys.argv, QSystemTrayIcon.isSystemTrayAvailable()):
         window.show()
+    instance.set_window(window)
+    from fluent_ui.components.update_center import update_center
+    QTimer.singleShot(0, lambda: update_center().check_on_startup(config_service))
     
     
     if "--smoke-test" in sys.argv:

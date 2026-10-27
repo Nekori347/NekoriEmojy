@@ -7,6 +7,7 @@ manual order; the left tree is a projection of the same node tree.
 from services.i18n import t, bind_text, translated
 import json
 import os
+from bisect import bisect_right
 
 from PySide6.QtWidgets import (
     QWidget, QGridLayout, QApplication, QHBoxLayout, QVBoxLayout, QLabel,
@@ -23,13 +24,14 @@ from fluent_ui.icons import Icon as FIF
 from fluent_ui.components.safe_round_menu import SafeRoundMenu as RoundMenu
 from fluent_ui.components.emoji_card import EmojiCard
 from fluent_ui.components.node_card import NodeCard, NODE_MIME, RESOURCE_MIME
-from fluent_ui.components.library_tree import LibraryTree, ALL_RESOURCES
+from fluent_ui.components.gallery_model import occurrence_id
+from fluent_ui.components.library_tree import LibraryTree, ALL_RESOURCES, HOVER_EXPAND_MS
 from fluent_ui.components.hover_preview import HoverPreviewPopup
 from fluent_ui.components.hover_preview_controller import HoverPreviewController
 from fluent_ui.components.keycap_label import KeycapLabel
 from fluent_ui.components import dialogs
 from fluent_ui.components.drop_contract import (
-    APPLY_TAG, APPLY_TAG_TO_SUBTREE, APPEND, COPY, EdgeAutoScroller, DropFeedback, DropTarget, IMPORT,
+    APPLY_TAG, APPLY_TAG_TO_SUBTREE, APPEND, COPY, EdgeAutoScroller, DropFeedback, DropCancelZone, DropTarget, IMPORT,
     INSERT_AFTER, INSERT_BEFORE, INTO, INVALID, INVALID_TARGET, MOVE, TAG_MIME,
     axis_ratio, edge_placement, parse_list_payload, parse_node_payload,
     viewport_rect, tag_drop_target,
@@ -50,6 +52,7 @@ from services.send_target import SendTargetService, SendResult
 
 FAILED_RETENTION_DAYS = 7
 CLEANUP_THROTTLE_HOURS = 1
+MAX_IMAGE_DOWNLOAD_BYTES = 256 * 1024 ** 2
 
 
 class DownloadThread(QThread):
@@ -64,6 +67,7 @@ class DownloadThread(QThread):
         import urllib.error
         import tempfile
         import os
+        temp_path = None
         try:
             req = urllib.request.Request(self.url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
             with urllib.request.urlopen(req, timeout=10) as response:
@@ -81,14 +85,21 @@ class DownloadThread(QThread):
                     self.finished.emit(False, "", t("该链接不是有效的表情"), self.url)
                     return
 
-                content = response.read()
-
+                if int(response.headers.get('Content-Length', '0')) > MAX_IMAGE_DOWNLOAD_BYTES:
+                    raise ValueError(t('图片下载超过大小上限'))
                 fd, temp_path = tempfile.mkstemp(suffix=".tmp")
                 with os.fdopen(fd, 'wb') as f:
-                    f.write(content)
+                    total = 0
+                    while chunk := response.read(64 * 1024):
+                        total += len(chunk)
+                        if total > MAX_IMAGE_DOWNLOAD_BYTES:
+                            raise ValueError(t('图片下载超过大小上限'))
+                        f.write(chunk)
 
                 self.finished.emit(True, temp_path, "", self.url)
         except Exception as e:
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
             self.finished.emit(False, "", str(e), self.url)
 
 
@@ -96,6 +107,8 @@ class ImportThread(QThread):
     """Background import. Every source keeps its own target node and position."""
 
     progress = Signal(int, int)
+    stage = Signal(str)
+    committed = Signal(object, object)  # reliable paths / changed direct parents
     finished = Signal(int, int, int)  # saved, skipped, failed
 
     def __init__(self, sources, storage, target_node, delete_after=False, parent=None,
@@ -110,6 +123,8 @@ class ImportThread(QThread):
         self.cancel_event=threading.Event();self.job_id='';self.duplicate_resolver=None
         self.result_paths=[];self.errors=[];self.cancelled_count=0
         self.operation=None;self.result=None
+        self.duplicate_batch_resolver=None;self.kept_count=0
+        self.recovery=None;self.recovery_waiting=''
 
     def cancel(self):self.cancel_event.set()
 
@@ -139,7 +154,7 @@ class ImportThread(QThread):
 
     def run(self):
         from services.resource_import import ImportTarget
-        from services.resource_import import ImportSkipped
+        from services.resource_import import ImportSkipped,ImportDeferred
         from PySide6.QtGui import QImage
         saved_count = skipped_count = failed_count = 0
         total = len(self.sources)
@@ -149,11 +164,46 @@ class ImportThread(QThread):
         if self.operation is not None:
             self._run_operation(context)
             return
-        for i, source in enumerate(self.sources):
+        context.committed=self.committed.emit
+        pending=[];temporaries=[];awaiting_anchor=[];deferred_slots=0
+        context.deferred_duplicates=pending if self.duplicate_batch_resolver else None
+        from services.task_recovery import RecoveryWait
+        sources=self.sources
+        if self.recovery:
+            try:sources=self.recovery.prepare()
+            except (RecoveryWait,OSError) as exc:
+                self.recovery_waiting=str(exc);sources=[]
+            total=sum(not u['directory'] for u in sources)
+        for i, source in enumerate(sources):
             if self.cancel_event.is_set():break
-            temporary=None
+            unit=source if self.recovery else None
+            context.checkpoint=None
+            context.duplicate_choice=''
+            if unit:
+                source=unit['source']
+                try:
+                    target=self.recovery.target(unit)
+                    if unit['directory']:
+                        self.recovery.directory(unit,target)
+                        self.committed.emit([],{target.parent_node,unit['node']})
+                        continue
+                    if unit['state'] in {'done','skipped','failed'}:
+                        if unit['state']=='done':
+                            record=self.storage.index.resource_by_id(unit['resource'])
+                            if record:self.result_paths.append(self.storage.index.absolute_path(record))
+                            skipped_count+=int(unit.get('duplicate',False));saved_count+=int(not unit.get('duplicate',False))
+                            self.kept_count+=int(unit.get('kept',False))
+                        elif unit['state']=='skipped':self.cancelled_count+=1
+                        else:failed_count+=1
+                        self.progress.emit(saved_count+skipped_count+failed_count+self.cancelled_count,total+1)
+                        continue
+                    self.recovery.validate(unit)
+                    context.checkpoint=(self.job_id,unit['id'])
+                except (RecoveryWait,OSError) as exc:
+                    self.recovery_waiting=str(exc);break
+            temporary=None;pending_before=len(pending);paths_before=len(self.result_paths)
             try:
-                target = ImportTarget(self.target_node, None if self.insert_position is None else self.insert_position+i)
+                if not unit:target = ImportTarget(self.target_node, None if self.insert_position is None else self.insert_position+i-deferred_slots)
                 if isinstance(source,str) and source.startswith(('https://','http://')):
                     response=[];download=DownloadThread(source)
                     download.finished.connect(lambda *args:response.append(args));download.run()
@@ -169,20 +219,84 @@ class ImportThread(QThread):
                     self.cancelled_count+=result.cancelled
                     saved_count += result.imported;skipped_count += result.duplicates;failed_count += len(result.errors)
                     self.errors.extend(result.errors.values())
+                    if unit and result.errors:self.recovery.mark(unit,state='failed')
                     if result.errors:self._handle_failed_import(source)
-                    elif self.delete_after and os.path.isfile(source):os.remove(source)
+                    elif self.delete_after and not result.cancelled and len(pending)==pending_before and os.path.isfile(source):os.remove(source)
+            except ImportDeferred:pass
             except ImportSkipped:self.cancelled_count+=1
+            except (RecoveryWait,KeyError) as exc:
+                self.recovery_waiting=str(exc);break
             except InterruptedError:break
             except Exception as exc:
                 self.errors.append(str(exc))
                 if isinstance(source,str):self._handle_failed_import(source)
                 failed_count += 1
+                if unit:self.recovery.mark(unit,state='failed')
             finally:
                 if temporary:
                     from pathlib import Path
-                    Path(temporary).unlink(missing_ok=True)
-            self.progress.emit(i + 1, total)
-        context.job_id='';context.duplicate_resolver=None;context.cancelled=None;context.normalized=None
+                    temporaries.append(temporary)
+                context.normalized=None
+            # Deferred items have not occupied insertion slots. Anchor them to
+            # the next accepted file so their later decision preserves batch
+            # order without replaying stale numeric positions after a sort.
+            if len(self.result_paths)>paths_before and not (isinstance(source,str) and os.path.isdir(source)):
+                record=self.storage.index.resource(self.result_paths[paths_before])
+                if record:
+                    for candidate in awaiting_anchor:candidate.before=('resource',record['id'])
+                    awaiting_anchor.clear()
+            new_anchors=[c for c in pending[pending_before:] if c.target.parent_node==self.target_node and c.target.insert_position is not None]
+            awaiting_anchor.extend(new_anchors);deferred_slots+=len(new_anchors)
+            self.progress.emit(saved_count+skipped_count+failed_count+self.cancelled_count+len(pending) if self.recovery else i+1, total+1)
+        context.deferred_duplicates=None
+        try:
+            if pending and not self.cancel_event.is_set():
+                self.staged_counts=(saved_count,skipped_count,failed_count)
+                decisions=self.duplicate_batch_resolver(pending)
+                for candidate,decision in zip(pending,decisions):
+                    if self.cancel_event.is_set():break
+                    context.checkpoint=candidate.checkpoint
+                    context.duplicate_choice=decision
+                    unit=self.recovery.units[candidate.checkpoint[1]] if self.recovery and candidate.checkpoint else None
+                    if decision=='skip':
+                        self.cancelled_count+=1
+                        if unit:self.recovery.mark(unit,state='skipped')
+                        continue
+                    if unit:
+                        self.recovery.validate(unit)
+                        if decision in {'keep','replace'}:self.recovery.mark(unit,state='uncertain')
+                    context.duplicate_resolver=lambda old,new,choice=decision:choice
+                    try:
+                        destination=candidate.target
+                        if candidate.before is not None:
+                            position=next((i for i,e in enumerate(self.storage.index.content(destination.parent_node))
+                                           if (e['kind'],e['id'])==candidate.before),None)
+                            destination=ImportTarget(destination.parent_node,position)
+                        if decision=='reuse':
+                            with self.storage.lock:
+                                self.storage.importer._validate_target(destination)
+                                if not self.storage.index.resource(candidate.existing):raise FileNotFoundError(candidate.existing)
+                                saved,duplicate=self.storage.importer._accept(candidate.existing,True,os.path.basename(candidate.existing),destination)
+                            self.storage.importer._notify(saved,True,destination)
+                        elif isinstance(candidate.source,QImage):saved,duplicate=self.storage.save_image(candidate.source,destination)
+                        else:saved,duplicate=self.storage.save_file(candidate.source,strict=True,target=destination)
+                        self.result_paths.append(saved);skipped_count+=int(duplicate);saved_count+=int(not duplicate)
+                        self.kept_count+=int(decision=='keep' and not duplicate)
+                        if self.delete_after and isinstance(candidate.source,str) and os.path.isfile(candidate.source):os.remove(candidate.source)
+                    except InterruptedError:break
+                    except RecoveryWait as exc:self.recovery_waiting=str(exc);break
+                    except Exception as exc:
+                        self.errors.append(str(exc));failed_count+=1
+                        if unit:self.recovery.mark(unit,state='failed')
+        except RecoveryWait as exc:self.recovery_waiting=str(exc)
+        finally:
+            for temporary in temporaries:
+                from pathlib import Path
+                Path(temporary).unlink(missing_ok=True)
+            context.job_id='';context.duplicate_resolver=None;context.cancelled=None;context.normalized=None
+            context.checkpoint=None;context.deferred_duplicates=None
+            context.duplicate_choice=''
+            context.committed=None
         self.finished.emit(saved_count, skipped_count, failed_count)
 
     def _run_operation(self,context):
@@ -191,7 +305,8 @@ class ImportThread(QThread):
         failed=0
         def progress(done,total,message=''):
             if self.cancel_event.is_set():raise InterruptedError()
-            self.progress.emit(done,total)
+            if message:self.stage.emit(str(message))
+            self.progress.emit(done,total+1 if total>0 else 0)
         try:self.result=self.operation(progress)
         except InterruptedError:pass
         except Exception as exc:
@@ -294,14 +409,21 @@ class CategorySidebar(Surface):
         if hasattr(self, 'icons'):
             self.icons.canvas.update()
 
+    def sync_nodes(self, nodes, counts):
+        if self.tree.sync_nodes(nodes, counts):
+            self.icons.refresh()
+            self._update_section_index()
+
     def apply_presentation(self):
         mode = SidebarPresentationMode(self.config.get('sidebar_mode', 'tree'))
-        self.btn_view_mode.setIcon(FIF.MENU if mode == SidebarPresentationMode.TREE else FIF.TILES)
+        self.btn_view_mode.setIcon(FIF.TREE_VIEW if mode == SidebarPresentationMode.TREE else FIF.TILES)
         target = '分类树' if mode == SidebarPresentationMode.TREE else '分类图标'
         bind_text(self.btn_view_mode, target, 'setToolTip')
         bind_text(self.btn_view_mode, target, 'setAccessibleName')
-        self.tree.set_icon_size(self.config.get('sidebar_icon_size', 20))
-        self.icons.canvas.relayout()
+        if self.tree.set_icon_size(self.config.get('sidebar_icon_size', 20)):
+            self.icons.refresh()
+        else:
+            self.icons.canvas.relayout()
         self.tree.setVisible(mode == SidebarPresentationMode.TREE)
         self.icons.setVisible(mode == SidebarPresentationMode.CATEGORIZED_ICONS)
         self._update_section_index()
@@ -357,6 +479,8 @@ class CategorySidebar(Surface):
     def _as_node_id(self, value):
         if not value or value in ("全部表情", "全部资源"):
             return ALL_RESOURCES
+        if value == ROOT or value in self.tree._node_records:
+            return value
         labels = self.storage.category_labels()
         if value in labels:
             return labels[value]
@@ -376,15 +500,16 @@ class CategorySidebar(Surface):
             self.storage.move_nodes(node_ids, parent_id, position)
         except (KeyError, ValueError) as exc:
             self._error(t('无法移动分类'), str(exc))
-            return
+            return False
         self.tree.patch_nodes(node_ids, parent_id)
         self.icons.refresh()
         self._update_section_index()
         self.gallery_view.refresh_content_incremental(reason='structure', parents=old_parents | {parent_id})
+        return True
 
-    def _on_resources_dropped(self, node_id, paths, global_pos):
+    def _on_resources_dropped(self, node_id, paths, global_pos, sources=None):
         if self.gallery_view:
-            self.gallery_view.request_resource_drop(paths, node_id, global_pos=global_pos)
+            self.gallery_view.request_resource_drop(paths, node_id, global_pos=global_pos, sources=sources)
 
     def _on_files_dropped(self, node_id, paths):
         if self.gallery_view:
@@ -449,19 +574,33 @@ class CategorySidebar(Surface):
         text, ok = dialogs.prompt_text(self.window(), t("分类图标"), t("输入一个 Emoji"), current, code="NODE/ICON")
         if ok:
             self.storage.set_node_icon(node_id, text.strip())
-            self.refresh_list(self.tree.current_node_id)
+            self._refresh_node_icon(node_id)
 
     def _set_image_icon(self, node_id):
         path, _ = QFileDialog.getOpenFileName(
             self.window(), t("选择分类图标"), "", t("表情 (*.png *.jpg *.jpeg *.gif *.webp *.bmp)"))
         if not path:
             return
-        self.storage.set_node_icon(node_id, path)
-        self.refresh_list(self.tree.current_node_id)
+        from services.image_frames import is_animated
+        if is_animated(path):
+            dialog = dialogs.FramePickerDialog(self.window(), self.storage, path,
+                on_apply=lambda frame: self.storage.set_node_icon(node_id, path, frame=frame),
+                title='选择分类图标帧')
+            if not dialog.exec():
+                return
+        else:
+            self.storage.set_node_icon(node_id, path)
+        self._refresh_node_icon(node_id)
 
     def _reset_icon(self, node_id):
         self.storage.set_node_icon(node_id, "")
+        self._refresh_node_icon(node_id)
+
+    def _refresh_node_icon(self, node_id):
         self.refresh_list(self.tree.current_node_id)
+        if self.gallery_view:
+            parent = (self.storage.node(node_id) or {}).get('parent_id') or ROOT
+            self.gallery_view.refresh_content_incremental(reason='node_icon', parents={parent})
 
     def _parent_of(self, node_id):
         node = self.storage.node(node_id)
@@ -505,6 +644,7 @@ class CategorySidebar(Surface):
 
     def export_node(self, node_id):
         from services.exchange_export import ExchangeExportService
+        from services.export_control import ExportCancelled
         from fluent_ui.components.exchange_task_dialog import run_exchange_task
         node = self.storage.node(node_id)
         directory = QFileDialog.getExistingDirectory(self.window(), t('导出“{value_0}”到').format(value_0=node['name']), "")
@@ -514,10 +654,18 @@ class CategorySidebar(Surface):
         service = ExchangeExportService(storage=self.storage)
         try:
             labels = {v: k for k, v in self.storage.category_labels().items()}
-            run_exchange_task(self.window(), "正在导出分类",
-                              lambda progress: service.export_zip(target, [labels.get(node_id, node["name"])], progress))
-            if self.gallery_view:
+            manifest = run_exchange_task(self.window(), "正在导出分类",
+                              lambda progress, cancel: service.export_zip(target, [labels.get(node_id, node["name"])], progress,
+                                                                        cancel_check=cancel), cancellable=True)
+            if manifest.get('skipped'):
+                from fluent_ui.components.feedback import feedback_for
+                feedback_for(self.window()).notice(t('导出完成'), target + '\n' +
+                    t('有 {count} 个文件未能导出（如格式不支持或读取失败）。').format(count=len(manifest['skipped'])))
+            elif self.gallery_view:
                 self.gallery_view.show_success(t("导出完成"), target)
+        except ExportCancelled:
+            from fluent_ui.components.feedback import feedback_for
+            feedback_for(self.window()).notice(t('导出已停止'), t('未完成的临时文件已清理，原有目标文件保持不变。'))
         except Exception as exc:
             self._error("导出失败", str(exc))
 
@@ -556,6 +704,7 @@ class CategorySidebar(Surface):
 
         menu.addSeparator()
         action_export = translated(Action, "导出此分类为表情合集…", parent=menu)
+        bind_text(action_export, '仅导出此分类中的表情，不包含子分类。', 'setToolTip')
         action_export.triggered.connect(lambda: self.export_node(node_id))
         menu.addAction(action_export)
 
@@ -679,6 +828,15 @@ class GalleryInterface(QWidget):
         self.download_threads = []
         self.import_thread = None
         self.setAcceptDrops(True)
+        self.category_tabs.setAcceptDrops(True)
+        self.category_tabs.installEventFilter(self)
+        self._tab_drop_feedback = DropFeedback(self.category_tabs)
+        self._tab_drag_session = None
+        self._tab_hover_node = None
+        self._tab_hover_timer = QTimer(self)
+        self._tab_hover_timer.setSingleShot(True)
+        self._tab_hover_timer.setInterval(HOVER_EXPAND_MS)
+        self._tab_hover_timer.timeout.connect(self._activate_drag_tab)
 
         self._lazy_load_timer = QTimer(self)
         self._lazy_load_timer.setSingleShot(True)
@@ -709,6 +867,9 @@ class GalleryInterface(QWidget):
         self.imports.changed.connect(self._schedule_task_refresh)
         self.ocr.changed.connect(self._schedule_task_refresh)
         self.imports.files_finished.connect(self._queued_files_finished)
+        self.imports.resources_committed.connect(self._queued_resources_committed)
+        self.imports.restore(self)
+        self._schedule_task_refresh()
         visual.theme.changed.connect(self.refresh_theme)
         i18n_engine.language_changed.connect(self.refresh_texts)
 
@@ -775,6 +936,10 @@ class GalleryInterface(QWidget):
         self.scroll_area = QScrollArea(self.right_container)
         self.scroll_area.setWidgetResizable(False)
         self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # Keep the narrow vertical gutter even when the content fits. A dock
+        # animation can cross the overflow threshold; AsNeeded changes the
+        # viewport width and shifts every centered resource row sideways.
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.scroll_area.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
         self.grid_container = QWidget()
         self.grid_container.setAcceptDrops(True)
@@ -829,21 +994,21 @@ class GalleryInterface(QWidget):
         # One indicator for the whole content area, owned here and only ever
         # moved: drawing the drop target never touches the real layout.
         self.drop_feedback = DropFeedback(self.grid_container)
+        self.drop_cancel_zone = DropCancelZone(self.scroll_area.viewport(),bounds_provider=self.available_gallery_rect)
+        self.drop_cancel_zone.entered.connect(self._clear_drop)
         self.drop_scroller = EdgeAutoScroller(self.scroll_area)
         self._drop_target = INVALID_TARGET
 
     def _build_tag_panel(self):
-        """The dock host wraps the gallery workspace, not the whole page.
+        """The single tag foreground stays inside the gallery viewport.
 
-        Hierarchy Header -> Attached Tabs -> Search -> Content Workspace, and
-        all four TagPanel placements are relative to that workspace: TOP is
-        Search -> TagPanel -> Gallery, BOTTOM is Search -> Gallery -> TagPanel,
-        LEFT/RIGHT are Search -> [TagPanel | Gallery]. Search therefore stays
-        outside the host in every placement, without a TOP special case.
+        Search/tabs/commands and scrollbars are outside its coverage. The
+        workspace keeps its geometry while the foreground extent changes.
         """
         self.tag_panel = TagPanel(self.tag_model, self.config, self.content_pane)
-        self.tag_panel_host = TagPanelHost(self.workspace, self.tag_panel, self.config, self.content_pane)
+        self.tag_panel_host = TagPanelHost(self.workspace, self.tag_panel, self.config, self.content_pane, viewport=self.scroll_area.viewport())
         self.content_pane.content_layout.addWidget(self.tag_panel_host, 1)
+        self.tag_panel_host.occlusion_changed.connect(self._tag_overlay_changed)
         self.tag_panel.tags_changed.connect(self._on_tags_changed)
         self.tag_panel.filter_requested.connect(self._toggle_tag)
         self.tag_panel.apply_requested.connect(self.apply_tag_to_paths)
@@ -875,7 +1040,7 @@ class GalleryInterface(QWidget):
 
         node = translated(Action, '在此新建分类' if placement.exact else '在当前分类新建分类',
                           parent=menu)
-        node.setIcon(FIF.ADD)
+        node.setIcon(FIF.NEW_CATEGORY)
         node.triggered.connect(lambda: self.create_node_here(placement))
         menu.addAction(node)
 
@@ -932,37 +1097,34 @@ class GalleryInterface(QWidget):
         self.command_bar.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
         self.command_bar.setStyleSheet(visual.command_bar_style())
         layout = QHBoxLayout(self.command_bar)
-        layout.setContentsMargins(8, 0, 8, 0)
-        layout.setSpacing(visual.COMPACT_CONTROLS.spacing)
+        layout.setContentsMargins(12, 0, 12, 0)
+        layout.setSpacing(4)
 
         self.selected_count_label = BodyLabel(self.command_bar)
         self.selected_count_label.setObjectName("CommandCount")
         layout.addWidget(self.selected_count_label)
 
-        layout.addStretch()
-
-        self.btn_select_all = TransparentToolButton(FIF.ACCEPT, self.command_bar)
-        bind_text(self.btn_select_all, t("全选"), 'setToolTip')
+        self.btn_select_all = translated(PushButton, "全选当前结果", self.command_bar)
+        bind_text(self.btn_select_all, "全选当前结果", 'setToolTip')
         self.btn_select_all.clicked.connect(self.select_all_cards)
         layout.addWidget(self.btn_select_all)
+        layout.addSpacing(12)
 
-        self.btn_add_to = translated(PushButton, "加入分类…", self.command_bar)
-        bind_text(self.btn_add_to, "加入分类…", 'setToolTip')
+        self.btn_add_to = translated(PushButton, "加入分类", self.command_bar)
         self.btn_add_to.clicked.connect(lambda: self._batch_assign(copy=True))
         layout.addWidget(self.btn_add_to)
 
-        self.btn_move_to = translated(PushButton, "移动到…", self.command_bar)
-        bind_text(self.btn_move_to, "移动到…", 'setToolTip')
+        self.btn_move_to = translated(PushButton, "移动到分类", self.command_bar)
         self.btn_move_to.clicked.connect(lambda: self._batch_assign(copy=False))
         layout.addWidget(self.btn_move_to)
 
-        self.btn_tags = translated(PushButton, "标签…", self.command_bar)
-        bind_text(self.btn_tags, "标签…", 'setToolTip')
+        self.btn_tags = translated(PushButton, "编辑标签", self.command_bar)
         self.btn_tags.clicked.connect(self._batch_tags)
         layout.addWidget(self.btn_tags)
 
         self.btn_arrange = DropDownButton(self.command_bar)
-        bind_text(self.btn_arrange, '顺序', 'setText')
+        bind_text(self.btn_arrange, '调整位置', 'setText')
+        bind_text(self.btn_arrange, '调整所选内容在来源分类中的手动顺序；搜索或临时排序时不可用。', 'setToolTip')
         self.arrange_menu = RoundMenu(parent=self.btn_arrange)
         for label, front in (('移到最前', True), ('移到最后', False)):
             action = translated(Action, label, parent=self.arrange_menu)
@@ -970,13 +1132,14 @@ class GalleryInterface(QWidget):
             self.arrange_menu.addAction(action)
         self.btn_arrange.setMenu(self.arrange_menu)
         layout.addWidget(self.btn_arrange)
+        layout.addStretch()
 
-        self.btn_more = TransparentToolButton(FIF.MORE, self.command_bar)
-        bind_text(self.btn_more, t("更多"), 'setToolTip')
+        self.btn_more = translated(PushButton, "更多", self.command_bar)
+        bind_text(self.btn_more, "更多资源操作", 'setToolTip')
         self.btn_more.clicked.connect(self._show_more_menu)
         layout.addWidget(self.btn_more)
 
-        self.btn_delete = translated(PushButton, FIF.DELETE, "删除", self.command_bar)
+        self.btn_delete = translated(PushButton, FIF.DELETE, "删除资源", self.command_bar)
         self.btn_delete.clicked.connect(self._batch_delete)
         layout.addWidget(self.btn_delete)
 
@@ -986,11 +1149,16 @@ class GalleryInterface(QWidget):
         layout.addWidget(self.btn_exit_mode)
 
         self._organization_buttons = (self.btn_add_to, self.btn_move_to, self.btn_tags, self.btn_arrange)
-        for button in (*self._organization_buttons, self.btn_delete, self.btn_exit_mode):
+        for button in (self.btn_select_all, *self._organization_buttons, self.btn_more, self.btn_delete, self.btn_exit_mode):
+            # Reuse the existing Softframe input/focus/hover painter, with a
+            # flat surface rather than an independent capsule for each action.
+            button.ghost = True
             button.setFixedHeight(visual.COMPACT_CONTROLS.action_extent)
+            button.setIconSize(QSize(16, 16))
+            button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._selection_overflow = False
+        self._overflow_buttons = ()
         self.btn_delete.setProperty('role', 'danger')
-        self.btn_delete.setStyleSheet(dialogs._button_style())
         self.content_pane.content_layout.addWidget(self.command_bar)
         self.command_bar.installEventFilter(self)
         self.command_bar.hide()
@@ -1001,10 +1169,19 @@ class GalleryInterface(QWidget):
                     + sum(w.sizeHint().width() for w in
                           (self.selected_count_label, self.btn_select_all, *self._organization_buttons,
                            self.btn_more, self.btn_delete, self.btn_exit_mode))
-                    + layout.spacing() * 8)
-        self._selection_overflow = self.command_bar.width() < required
+                    + layout.spacing() * 8 + 12)
+        overflow = []
+        # Lower frequency actions overflow first, keeping the remaining primary
+        # operations in their original order. One menu owns all overflow.
+        for button in reversed(self._organization_buttons):
+            if required <= self.command_bar.width():
+                break
+            overflow.append(button)
+            required -= button.sizeHint().width() + layout.spacing()
+        self._overflow_buttons = tuple(overflow)
+        self._selection_overflow = bool(overflow)
         for button in self._organization_buttons:
-            button.setVisible(not self._selection_overflow)
+            button.setVisible(button not in overflow)
 
     # ==================================================================
     # Library selection
@@ -1056,15 +1233,13 @@ class GalleryInterface(QWidget):
                 and self.content_sort == 'manual')
 
     def _drop_selection_only(self):
-        """Clear the selection without rebuilding the grid."""
+        changed=set(self.selected_keys)
         self.selected_keys.clear()
         self._selection_parents.clear()
         self._last_clicked_key = self._shift_anchor = None
         self._shift_touched.clear()
-        for card in self._all_card_widgets:
-            if getattr(card, 'is_selected', False):
-                card.set_selected(False)
-        self._sync_command_bar()
+        self._shift_base=set()
+        self._commit_selection_visuals(changed)
 
     def set_node(self, node_id, force=False):
         """Explicit category navigation resets the relative view to its location.
@@ -1092,7 +1267,7 @@ class GalleryInterface(QWidget):
         self._activate_inline_scope()
         self._initial_anchor = self._decode_anchor(self._location_anchors.get(node_id))
         self._live_anchor = self._initial_anchor
-        self.sidebar.tree.select_node(node_id, reveal=True)
+        self.sidebar.tree.select_node(node_id, reveal=False)
         self.finish_selection()
         self.search_keyword = ''
         self.search_box.blockSignals(True)
@@ -1248,25 +1423,27 @@ class GalleryInterface(QWidget):
         if getattr(self, '_recent_view', False):
             self.refresh_content_incremental(reason='recent',parents=set())
 
-    def refresh_content_incremental(self, *, reason='', paths=(), parents=None):
+    def refresh_content_incremental(self, *, reason='', paths=(), parents=None, nodes=None, counts=None):
         if self._view_signature_at_build != self._view_signature() or not self.storage.index.node(self.current_node):
             self.entry_model.invalidate()
             self.refresh_content(reason=reason)
             return
-        anchor = self.renderer.anchor()
+        anchors = tuple(self.renderer.visible_anchors())
         old_scroll = self.scroll_area.verticalScrollBar().value()
-        self.entry_model.sync(parents=parents, paths=paths)
+        node_records=self.entry_model.sync(parents=parents, paths=paths, nodes=nodes, counts=counts)
         plain = not getattr(self,'_recent_view',False) and not self.search_keyword.strip() and not self.filter_state.is_active() and not self.active_tags and self.content_sort == 'manual'
         if plain:
             first = self.entry_model.patch_normal(self._entries, self.content_scope_node(), self._expanded_nodes)
         else:
             first = self.entry_model.patch(self._entries, self._collect_entries())
+        surviving = {occurrence_id(entry) for entry in self._entries}
+        anchor = next((candidate for candidate in anchors if candidate[0] in surviving), None)
         self._reconcile_selection()
         if first < max(len(self._entries), len(self.renderer.index.rects)):
             self.renderer.relayout(first, anchor=anchor if old_scroll else None)
         else:
             self.renderer.sync()
-        self._rebuild_context_strip()
+        self._rebuild_context_strip(nodes=node_records)
         self._sync_command_bar()
         self._update_placeholder()
 
@@ -1315,8 +1492,7 @@ class GalleryInterface(QWidget):
                     anchor, cold_start = self._initial_anchor, True
                 else:
                     self._initial_anchor = None
-        projection_filter_changed = old is not None and (old[1] != signature[1] or old[3:5] != signature[3:5])
-        self._reconcile_selection(resources_only=projection_filter_changed)
+        self._reconcile_selection()
         self._view_signature_at_build = signature
         if anchor is not None:
             # Callers that changed something below the viewport (expanding a
@@ -1416,12 +1592,13 @@ class GalleryInterface(QWidget):
                 widget.setParent(None)
                 widget.deleteLater()
 
-    def _rebuild_context_strip(self):
+    def _rebuild_context_strip(self, *, nodes=None):
         self._clear_layout(self.chip_layout)
         path = ([dict(id=ROOT, name=t('全部表情'))] if self.current_node == ROOT
-                else [n for n in self.storage.node_path(self.current_node) if n['id'] != ROOT])
-        return_node = self.storage.index.node(self.return_child_hint) if self.return_child_hint else None
-        if return_node and self.current_node not in {n['id'] for n in self.storage.node_path(self.return_child_hint)[:-1]}:
+                else [n for n in self.storage.node_path(self.current_node,nodes=nodes) if n['id'] != ROOT])
+        return_node = ((self.storage.index.node(self.return_child_hint) if nodes is None else nodes.get(self.return_child_hint))
+                       if self.return_child_hint else None)
+        if return_node and self.current_node not in {n['id'] for n in self.storage.node_path(self.return_child_hint,nodes=nodes)[:-1]}:
             return_node = None
         if not return_node:
             self.return_child_hint = None
@@ -1435,12 +1612,12 @@ class GalleryInterface(QWidget):
             self.location_rail.set_path([dict(id=self.current_node,name=t('最近使用'))],None)
             self.location_rail.set_counts(t('表情 {count} 张').format(count=len(self._entries)))
         for field, label in (('no_tag', '无标签'), ('unclassified', '未分类'),
-                             ('is_gif', '动图'), ('is_static', '静态表情'), ('missing', '已失效的表情')):
+                             ('is_gif', '动图'), ('is_static', '静态表情'), ('missing', '找不到文件的表情')):
             if getattr(self.filter_state, field):
                 self.chip_layout.addWidget(self._make_chip(t(label), lambda f=field: self._update_filter(f, False), self.chip_container, active=True))
         self.context_strip.setVisible(self.filter_state.is_active())
 
-        self._rebuild_category_tabs()
+        self._rebuild_category_tabs(nodes=nodes)
         self.chip_layout.addStretch()
         self._rebuild_tag_panel()
 
@@ -1529,15 +1706,22 @@ class GalleryInterface(QWidget):
         self.apply_tags([resource['id'] for resource in
                          (self.storage.resource_of(path) for path in paths) if resource], tags)
 
-    def _rebuild_category_tabs(self):
+    def _rebuild_category_tabs(self, *, nodes=None):
         self.tab_row.setVisible(True)
         self.category_tabs.setVisible(self.current_node != ROOT)
         self.content_pane.setProperty('standalone', self.current_node == ROOT)
         self.content_pane.update()
-        children = self.storage.child_nodes(self.current_node) if self.current_node != ROOT else []
-        self._tab_nodes = [self.current_node]+[node['id'] for node in children]
-        title = t('全部表情') if self.current_node == ROOT else self.storage.node(self.current_node)['name']
-        self.category_tabs.set_tabs([title]+[node['name'] for node in children], self._tab_nodes.index(self.content_scope_node()))
+        children = ((self.storage.child_nodes(self.current_node) if nodes is None else
+                     [n for n in nodes.values() if n['parent_id']==self.current_node]) if self.current_node != ROOT else [])
+        tab_nodes = [self.current_node]+[node['id'] for node in children]
+        title = (t('全部表情') if self.current_node == ROOT else
+                 (self.storage.node(self.current_node) if nodes is None else nodes[self.current_node])['name'])
+        labels = [title]+[node['name'] for node in children]
+        if hasattr(self, '_tab_hover_timer') and (tab_nodes != getattr(self, '_tab_nodes', []) or
+                labels != [self.category_tabs.tabText(i) for i in range(self.category_tabs.count())]):
+            self._cancel_tab_hover()
+        self._tab_nodes = tab_nodes
+        self.category_tabs.set_tabs(labels, self._tab_nodes.index(self.content_scope_node()))
 
     def _on_category_tab(self, index):
         if 0 <= index < len(self._tab_nodes):
@@ -1549,6 +1733,7 @@ class GalleryInterface(QWidget):
         self._rebuild_context_strip()
         self._sync_command_bar()
         self._update_placeholder()
+        self._update_resource_sort_label()
 
     def refresh_theme(self):
         self.sidebar.update_theme()
@@ -1597,9 +1782,10 @@ class GalleryInterface(QWidget):
         self.btn_manage.setChecked(mode == "manage")
         if mode == "normal":
             self._drop_selection_only()
-        elif hasattr(self, 'preview_controller'):
+            return
+        if hasattr(self, 'preview_controller'):
             self.preview_controller.cancel()
-        self._sync_command_bar()
+        self._commit_selection_visuals()
 
     def toggle_manage_mode(self):
         self.set_mode("normal" if self.mode == "manage" else "manage")
@@ -1655,111 +1841,132 @@ class GalleryInterface(QWidget):
         self.set_mode("manage" if enabled else "normal")
 
     def _sync_command_bar(self):
+        sticky=getattr(getattr(self,'renderer',None),'sticky',None)
+        if sticky is not None:
+            sticky.set_selected(sticky.node_id in self.selected_keys)
         if hasattr(self,'_view_shortcuts'):self._sync_view_shortcuts()
         self._selection_parents = {key: parent for key, parent in self._selection_parents.items()
                                    if key in self.selected_keys}
-        resources = [e for e in self._selected_entries() if e['kind'] == 'resource']
-        count = len(resources)
+        entries=self._selected_entries()
+        resources = [e for e in entries if e['kind'] == 'resource']
+        nodes=[e for e in entries if e['kind']=='node']
+        count = len(entries)
+        resource_only=bool(resources) and not nodes
+        node_only=bool(nodes) and not resources
         contextual = self.mode == 'manage' or count >= 2
+        manage_label = '退出管理模式' if self.mode == 'manage' else '进入管理模式'
+        bind_text(self.btn_manage, manage_label, 'setToolTip')
+        self.btn_manage.setAccessibleName(self.btn_manage.toolTip())
         self.command_bar.setVisible(contextual)
-        bind_text(self.selected_count_label, t('已选 {value_0} 项').format(value_0=count), 'setText')
-        direct = ({e['id'] for e in self.entry_model.entries_of(self.content_scope_node())
-                   if e['kind'] == 'resource'} if resources else set())
+        bind_text(self.selected_count_label,
+            t('已选 {value_0} 项（{value_1} 张表情，{value_2} 个节点）').format(value_0=count,value_1=len(resources),value_2=len(nodes))
+            if nodes else t('已选 {value_0} 项').format(value_0=count), 'setText')
+        direct = {e['id'] for e in resources if e['_parent']==self.content_scope_node()}
         context = ActionContext.from_entries(resources, direct, self.content_scope_node())
-        self.btn_add_to.setEnabled(ActionPolicy.enabled('category_membership', context))
-        self.btn_tags.setEnabled(ActionPolicy.enabled('tag_edit', context))
-        self.btn_delete.setEnabled(ActionPolicy.enabled('delete', context))
-        bind_text(self.btn_delete, ActionPolicy.delete_label(context), 'setToolTip')
-        self.btn_move_to.setEnabled(ActionPolicy.enabled('category_membership', context)
-                                    and any(e['_parent'] != ROOT for e in resources))
-        self.btn_arrange.setEnabled(bool(resources) and self._exact_placement_available())
-        visible = self._visible_resource_keys()
+        self.btn_add_to.setEnabled(resource_only and ActionPolicy.enabled('category_membership', context))
+        self.btn_tags.setEnabled(resource_only and ActionPolicy.enabled('tag_edit', context))
+        self.btn_delete.setEnabled(resource_only and ActionPolicy.enabled('delete', context))
+        missing_only = bool(resources) and not context.existing
+        bind_text(self.btn_delete, '移除记录' if missing_only else '删除资源', 'setText')
+        if getattr(self, '_delete_missing_icon', None) != missing_only:
+            self._delete_missing_icon = missing_only
+            self.btn_delete.setIcon(FIF.REMOVE if missing_only else FIF.DELETE)
+        self.btn_more.setEnabled(resource_only)
+        self.btn_move_to.setEnabled(node_only or (resource_only and ActionPolicy.enabled('category_membership', context)
+                                    and any(e['_parent'] != ROOT for e in resources)))
+        self.btn_arrange.setEnabled(bool(entries) and self._exact_placement_available())
+        for button, source in (
+            (self.btn_add_to, '将所选表情加入目标分类，保留原有分类关系和文件。'),
+            (self.btn_tags, '编辑所选表情的标签'),
+            (self.btn_delete, ActionPolicy.delete_label(context)),
+            (self.btn_more, '更多'),
+        ):
+            bind_text(button, '此操作仅支持表情；请先取消所选分类节点。' if nodes else source, 'setToolTip')
+        move_hint = ('混合选择不能一次移动到分类；请分别选择节点或表情。' if nodes and resources else
+                     '移动到分类' if nodes or not resources else
+                     '将所选表情从来源分类移到目标分类，其他分类关系保持不变。')
+        bind_text(self.btn_move_to, move_hint, 'setToolTip')
+        visible = self.entry_model.projected
         self.btn_select_all.setEnabled(bool(visible))
-        bind_text(self.btn_select_all, '取消全选' if visible and visible <= self.selected_keys else '全选', 'setToolTip')
+        select_label = '取消全选' if visible and len(visible)==len(self.selected_keys) else '全选当前结果'
+        bind_text(self.btn_select_all, select_label, 'setText')
+        bind_text(self.btn_select_all, select_label, 'setToolTip')
         self.btn_select_all.setAccessibleName(self.btn_select_all.toolTip())
+        exit_label = '退出管理' if self.mode == 'manage' else '清除选择'
+        bind_text(self.btn_exit_mode, exit_label, 'setText')
+        bind_text(self.btn_exit_mode, exit_label, 'setToolTip')
         self.btn_exit_mode.setVisible(contextual)
         self.filter_flyout.sync(self.filter_state)
         if contextual:
             self._layout_selection_actions()
 
-    def _visible_resource_keys(self):
-        return {self._entry_key(e) for e in self._entries if e['kind'] == 'resource'}
-
-    def _reconcile_selection(self, *, resources_only=False):
-        visible = self._visible_resource_keys() if resources_only else {self._entry_key(e) for e in self._entries}
+    def _reconcile_selection(self):
+        self.entry_model.bind_projection(self._entries)
+        visible=self.entry_model.projected
         self.selected_keys.intersection_update(visible)
-        sources = {}
-        for entry in self._entries:
-            key = self._entry_key(entry)
-            if key in self.selected_keys:
-                sources.setdefault(key, []).append(entry['_parent'])
-        self._selection_parents = {key: self._selection_parents.get(key)
-                                   if self._selection_parents.get(key) in parents else parents[0]
-                                   for key, parents in sources.items()}
+        self._selection_parents={self._entry_key(e):e['_parent'] for e in self._selected_entries()}
         self._shift_touched.intersection_update(self.selected_keys)
-        if hasattr(self, '_shift_base'):
-            self._shift_base.intersection_update(self.selected_keys)
-        if self._shift_anchor not in visible:
-            self._shift_anchor = None
-        if self._last_clicked_key not in visible:
-            self._last_clicked_key = None
+        if hasattr(self,'_shift_base'):self._shift_base.intersection_update(self.selected_keys)
+        if self._shift_anchor not in visible:self._shift_anchor=None
+        if self._last_clicked_key not in visible:self._last_clicked_key=None
 
     def update_selection_count(self):
         self._sync_command_bar()
 
     def _selected_entries(self):
-        result, seen = [], set()
-        occurrences = {(self._entry_key(e), e['_parent']) for e in self._entries}
-        for entry in self._entries:
-            key = self._entry_key(entry)
-            if key in self.selected_keys and key not in seen:
-                parent = self._selection_parents.get(key)
-                if parent and parent != entry['_parent'] and (key, parent) in occurrences:
-                    continue
-                result.append(entry)
-                seen.add(key)
-        return result
+        return self.entry_model.selected_entries(self.selected_keys,self._selection_parents)
 
     def get_selected_paths(self):
         return [e["path"] for e in self._selected_entries() if e["kind"] == "resource"]
 
-    def _drag_payload(self, path):
-        """Everything that should travel with one drag gesture."""
-        if path in self.selected_keys and len(self.selected_keys) > 1:
-            paths = self.get_selected_paths()
-            return paths or [path]
-        return [path]
+    def _structural_selection(self,entries):
+        """A selected ancestor carries its subtree; never detach selected children."""
+        nodes={e['id'] for e in entries if e['kind']=='node'}
+        result=[]
+        for entry in entries:
+            parent=entry['_parent']
+            while parent and parent not in nodes:
+                rows=self.entry_model.projected.get(parent)
+                if not rows:break
+                parent=rows[0][1]['_parent']
+            if parent not in nodes:result.append(entry)
+        return result
+
+    def _selection_drag_block(self,key,kind):
+        entries=(self._selected_entries() if key in self.selected_keys else
+                 [self.entry_model.projected[key][0][1]])
+        entries=self._structural_selection(entries)
+        if any(e['kind']!=kind for e in entries):
+            self.feedback_host.toast(t('此拖放不能同时处理表情和分类，请分别选择后拖动。'))
+            return None
+        return [e['path'] if kind=='resource' else e['id'] for e in entries]
+
+    def _drag_payload(self,path):
+        return self._selection_drag_block(path,'resource')
+
+    def _resource_command_entries(self):
+        entries=self._selected_entries()
+        if any(e['kind']!='resource' for e in entries):
+            self.feedback_host.toast(t('此操作仅支持表情，请先取消所选分类节点。'))
+            return None
+        return entries
 
     def on_selection_changed(self, key, selected):
-        if selected:
-            self.selected_keys.add(key)
-        else:
-            self.selected_keys.discard(key)
-        self._sync_command_bar()
-
-    def _set_widget_selected(self, key, selected):
-        for widget in self._all_card_widgets:
-            widget_key = getattr(widget, "image_path", None) or getattr(widget, "node_id", None)
-            if widget_key == key:
-                widget.set_selected(selected)
+        if selected:self.selected_keys.add(key)
+        else:self.selected_keys.discard(key)
+        self._commit_selection_visuals({key})
 
     def select_all_cards(self):
-        everything = self._visible_resource_keys()
-        if everything and self.selected_keys >= everything:
-            self.selected_keys.clear()
+        everything=set(self.entry_model.projected)
+        changed=self.selected_keys ^ everything
+        if everything and self.selected_keys==everything:
+            self._drop_selection_only()
         else:
-            self.selected_keys = set(everything)
-        self._reconcile_selection(resources_only=True)
-        from PySide6.QtCore import QSignalBlocker
-        for widget in self._all_card_widgets:
-            with QSignalBlocker(widget):
-                widget.set_selected(self._entry_key(widget.content_entry) in self.selected_keys)
-        self._sync_command_bar()
+            self.selected_keys=everything
+            self._commit_selection_visuals(changed)
 
-    # ==================================================================
-    # Grid rendering
-    # ==================================================================
     def clear_gallery(self):
+        self.renderer.sticky.hide()
         self.renderer._batch_timer.stop()
         self.renderer._pending.clear()
         for card in list(self.renderer.active.values()):
@@ -1783,15 +1990,21 @@ class GalleryInterface(QWidget):
             # against one contract, so a node card is a drag source and nothing
             # else -- it no longer decides placements or paints its own hint.
             card.drag_payload_provider = lambda node_id: self._drag_node_payload(node_id)
+            card.drag_finished.connect(self._hide_drag_cancel)
         else:
             frame = int(json.loads(entry.get('resource', {}).get('metadata_json') or '{}').get('thumb_frame', 0) or 0)
             card = EmojiCard(entry['path'], size=size, frame=frame, load_image=False,
                              availability=self.storage.availability,status=entry.get('status'))
             card.entry_id = entry['id']
             card.drag_payload_provider = lambda path, w=card: self._drag_from_entry(w.content_entry, path)
+            card.drag_sources_provider = self._resource_sources
+            card.drag_identity_provider = self._resource_drag_snapshot
+            card.recycle_requested.connect(self._recycle_drag_completed)
             card.customContextMenuRequested.connect(lambda pos, w=card: self.show_context_menu(w, pos))
             card.clicked.connect(lambda key, mods, w=card: self._entry_clicked(w.content_entry, mods))
             card.activated.connect(self.use_resource)
+            card.drag_started.connect(self._show_drag_cancel)
+            card.drag_finished.connect(self._hide_drag_cancel)
             card.hover_started.connect(lambda path, w=card: self.on_hover_started(w, path))
             card.hover_ended.connect(lambda w=card: self.on_hover_ended(w))
         card.content_entry = entry
@@ -1816,8 +2029,18 @@ class GalleryInterface(QWidget):
         self._responsive_layout_timer.stop()
         if hasattr(self, 'renderer'):
             anchor = self._initial_anchor or self._live_anchor or self.renderer.anchor()
-            self.renderer.relayout(anchor=anchor)
+            index=self.renderer.index
+            geometry=(max(60,self.scroll_area.viewport().width()),self.config.get('thumbnail_size',120),
+                      max(14,min(48,int(self.config.get('gallery_node_icon_size',22)))))
+            if not force and geometry==(index.width,index.size,index.node_icon_size):
+                # Command-bar visibility changes only viewport height. The
+                # mixed flow has not changed; update realization, not all rows.
+                if anchor:self.renderer.restore(anchor)
+                self.renderer.sync()
+            else:
+                self.renderer.relayout(anchor=anchor)
             self._finish_position_layout(anchor)
+            self._update_back_top()
 
     def _schedule_responsive_layout(self):
         if not self._responsive_layout_timer.isActive():
@@ -1840,14 +2063,41 @@ class GalleryInterface(QWidget):
                 and getattr(self, '_position_geometry', None) == self.scroll_area.viewport().size()
                 and not self._responsive_layout_timer.isActive()):
             self._live_anchor = self.renderer.anchor()
-        self.renderer.sync()
+        self.renderer.sync(scroll_only=True)
+        self._update_back_top()
+
+    def available_gallery_rect(self):
+        return self.tag_panel_host.available_rect(self.scroll_area.viewport()).intersected(self.scroll_area.viewport().rect())
+
+    def preview_container_rect(self,pane):
+        return self.tag_panel_host.available_rect(pane).intersected(pane.rect())
+
+    def _tag_overlay_changed(self):
+        if hasattr(self,'preview_controller'):self.preview_controller.cancel()
+        self._sync_hover_card()
+        if hasattr(self,'renderer'):self.renderer.sticky.sync()
+        if hasattr(self,'drop_cancel_zone') and self.drop_cancel_zone.isVisible():self.drop_cancel_zone._place()
         self._update_back_top()
 
     def _update_back_top(self):
-        if hasattr(self, 'btn_back_top'):
-            bar = self.scroll_area.verticalScrollBar()
-            self.btn_back_top.setVisible(bar.maximum() > 0 and
-                                         bar.value() > max(120, self.scroll_area.viewport().height()))
+        if not hasattr(self,'btn_back_top'):return
+        bar=self.scroll_area.verticalScrollBar();viewport=self.scroll_area.viewport()
+        available=self.available_gallery_rect()
+        button=self.btn_back_top
+        button.move(max(available.left(),available.right()-41),max(available.top(),available.bottom()-41))
+        visible=bar.maximum()>0 and bar.value()>max(120,viewport.height())
+        if visible:
+            origin=self.grid_container.mapTo(viewport,QPoint())
+            # Keep the existing node-disclosure safety, preferring a nearby
+            # free lane before hiding. Only the visible flow index is read.
+            candidates=list(self.renderer.index.between(bar.value(),bar.value()+viewport.height()))
+            for index in reversed(candidates):
+                if self._entries[index]['kind']!='node':continue
+                rect=self.renderer.index.rects[index].translated(origin)
+                if rect.intersects(button.geometry()):button.move(button.x(),rect.top()-button.height()-4)
+            visible=available.contains(button.geometry())
+        button.setVisible(visible)
+        if visible:button.raise_()
 
     def _refresh_visible_thumbnails(self):
         self.renderer.sync()
@@ -1899,6 +2149,34 @@ class GalleryInterface(QWidget):
         self._schedule_responsive_layout()
 
     def eventFilter(self, obj, event):
+        if obj is getattr(self, 'category_tabs', None):
+            kind = event.type()
+            if kind in (QEvent.DragEnter, QEvent.DragMove, QEvent.Drop):
+                if kind == QEvent.DragEnter:
+                    self._clear_tab_drop()
+                    tree = self.sidebar.tree
+                    tree.begin_drag_session(event.mimeData())
+                    self._tab_drag_session = tree._drag_session
+                    session = self._tab_drag_session
+                    if session.kind == RESOURCE_MIME and not session.sources:
+                        session.sources = self._resource_sources(session.payload)
+                self._track_tab_drop(event, commit=kind == QEvent.Drop)
+                return True
+            if kind == QEvent.DragLeave:
+                self._clear_tab_drop()
+                event.accept()
+                return True
+            if kind in (QEvent.Resize, QEvent.Wheel):
+                self._cancel_tab_hover()
+            elif kind == QEvent.Hide:
+                self._clear_tab_drop()
+        if (obj in (self.scroll_area.viewport(),self.grid_container)
+                and event.type()==QEvent.MouseButtonPress and event.button()==Qt.LeftButton
+                and not getattr(self,'_gallery_drag_session',None)):
+            hit=obj.childAt(event.position().toPoint())
+            if hit is None or hit is self.grid_container:
+                self._drop_selection_only()
+                return True
         if obj == getattr(self, 'command_bar', None) and event.type() in (QEvent.Resize, QEvent.Show):
             self._layout_selection_actions()
         if obj in (self.scroll_area.viewport(), self.grid_container) or obj.property("galleryDropSurface"):
@@ -1917,8 +2195,7 @@ class GalleryInterface(QWidget):
                 return True
         if obj == self.scroll_area.viewport() and event.type() == event.Type.Resize:
             if hasattr(self, 'btn_back_top'):
-                self.btn_back_top.move(max(0, obj.width()-42), max(0, obj.height()-42))
-                self.btn_back_top.raise_()
+                self._update_back_top()
             self._schedule_responsive_layout()
         if obj == self.scroll_area.viewport() and event.type() == event.Type.Wheel:
             if QApplication.keyboardModifiers() & Qt.ControlModifier:
@@ -1934,12 +2211,6 @@ class GalleryInterface(QWidget):
     # ==================================================================
     # Activation
     # ==================================================================
-    def on_node_clicked(self, node_id, modifiers=Qt.NoModifier):
-        if self.mode == 'manage' or modifiers & (Qt.ControlModifier | Qt.ShiftModifier):
-            self._toggle_selection(node_id)
-        else:
-            self._select_single(node_id)
-
     def on_node_order_dropped(self, source_id, target_id, insert_after):
         """Single-node reorder next to a sibling; the shared drop path uses
         the same index rule, so a drag and this entry cannot disagree."""
@@ -1964,22 +2235,25 @@ class GalleryInterface(QWidget):
             # selection must not silently disable the configured send action.
             # Modifiers, management and multiple selections still select only.
             if self.selected_keys:
-                self.selected_keys.clear()
-                self._commit_selection_visuals()
+                self._drop_selection_only()
             self._selection_parents.pop(image_path,None)
             self.use_resource(image_path)
             return
-        if modifiers & Qt.ShiftModifier and self._shift_anchor:
-            self._extend_shift_selection(image_path)
-        elif self.mode == 'manage' or modifiers & Qt.ControlModifier:
-            self._toggle_selection(image_path)
-            self._shift_anchor = image_path
+        self._select_key(image_path,modifiers)
+
+    def _select_key(self,key,modifiers):
+        if modifiers & Qt.ShiftModifier:
+            if self._shift_anchor:
+                self._extend_shift_selection(key)
+            else:
+                self._select_single(key)
+        elif self.mode=='manage' or modifiers & Qt.ControlModifier:
+            self._toggle_selection(key)
+            self._shift_anchor=key
             self._shift_touched.clear()
         else:
-            self._select_single(image_path)
-            self._shift_anchor = image_path
-            self._shift_touched.clear()
-        self._last_clicked_key = image_path
+            self._select_single(key)
+        self._last_clicked_key=key
 
     def _send_to_clipboard(self, image_path):
         self.send_target_service.send(image_path, self.clipboard, self.storage,
@@ -2002,12 +2276,8 @@ class GalleryInterface(QWidget):
             self.rebind_resource(image_path)
 
     def _toggle_selection(self, key):
-        if key in self.selected_keys:
-            self.selected_keys.discard(key)
-        else:
-            self.selected_keys.add(key)
-        self._set_widget_selected(key, key in self.selected_keys)
-        self._sync_command_bar()
+        self.selected_keys.symmetric_difference_update({key})
+        self._commit_selection_visuals({key})
 
     def _extend_shift_selection(self, end_key):
         keys = [self._entry_key(e) for e in self._entries]
@@ -2022,12 +2292,13 @@ class GalleryInterface(QWidget):
         self._shift_touched = wanted
         self._commit_selection_visuals()
 
-    def _commit_selection_visuals(self):
+    def _commit_selection_visuals(self,changed=None):
         """One selection commit, bounded by the virtual renderer's active cards."""
         from PySide6.QtCore import QSignalBlocker
-        self._reconcile_selection()
         for card in self._all_card_widgets:
-            selected = self._entry_key(card.content_entry) in self.selected_keys
+            key=self._entry_key(card.content_entry)
+            if changed is not None and key not in changed:continue
+            selected = key in self.selected_keys
             if card.is_selected != selected:
                 with QSignalBlocker(card):
                     card.set_selected(selected)
@@ -2044,29 +2315,42 @@ class GalleryInterface(QWidget):
             parent = source_node or visible_sources.get(path, self._selection_parents.get(path, self.content_scope_node()))
             groups.setdefault(parent, []).append(path)
         added = 0
+        completed, errors = set(), []
         for parent, subset in groups.items():
-            added += self.storage.move_resources_to(subset, node_id, copy=copy,
-                source_node=None if copy else parent, position=position)
+            try:
+                with self.storage.lock:
+                    added += self.storage.move_resources_to(subset, node_id, copy=copy,
+                        source_node=None if copy else parent, position=position)
+                    # The existing transaction returns an added-count, including
+                    # zero for already-present memberships. Confirm handled paths
+                    # from one target stream read, never per-resource DB queries.
+                    target_paths = {e['path'] for e in self.storage.entries_of(node_id)
+                                    if e['kind'] == 'resource'}
+                    completed.update(set(subset) & target_paths)
+            except Exception as error:
+                errors.append(str(error))
+        self.selected_keys.difference_update(completed)
+        self._shift_touched.difference_update(completed)
+        if hasattr(self, '_shift_base'):
+            self._shift_base.difference_update(completed)
+        if self._shift_anchor in completed:
+            self._shift_anchor = None
+        if self._last_clicked_key in completed:
+            self._last_clicked_key = None
         self.sidebar.refresh_list(self.current_node)
         self.refresh_content_incremental(reason='assign_resources', parents=set(groups)|{node_id})
-        self.show_success(t('分类已更新'), t('{value_0} 项').format(value_0=added), quiet=True)
+        self._commit_selection_visuals()
+        if errors:
+            self.show_error(t('分类操作未完成'), '\n'.join(dict.fromkeys(errors)))
+        elif completed:
+            self.show_success(t('分类已更新'), t('{value_0} 项').format(value_0=added), quiet=True)
 
     def _drag_from_entry(self, entry, path):
-        self._selection_parents[path] = entry['_parent']
-        for selected in self._selected_entries():
-            self._selection_parents[self._entry_key(selected)] = selected['_parent']
+        self._selection_parents[path]=entry['_parent']
         return self._drag_payload(path)
 
-    def _drag_node_payload(self, node_id):
-        """A selected category drags as one block, in visible order."""
-        self._selection_parents[node_id] = self.content_scope_node()
-        block = [entry['id'] for entry in self._selected_entries()
-                 if entry['kind'] == 'node']
-        if node_id not in block:
-            return [node_id]
-        for entry in self._selected_entries():
-            self._selection_parents[entry['id']] = entry['_parent']
-        return block
+    def _drag_node_payload(self,node_id):
+        return self._selection_drag_block(node_id,'node')
 
     def _node_choice_items(self, exclude=None):
         return [item for item in self.storage.node_choices() if item[0] != exclude]
@@ -2079,10 +2363,23 @@ class GalleryInterface(QWidget):
             return None
         items = [(row["id"], "    " * row["depth"] + row["name"]) for row in rows]
         paths = {row["id"]: row["path"] for row in rows}
+        from fluent_ui.components.node_card import render_node_icon
+        icons = {node['id']: QIcon(render_node_icon(self.storage, node, 16))
+                 for node in self.storage.index.nodes() if node.get('icon')}
         node_id, ok = dialogs.choose_item(
-            self.window(), title, t("选择目标分类"), items, code="MOVE/COPY",
-            searchable=len(rows) > 8, paths=paths)
+            self.window(), title, t("选择目标分类") + '\n' + self._assignment_hint(copy), items, code="CATEGORY",
+            searchable=len(rows) > 8, paths=paths, icons=icons)
         return node_id if ok else None
+
+    def _assignment_hint(self, copy):
+        if copy:
+            return t('复用已有资源加入目标分类；不复制文件，保留原分类关系。')
+        entries = [e for e in self._selected_entries() if e['kind'] == 'resource']
+        root_count = sum(e['_parent'] == ROOT for e in entries)
+        hint = t('移动所选来源的分类关系；资源的其它分类关系保留。')
+        if root_count:
+            hint += '\n' + t('其中 {value_0} 项来自全部表情，仅加入目标分类，不移除其它关系。').format(value_0=root_count)
+        return hint
 
     def _assign_to_chosen(self, paths, title, copy, source_parent):
         node_id = self.choose_target_node(t(title), copy, exclude=source_parent)
@@ -2091,18 +2388,24 @@ class GalleryInterface(QWidget):
         self.assign_resources(paths, node_id, copy=copy, source_node=source_parent)
 
     def _batch_assign(self, copy):
-        entries = [e for e in self._selected_entries() if e["kind"] == "resource"]
-        if not entries:
-            self.show_error(t("无法执行"), t("请先选择表情"))
+        entries=self._selected_entries()
+        kinds={e['kind'] for e in entries}
+        if kinds=={'node'} and not copy:
+            target=self.choose_target_node(t('移动到分类'),False,exclude=self.content_scope_node())
+            if target is not None:
+                normalized=self._structural_selection(entries)
+                if self._apply_node_drop([e['id'] for e in normalized],DropTarget(INTO,MOVE,target,target)):
+                    self._drop_selection_only()
             return
-        node_id = self.choose_target_node(
-            t("复制到分类") if copy else t("移动到分类"), copy,
-            exclude=self.content_scope_node() if not copy else None)
-        if node_id is None:
-            return
-        self.assign_resources([e["path"] for e in entries], node_id, copy=copy)
+        entries=self._resource_command_entries()
+        if not entries:return
+        node_id=self.choose_target_node(t('加入分类') if copy else t('移动到分类'),copy,
+                                       exclude=self.content_scope_node() if not copy else None)
+        if node_id is not None:
+            self.assign_resources([e['path'] for e in entries],node_id,copy=copy)
 
     def _batch_remove_membership(self):
+        if self._resource_command_entries() is None:return
         paths = self.get_selected_paths()
         if not ActionPolicy.enabled('remove_from_category', self._action_context(paths)):
             return
@@ -2117,6 +2420,7 @@ class GalleryInterface(QWidget):
         self.refresh_content_incremental(reason='remove_membership')
 
     def _batch_tags(self):
+        if self._resource_command_entries() is None:return
         entries = self._selected_entries()
         paths = [e["path"] for e in entries if e["kind"] == "resource"]
         if not ActionPolicy.enabled('tag_edit', self._action_context(paths)):
@@ -2128,11 +2432,21 @@ class GalleryInterface(QWidget):
             self.show_success(t("标签已更新"), quiet=True)
 
     def _batch_delete(self):
+        if self._resource_command_entries() is None:return
         entries = [e for e in self._selected_entries() if e["kind"] == "resource"]
         if not entries:
             self.show_error(t("无法执行"), t("请选择要删除的表情"))
             return
-        paths = [e["path"] for e in entries]
+        self._delete_resource_ids([e['id'] for e in entries])
+
+    def _delete_resource_ids(self, resource_ids, *, recycle_drop=False):
+        resource_ids = tuple(dict.fromkeys(resource_ids))
+        def current_paths():
+            records = self.storage.index.resource_records(resource_ids)
+            return [self.storage.index.absolute_path(record) for record in records]
+        paths = current_paths()
+        if not paths:
+            return
         context = self._action_context(paths, revalidate=True)
         if not ActionPolicy.enabled('delete', context):
             return
@@ -2140,12 +2454,20 @@ class GalleryInterface(QWidget):
         hint = ('只删除索引记录，磁盘文件不会被改动。' if missing_only else
                 '文件会进入 Windows 系统回收站，索引记录同时移除。' if len(context.existing) == len(paths) else
                 '现有文件进入 Windows 回收站；失效表情只移除索引记录。')
+        hint = t(hint) + '\n' + t('此操作会删除表情及其全部分类关联，并非仅从当前分类移除。')
+        if recycle_drop:
+            hint += '\n' + t('Windows 回收站可能已接收拖放副本。此处确认是否删除图库原件；取消会保留原件，但不会移除回收站中的副本。')
         if not dialogs.confirm(self.window(), t(ActionPolicy.delete_label(context)),
                                t('删除选中的 {value_0} 个表情？').format(value_0=len(paths)),
                                ok_text=t('移除记录' if missing_only else '删除'), danger=True, code="DELETE",
-                               hint=t(hint)):
+                               hint=hint):
             return
-        result = self.storage.delete_images_batch(paths)
+        # The dialog has its own event loop. Re-resolve the drag's IDs rather
+        # than deleting current selection or stale paths after background work.
+        paths = current_paths()
+        if not paths:
+            return
+        result = self.storage.delete_images_batch(paths, expected_ids=resource_ids)
         self.sidebar.refresh_list(self.current_node)
         self.refresh_content_incremental(reason='delete_resources')
         if result['failed']:
@@ -2153,14 +2475,32 @@ class GalleryInterface(QWidget):
         self.show_success(t("删除完成"),
                           t('已删除 {value_0} 项，清理失效记录 {value_1} 项').format(value_0=result['deleted'], value_1=result['missing_cleaned']), quiet=True)
 
+    def _resource_drag_snapshot(self, paths):
+        resource_ids = self.storage.index.resource_ids(paths)
+        if not resource_ids or any(key is None for key in resource_ids):
+            return None
+        return (str(self.storage.index.root), tuple(dict.fromkeys(resource_ids)))
+
+    def _recycle_drag_completed(self, snapshot):
+        library, resource_ids = snapshot
+        if library != str(self.storage.index.root):
+            return
+        # The OLE call and card/feedback cleanup have finished before showing
+        # the existing modal confirmation. QObject context cancels on disposal.
+        QTimer.singleShot(0, self, lambda: self._delete_resource_ids(resource_ids, recycle_drop=True)
+                          if library == str(self.storage.index.root) else None)
+
     def _show_more_menu(self):
+        if self._resource_command_entries() is None:return
         self._build_selection_more_menu().exec(self.btn_more.mapToGlobal(self.btn_more.rect().bottomLeft()))
 
     def _build_selection_more_menu(self):
         menu = RoundMenu(parent=self)
+        if any(e['kind']=='node' for e in self._selected_entries()):
+            item=translated(Action,FIF.INFO,'此菜单仅支持表情，请取消所选节点',parent=menu)
+            item.setEnabled(False);menu.addAction(item)
+            return menu
         paths = self.get_selected_paths()
-        self._add_ocr_actions(menu,paths)
-        menu.addSeparator()
         context = self._action_context(paths, revalidate=True)
         def action(icon, label, callback, enabled):
             item = translated(Action, icon, label, parent=menu)
@@ -2169,21 +2509,20 @@ class GalleryInterface(QWidget):
             menu.addAction(item)
             return item
         if self._selection_overflow:
-            action(FIF.COPY, '加入分类…', lambda: self._batch_assign(copy=True), self.btn_add_to.isEnabled())
-            action(FIF.MOVE, '移动到…', lambda: self._batch_assign(copy=False), self.btn_move_to.isEnabled())
-            action(FIF.TAG, '标签…', self._batch_tags, self.btn_tags.isEnabled())
-            order_menu = RoundMenu(title=t('顺序'), parent=menu)
-            for label, front in (('移到最前', True), ('移到最后', False)):
-                item = translated(Action, label, parent=order_menu)
-                item.setEnabled(self.btn_arrange.isEnabled())
-                item.triggered.connect(lambda checked=False, front=front: self._move_selection_extreme(front))
-                order_menu.addAction(item)
-            menu.addMenu(order_menu)
+            for button, icon, label, callback in (
+                (self.btn_add_to, FIF.COPY, '加入分类', lambda: self._batch_assign(copy=True)),
+                (self.btn_move_to, FIF.MOVE, '移动到分类', lambda: self._batch_assign(copy=False)),
+                (self.btn_tags, FIF.TAG, '编辑标签', self._batch_tags),
+            ):
+                if button in self._overflow_buttons:
+                    action(icon, label, callback, button.isEnabled())
+            if self.btn_arrange in self._overflow_buttons:
+                for label, front in (('移到最前', True), ('移到最后', False)):
+                    action(FIF.SORT, label, lambda checked=False, front=front: self._move_selection_extreme(front), self.btn_arrange.isEnabled())
             menu.addSeparator()
-        if context.active_view != ROOT:
-            action(FIF.REMOVE, '移出当前分类', self._batch_remove_membership,
-                   ActionPolicy.enabled('remove_from_category', context))
-        export = translated(Action, FIF.SHARE, '导出选中项到文件夹…', parent=menu)
+        self._add_ocr_actions(menu,paths)
+        menu.addSeparator()
+        export = translated(Action, FIF.SHARE, '导出所选表情', parent=menu)
         export.setEnabled(ActionPolicy.enabled('export', context))
         export.triggered.connect(self._execute_batch_export)
         menu.addAction(export)
@@ -2193,20 +2532,22 @@ class GalleryInterface(QWidget):
         menu.addAction(copy)
         if ActionPolicy.enabled('show_in_explorer', context):
             action(FIF.FOLDER, '在资源管理器中显示', lambda: self.reveal_in_explorer(paths[0]), True)
+        if context.active_view != ROOT:
+            menu.addSeparator()
+            action(FIF.REMOVE, '从当前分类移除', self._batch_remove_membership,
+                   ActionPolicy.enabled('remove_from_category', context))
         return menu
 
     def _move_selection_extreme(self, front):
         if not self._manual_order_available():
             return
         grouped = {}
-        for entry in self._selected_entries():
-            if entry['kind'] != 'resource':
-                continue
-            grouped.setdefault(entry['_parent'], set()).add(entry['id'])
+        for entry in self._structural_selection(self._selected_entries()):
+            grouped.setdefault(entry['_parent'], set()).add((entry['kind'],entry['id']))
         for parent, ids in grouped.items():
             stream = self.storage.entries_of(parent)
-            moving = [e for e in stream if e['id'] in ids]
-            remaining = [e for e in stream if e['id'] not in ids]
+            moving = [e for e in stream if (e['kind'],e['id']) in ids]
+            remaining = [e for e in stream if (e['kind'],e['id']) not in ids]
             self.storage.set_content_order(parent, moving+remaining if front else remaining+moving)
         self.refresh_content_incremental(reason='move_extreme')
 
@@ -2292,8 +2633,10 @@ class GalleryInterface(QWidget):
         self.preview_controller.cancel()
         entry = widget.content_entry
         self._selection_parents[entry['path']] = entry['_parent']
-        if entry['path'] not in self.selected_keys:
+        mixed=any(e['kind']=='node' for e in self._selected_entries())
+        if entry['path'] not in self.selected_keys or mixed:
             self._select_single(entry['path'])
+            if mixed:self.feedback_host.toast(t('右键菜单仅操作当前表情。'))
         self._build_resource_menu(widget).exec(widget.mapToGlobal(position))
 
     def show_node_context_menu(self, widget, position):
@@ -2341,14 +2684,18 @@ class GalleryInterface(QWidget):
             action(FIF.SEND, '发送表情', lambda: self.use_resource(path))
             menu.addSeparator()
         from fluent_ui.components.category_menu import CategoryTargetMenu
-        for copy, title, icon in ((True, '添加到分类', FIF.COPY), (False, '移动到分类', FIF.MOVE)):
+        nodes = self.storage.index.nodes()
+        category_records = {node['id']: node for node in nodes}
+        category_rows = self.storage.node_choice_rows(nodes=nodes)
+        for copy, title, icon in ((True, '加入分类', FIF.COPY), (False, '移动到分类', FIF.MOVE)):
             can_move = any(self._selection_parents.get(p, parent) != ROOT for p in paths)
-            branch=CategoryTargetMenu(title,self.storage,lambda target,c=copy:self.assign_resources(paths,target,copy=c),menu)
+            branch=CategoryTargetMenu(title,self.storage,lambda target,c=copy:self.assign_resources(paths,target,copy=c),menu,
+                                      snapshot=category_rows,records=category_records)
             branch.setIcon(icon);menu.addMenu(branch)
             if not (ActionPolicy.enabled('category_membership', context) and (copy or can_move)):
                 branch.menuItem.setFlags(branch.menuItem.flags()&~Qt.ItemIsEnabled)
         if context.active_view != ROOT:
-            action(FIF.REMOVE, '移出当前分类', self._batch_remove_membership,
+            action(FIF.REMOVE, '从当前分类移除', self._batch_remove_membership,
                    ActionPolicy.enabled('remove_from_category', context))
         action(FIF.TAG, '编辑标签', lambda: self._open_tag_editor(paths), ActionPolicy.enabled('tag_edit', context))
         self._add_ocr_actions(menu,paths)
@@ -2365,9 +2712,9 @@ class GalleryInterface(QWidget):
         if ActionPolicy.enabled('thumbnail_frame', context):
             action(FIF.PHOTO, '选择缩略图帧…', lambda: self._choose_thumbnail_frame(path))
         menu.addSeparator()
-        action(FIF.FOLDER, '设为当前分类图标', lambda: self._set_category_icon(path, context.active_view),
+        action(FIF.CATEGORY_ICON, '设为当前分类图标', lambda: self._set_category_icon(path, context.active_view),
                context.active_view != ROOT and ActionPolicy.enabled('set_icon', context))
-        action(FIF.PHOTO, '设为软件图标', lambda: self._set_application_icon(path),
+        action(FIF.APPLICATION_ICON, '设为软件图标', lambda: self._set_application_icon(path),
                ActionPolicy.enabled('set_icon', context))
         menu.addSeparator()
         action(FIF.DELETE, ActionPolicy.delete_label(context), self._batch_delete,
@@ -2418,7 +2765,7 @@ class GalleryInterface(QWidget):
         if not ActionPolicy.enabled('set_icon', self._action_context([path], revalidate=True)):
             return
         self.storage.set_node_icon(node_id, path)
-        self.sidebar.refresh_list(self.current_node)
+        self.sidebar._refresh_node_icon(node_id)
         self.show_success(t("分类图标已更新"), quiet=True)
 
     def _remove_from_current(self, path):
@@ -2523,19 +2870,31 @@ class GalleryInterface(QWidget):
 
     def _queued_files_finished(self,request):
         self.renderer.loader.invalidate(request.paths)
-        self.sidebar.refresh_list(self.current_node)
         parents={ROOT,request.target.parent_node}
-        if request.operation:parents.update(n['id'] for n in self.storage.index.nodes())
-        self.refresh_content_incremental(reason='queued_import',paths=set(request.paths),parents=parents)
+        self._queued_resources_committed(request.paths,None if request.operation else parents)
+
+    def _queued_resources_committed(self,paths,parents):
+        nodes=self.storage.index.nodes();counts=self.storage.node_counts()
+        self.sidebar.sync_nodes(nodes,counts)
+        self.refresh_content_incremental(reason='queued_import',paths=set(paths),parents=parents,nodes=nodes,counts=counts)
 
     def _sync_background_tasks(self):
         host=self.feedback_host
         for key,request in tuple(self.imports.requests.items()):
             job=self.ocr.jobs.get(key,{})
             state=request.state;details='\n'.join(request.errors)
+            caption=None
             summary=t('新增 {saved} 张，已处理重复 {duplicates} 张，跳过 {skipped} 张，失败 {failed} 张').format(
                 saved=request.saved,duplicates=request.duplicates,skipped=request.skipped,failed=request.failed)
             if state=='waiting':title=t('等待导入表情');outcome='waiting';done=0;total=request.total
+            elif state in {'interrupted','waiting_source','ocr_interrupted'}:
+                title=t('发现未完成导入任务');outcome='interrupted';done=request.done;total=request.total
+                summary=t(request.phase)
+                if state=='ocr_interrupted':title=t('发现未完成 OCR 任务');summary=str(job.get('error',''))
+            elif state=='decision':
+                title=t('等待处理重复表情（{count}）').format(count=request.conflicts)
+                outcome='waiting';done=0;total=0
+            elif state=='finalizing':title=t('正在更新图库');outcome='running';done=0;total=0
             elif state=='running':title=t('正在导入表情');outcome='running';done=request.done;total=request.total
             elif state=='recognizing':
                 title=t('正在识别新表情文字');outcome='running'
@@ -2544,24 +2903,66 @@ class GalleryInterface(QWidget):
                 title=(t('导入部分完成') if request.failed else t('导入处理完成')) if state=='completed' else t('导入失败') if state=='failed' else t('导入处理已停止')
                 outcome='error' if state=='failed' else 'cancelled' if state=='cancelled' else 'partial' if request.failed else 'success'
                 done=request.done;total=request.total
-            if request.kind=='migration' and state!='recognizing':
+            if getattr(request,'kept',0):summary+=' · '+t('其中保留独立条目 {count} 张').format(count=request.kept)
+            if request.kind=='migration' and state not in {'recognizing','decision','finalizing'}:
                 title=t('等待 Suzu 迁移') if state=='waiting' else t('正在 Suzu 迁移') if state=='running' else (t('Suzu 迁移部分完成') if request.failed else t('Suzu 迁移完成')) if state=='completed' else t('Suzu 迁移失败') if state=='failed' else t('Suzu 迁移已停止')
+                if state in {'waiting','running'}:
+                    # The task title is the only persistent text bound to this
+                    # job; the content stays as its tooltip/summary. Both are
+                    # cleared by the normal terminal states below.
+                    title=t('等待迁移，勿动数据') if state=='waiting' else t('迁移中，勿动源数据')
+                    phase=getattr(request,'phase','')
+                    if phase in {'恢复分类关系','整理资源顺序','完成迁移收尾'}:title+=' · '+t(phase)
+                    summary+='\n'+t('迁移期间请保持源数据可用，不要移动或删除源文件；Nekori 只读取源数据，不会修改它。')
             if job.get('failed'):
                 summary+=' · '+t('文字识别失败 {count} 张').format(count=job['failed'])
                 details+='\n'+job.get('error','')
                 if outcome=='success':outcome='partial'
-            host.upsert_task(key,title,current=done,total=total,state=outcome,content=summary,kind='import',
-                cancel=lambda k=key:self.imports.cancel(k),details=details.strip())
+            if state=='completed' and request.kind!='migration' and not request.failed and not job.get('failed') and not getattr(request,'kept',0):
+                if request.saved and not (request.duplicates or request.skipped):
+                    caption=t('导入完成 · 新增 {added} 张').format(added=request.saved)
+                elif request.skipped and not (request.saved or request.duplicates):
+                    caption=t('处理完成 · 跳过 {skipped} 张').format(skipped=request.skipped)
+            host.upsert_task(key,title,current=done,total=total,state=outcome,content=summary,kind='import',caption=caption,
+                cancel=lambda k=key:self.imports.cancel(k),details=details.strip(),
+                resume=(lambda k=key,kind='ocr' if state=='ocr_interrupted' else 'import':self._recovery_options(k,kind)) if state in {'interrupted','waiting_source','ocr_interrupted'} else None,
+                action_text=t('查看恢复选项') if state in {'interrupted','waiting_source','ocr_interrupted'} else None,
+                phase=request.phase if request.phase in {'恢复分类关系','整理资源顺序','完成迁移收尾'} else state)
         for key,job in tuple(self.ocr.jobs.items()):
             if key in self.imports.requests:continue
+            if job['state'] in {'completed','cancelled'} and key not in self.ocr.session_jobs:continue
             done=sum(job.get(k,0) for k in ('done','failed','skipped'));state=job['state']
             outcome=state if state in {'cancelled','interrupted'} else 'running' if state=='running' else ('partial' if job.get('done') or job.get('skipped') else 'error') if job.get('failed') else 'success' if state=='completed' else state
             title=t('重新识别全部表情') if job.get('force') and job.get('origin')=='library' else t('补充识别') if job.get('origin')=='library' else t('识别表情文字')
             content=t('表情 {done}/{total} 张，失败 {failed} 张，跳过 {skipped} 张').format(done=done,total=job.get('total',0),failed=job.get('failed',0),skipped=job.get('skipped',0))
-            if state in {'cancelled','interrupted'}:title=t('文字识别已停止')
+            if state in {'cancelled','interrupted','waiting_source'}:title=t('文字识别已停止')
             resume=(lambda k=key,f=job.get('force',False):self.ocr.supplement(force=f,job_id=k)) if job.get('origin')=='library' and state in {'cancelled','interrupted'} else None
+            if state in {'interrupted','waiting_source'}:
+                title=t('发现未完成 OCR 任务');outcome='interrupted'
+                resume=lambda k=key:self._recovery_options(k,'ocr')
+                if job.get('error'):content+='\n'+str(job['error'])
             host.upsert_task(key,title,current=done,total=job.get('total',0),state=outcome,content=content,kind='ocr',
-                cancel=lambda k=key:self.ocr.cancel(job_id=k),resume=resume,details=job.get('error',''))
+                cancel=lambda k=key:self.ocr.cancel(job_id=k),resume=resume,details=job.get('error',''),phase=state)
+
+    def _recovery_options(self,key,kind):
+        from fluent_ui.components.dialogs import NekoriDialog
+        from PySide6.QtWidgets import QLabel
+        service=self.imports if kind=='import' else self.ocr
+        dialog=NekoriDialog(self.window(),t('未完成任务'))
+        label=QLabel(t('继续仅处理未完成部分；放弃不会删除已完成成果。'),dialog)
+        reason=self.imports.recovery_block_reason(key) if kind=='import' else '' if self.ocr._items(key) else '此任务没有可靠的恢复清单'
+        if reason:label.setText(t(reason)+'\n'+label.text())
+        label.setWordWrap(True);dialog.add_widget(label)
+        def resume():
+            try:service.resume(key)
+            except RuntimeError as exc:
+                label.setText(t(str(exc)));return
+            dialog.accept()
+        dialog.add_button('继续任务',on_click=resume,enabled=not reason)
+        dialog.add_button('暂不继续',on_click=dialog.reject)
+        dialog.add_button('放弃任务',role='danger',on_click=lambda:(service.abandon(key),dialog.accept()))
+        dialog.setModal(False);dialog.setWindowModality(Qt.NonModal)
+        dialog.show();self._recovery_dialog=dialog
 
     def _on_import_progress(self, current, total):
         self.task_status.update(t('正在处理: {value_0} / {value_1}').format(value_0=current, value_1=total), current=current, total=total)
@@ -2606,24 +3007,30 @@ class GalleryInterface(QWidget):
 
     def paste_into(self, placement):
         """Paste using a placement resolved from where the user clicked."""
-        data_type, data = self.clipboard.get_data_from_clipboard()
         parent = placement.parent or self.content_scope_node()
         position = placement.resolved_position()
+        return self.paste_clipboard_to(parent, position)
+
+    def paste_clipboard_to(self, parent, position=None, *, background=False, notify=None):
+        """One clipboard command, with an explicit target even while hidden."""
+        data_type, data = self.clipboard.get_data_from_clipboard()
+        notify = notify or self.feedback_host.toast
         if data_type == 'file':
             data=[p for p in data if p.lower().endswith(self.storage.SUPPORTED_FORMATS) or os.path.isdir(p)]
             if not data:
-                self.feedback_host.toast(t('剪贴板中没有可导入的表情'));return
-            self.import_paths_to(data, parent, position=position)
+                notify(t('剪贴板中没有可导入的表情'));return
+            from services.resource_import import ImportTarget
+            return self.imports.submit(data,ImportTarget(parent,position if background or position is not None else 0),self,background=background)
         elif data_type == 'image':
             from services.resource_import import ImportTarget
-            self.imports.submit([data.copy()],ImportTarget(parent,position),self)
+            return self.imports.submit([data.copy()],ImportTarget(parent,position),self,background=background)
         elif data_type == 'network_url':
             # A download finishes later, so an index captured now could point
             # into a stream that changed meanwhile; it appends by design.
             from services.resource_import import ImportTarget
-            self.imports.submit([data],ImportTarget(parent,position),self)
+            return self.imports.submit([data],ImportTarget(parent,position),self,background=background)
         else:
-            self.feedback_host.toast(t('剪贴板中没有可导入的表情'))
+            notify(t('剪贴板中没有可导入的表情'))
 
     def _on_download_finished(self, success, temp_filepath, error_msg, url, target_node=None):
         for thread in self.download_threads[:]:
@@ -2655,7 +3062,7 @@ class GalleryInterface(QWidget):
             self.storage.force_reload()
             self.sidebar.refresh_list(self.current_node)
             self.on_images_changed()
-            message = t('新增 {value_0} 个，跳过 {value_1} 个').format(value_0=saved, value_1=skipped)
+            message = t('新增 {value_0} 个，未新增 {value_1} 个；重复项仍可能合并分类关系或标签。').format(value_0=saved, value_1=skipped)
             if service.warnings:
                 message += "\n" + "\n".join(map(str, service.warnings))
             self.show_success(t("导入完成"), message)
@@ -2675,6 +3082,9 @@ class GalleryInterface(QWidget):
             return
         dialog = dialogs.NekoriDialog(owner, t("选择要导出的分类"))
         layout = dialog.body
+        scope_hint = translated(QLabel, '仅导出所选分类直接包含的表情；子分类需要单独选择。', dialog)
+        scope_hint.setWordWrap(True)
+        layout.addWidget(scope_hint)
         choices = QListWidget(dialog)
         for name in categories:
             item = QListWidgetItem(name, choices)
@@ -2695,6 +3105,7 @@ class GalleryInterface(QWidget):
         owner = owner or self.window()
         from fluent_ui.components.feedback import feedback_for
         from services.exchange_export import ExchangeExportService
+        from services.export_control import ExportCancelled
         from fluent_ui.components.exchange_task_dialog import run_exchange_task
         path, _ = QFileDialog.getSaveFileName(
             owner, t("导出表情合集"), "SuzuEmojy.zip", t("表情合集 (*.zip)"))
@@ -2704,18 +3115,84 @@ class GalleryInterface(QWidget):
             path += ".zip"
         try:
             service = ExchangeExportService(storage=self.storage)
-            manifest = run_exchange_task(owner, "正在导出表情合集", lambda progress:
-                service.export_zip(path, selected_categories, progress))
+            manifest = run_exchange_task(owner, "正在导出表情合集", lambda progress, cancel:
+                service.export_zip(path, selected_categories, progress, cancel_check=cancel), cancellable=True)
             message = t('表情合集已保存到\n{value_0}').format(value_0=path)
             if manifest.get("skipped"):
-                message += "\n" + t("跳过 {count} 个不支持的文件").format(count=len(manifest['skipped']))
+                message += "\n" + t("有 {count} 个文件未能导出（如格式不支持或读取失败）。").format(count=len(manifest['skipped']))
             feedback_for(owner).notice(t("导出完成"), message) if manifest.get("skipped") else feedback_for(owner).toast(t("导出完成"), message)
+        except ExportCancelled:
+            feedback_for(owner).notice(t('导出已停止'), t('未完成的临时文件已清理，原有目标文件保持不变。'))
         except Exception as exc:
             feedback_for(owner).notice(t("导出失败"), str(exc), error=True)
 
     # ==================================================================
     # Drag & drop in the content area
     # ==================================================================
+    def _cancel_tab_hover(self):
+        self._tab_hover_timer.stop()
+        self._tab_hover_node = None
+        self._tab_drop_feedback.clear()
+
+    def _clear_tab_drop(self):
+        self._cancel_tab_hover()
+        if self._tab_drag_session is not None and self.sidebar.tree._drag_session is self._tab_drag_session:
+            self.sidebar.tree.end_drag_session()
+        self._tab_drag_session = None
+
+    def _tab_drop_target(self, point, mime):
+        tabs = self.category_tabs
+        index = tabs.tabAt(point)
+        if (not tabs._tab_viewport().contains(point) or not 0 <= index < len(self._tab_nodes)
+                or not tabs.content_tab_rect(index).contains(point)
+                or self._dragged_kind(mime)[0] not in (RESOURCE_MIME, NODE_MIME)):
+            return INVALID_TARGET, None
+        node_id = self._tab_nodes[index]
+        # Use the tree's existing category identity, order-mode and whole-block
+        # ancestry checks. An invalid node target cannot navigate on dwell.
+        target = self.sidebar.tree.resolve_category_target(node_id, .5, mime)
+        return target, tabs.content_tab_rect(index)
+
+    def _track_tab_drop(self, event, *, commit=False):
+        session = self._tab_drag_session
+        target, rect = self._tab_drop_target(event.position().toPoint(), event.mimeData())
+        if session is None or not session.supported or not target.valid:
+            self._cancel_tab_hover()
+            event.ignore()
+            if commit:
+                self._clear_tab_drop()
+            return
+        self.preview_controller.cancel()
+        if commit:
+            try:
+                if self.sidebar.tree.commit_target(target, event.mimeData(),
+                        self.category_tabs.mapToGlobal(event.position().toPoint())):
+                    event.acceptProposedAction()
+                else:
+                    event.ignore()
+            finally:
+                self._clear_tab_drop()
+            return
+        self._tab_drop_feedback.show_target(INTO, rect)
+        if self._tab_hover_node != target.container_id:
+            self._tab_hover_timer.stop()
+            self._tab_hover_node = target.container_id
+            if target.container_id != self.content_scope_node():
+                self._tab_hover_timer.start()
+        event.acceptProposedAction()
+
+    def _activate_drag_tab(self):
+        session = self._tab_drag_session
+        node_id = self._tab_hover_node
+        if session is None or session.committed or node_id not in self._tab_nodes:
+            return
+        from PySide6.QtCore import QMimeData
+        mime = QMimeData()
+        mime.setData(session.kind, json.dumps(session.payload).encode('utf-8'))
+        target = self.sidebar.tree.resolve_category_target(node_id, .5, mime)
+        if target.valid:
+            self._on_category_tab(self._tab_nodes.index(node_id))
+
     def _over_content(self, position):
         """Whether a GalleryInterface point is inside the gallery itself.
 
@@ -2743,6 +3220,15 @@ class GalleryInterface(QWidget):
         because the pointer can only be over a place the layout knows about.
         """
         point = self.grid_container.mapFrom(self, position)
+        # The whole visible gap before a full-width category belongs to its
+        # sibling boundary, including the half nearest an expanded child's
+        # final resource row. Horizontal proximity must not change the parent.
+        next_row = bisect_right(self.renderer.index.tops, point.y())
+        if next_row < len(self._entries):
+            rect = self.renderer.index.rects[next_row]
+            entry = self._entries[next_row]
+            if entry['kind'] == 'node' and 0 < rect.top()-point.y() <= 4:
+                return entry, next_row, rect, False
         best, best_index, best_rect, distance, after = None, -1, None, float('inf'), False
         for index, rect in enumerate(self.renderer.index.rects):
             d = (max(rect.left()-point.x(), 0, point.x()-rect.right())
@@ -2757,9 +3243,6 @@ class GalleryInterface(QWidget):
         entry, _index, _rect, after = self._hit_test(pos)
         return entry, after
 
-    def _subtree_ids(self, node_id):
-        return {node['id'] for node in self.storage.index.subtree(node_id)}
-
     def _node_insert_index(self, parent, target_node, placement, moving):
         """Canonical slot next to `target_node` once the moving block is out."""
         stream = [entry for entry in self.storage.entries_of(parent)
@@ -2768,6 +3251,24 @@ class GalleryInterface(QWidget):
             if entry['id'] == target_node:
                 return index + (1 if placement == INSERT_AFTER else 0)
         return len(stream)
+
+    def _category_insertion_rect(self, index, placement, rect):
+        """Keep the existing line painter at the actual mixed-flow boundary."""
+        rect = QRect(rect)
+        rects = self.renderer.index.rects
+        if placement == INSERT_BEFORE:
+            previous = rects[index-1].bottom() if index else rect.top()-5
+            line = (previous+rect.top())//2
+            rect.moveTop(line+5)  # shared indicator_rect draws at top-5
+        else:
+            end = index+1
+            depth = self._entries[index].get('_depth', 0)
+            while end < len(self._entries) and self._entries[end].get('_depth', 0) > depth:
+                end += 1
+            bottom = rects[end-1].bottom()
+            line = (bottom+rects[end].top())//2 if end < len(rects) else bottom+3
+            rect.setBottom(line-3)  # shared indicator_rect draws at bottom+3
+        return rect
 
     def _resolve_drop(self, position, mime):
         """One contract for every drag that reaches the gallery.
@@ -2796,30 +3297,37 @@ class GalleryInterface(QWidget):
             # The empty area under the last row means "at the end of this
             # location", not "next to whichever card happens to be closest".
             last = self.renderer.index.rects[-1] if self.renderer.index.rects else None
+            if any(self.sidebar.tree._is_descendant(self.content_scope_node(), source) for source in moving_nodes):
+                return INVALID_TARGET, None, False
             return (DropTarget(APPEND, effect, None, self.content_scope_node(),
                                len(self.storage.entries_of(self.content_scope_node()))), last, False)
 
         if entry['kind'] == 'node':
-            if kind != NODE_MIME:
-                # A resource can only ever go *into* a category, never between
-                # two of them; there is no slot "next to" a category row.
-                return DropTarget(INTO, effect, entry['id'], entry['id']), rect, False
             point = self.grid_container.mapFrom(self, position)
             placement = edge_placement(axis_ratio(rect, point, horizontal=False))
+            parent = entry['id'] if placement == INTO else entry['_parent']
+            if (entry['id'] in moving_nodes or
+                    any(self.sidebar.tree._is_descendant(parent, source) for source in moving_nodes)):
+                return INVALID_TARGET, None, False
             if placement == INTO:
-                if entry['id'] in moving_nodes or self._subtree_ids(entry['id']) & moving_nodes:
-                    # Dropping a category into itself or its own subtree would
-                    # make a cycle.
-                    return INVALID_TARGET, None, False
                 return DropTarget(INTO, effect, entry['id'], entry['id']), rect, False
             parent = entry['_parent']
             index = self._node_insert_index(parent, entry['id'], placement, moving_nodes)
+            rect = self._category_insertion_rect(_index, placement, rect)
             return DropTarget(placement, effect, entry['id'], parent, index), rect, False
 
         parent = entry['_parent']
+        if any(self.sidebar.tree._is_descendant(parent, source) for source in moving_nodes):
+            return INVALID_TARGET, None, False
+        point = self.grid_container.mapFrom(self, position)
+        outside_row = point.y() < rect.top() or point.y() > rect.bottom()
+        if outside_row:
+            after = point.y() > rect.bottom()
         placement = INSERT_AFTER if after else INSERT_BEFORE
-        return (DropTarget(placement, effect, None, parent,
-                           entry['position']+bool(after)), rect, True)
+        index = (self._node_insert_index(parent, entry['id'], placement, moving_nodes)
+                 if moving_nodes else entry['position']+bool(after))
+        return (DropTarget(placement, effect, entry['id'], parent,
+                           index), rect, not outside_row)
 
     def _track_drop(self, event, position=None):
         position = position if position is not None else event.position().toPoint()
@@ -2842,7 +3350,14 @@ class GalleryInterface(QWidget):
     def _begin_drop(self, event, position=None):
         from fluent_ui.components.drop_contract import DragSession
         self._clear_drop()
+        position = position if position is not None else event.position().toPoint()
+        if not self._over_content(position):
+            # A rejected tab/tree drop can propagate to this parent. Admit
+            # gaps inside the gallery, never claim a sibling navigation area.
+            event.ignore()
+            return
         self._gallery_drag_session = DragSession(event.mimeData())
+        self.renderer.sticky.hide()
         if not self._gallery_drag_session.supported:
             event.ignore()
             return
@@ -2850,6 +3365,17 @@ class GalleryInterface(QWidget):
         # Accept the receive surface even over a gap: Qt will otherwise never
         # deliver the subsequent move onto the first resource card.
         event.acceptProposedAction()
+
+    def _show_drag_cancel(self):
+        self.renderer.sticky.hide()
+        self.preview_controller.cancel()
+        self.drop_cancel_zone.begin()
+
+    def _hide_drag_cancel(self):
+        self._clear_tab_drop()
+        self.drop_cancel_zone.end()
+        self._clear_drop()
+        self.renderer.sync()
 
     def dragEnterEvent(self, event):
         self._begin_drop(event)
@@ -2860,6 +3386,7 @@ class GalleryInterface(QWidget):
         self.feedback_host.set_overlays_suppressed(False)
         self.drop_feedback.clear()
         self.drop_scroller.stop()
+        self.renderer.sticky.sync()
 
     def dragLeaveEvent(self, event):
         self._clear_drop()
@@ -2876,14 +3403,15 @@ class GalleryInterface(QWidget):
         try:
             target,_rect,_vertical=self._resolve_drop(position,event.mimeData())
             if session and self._over_content(position) and session.commit(target,
-                    lambda resolved,block:self._commit_drop_payload(resolved,event.mimeData(),block)):
+                    lambda resolved,block:self._commit_drop_payload(
+                        resolved,event.mimeData(),block,self.mapToGlobal(position), sources=session.sources)):
                 event.acceptProposedAction()
             else:
                 event.ignore()
         finally:
             self._clear_drop()
 
-    def _commit_drop_payload(self, target, mime, block):
+    def _commit_drop_payload(self, target, mime, block, global_pos=None, sources=None):
         if mime.hasFormat(TAG_MIME):
             self._commit_tag_drop(target, block)
         elif target.effect == IMPORT:
@@ -2891,35 +3419,46 @@ class GalleryInterface(QWidget):
         elif mime.hasFormat(NODE_MIME):
             self._apply_node_drop(block, target)
         elif mime.hasFormat(RESOURCE_MIME):
-            self._reorder_by_drop(block, target)
+            self._reorder_by_drop(block, target, global_pos=global_pos, sources=sources)
 
     def _apply_node_drop(self, node_ids, target):
         """Category blocks keep their internal order wherever they land."""
         if not node_ids:
             return
         parent = target.container_id
-        self.sidebar._on_nodes_dropped(node_ids, parent, target.index)
+        # Match the resource commit's stable-anchor rule when concurrent
+        # imports changed the numeric slot after the last dragMove event.
+        index = (self._node_insert_index(parent, target.target_id, target.placement, set(node_ids))
+                 if target.placement in (INSERT_BEFORE, INSERT_AFTER) else target.index)
+        return self.sidebar._on_nodes_dropped(node_ids, parent, index)
 
-    def _reorder_by_drop(self, paths, target):
+    def _reorder_by_drop(self, paths, target, global_pos=None, sources=None):
         if not paths:
             return
         parent = target.container_id or self.content_scope_node()
-        sources = self._resource_sources(paths)
+        sources = sources or self._resource_sources(paths)
         if any(source != parent for source in sources.values()):
-            self.request_resource_drop(paths, parent, position=target.index)
+            self.request_resource_drop(paths, parent, position=target.index, global_pos=global_pos, sources=sources)
             return
-        stream = self.storage.entries_of(parent)
-        keys = set(paths)
-        moving = [e for e in stream if e['kind'] == 'resource' and e['path'] in keys]
-        if not moving:
-            self.assign_resources(paths, parent, position=target.index)
-            return
-        position = target.index if target.index is not None else len(stream)
-        before = stream[:position]
-        position = sum(not(e['kind'] == 'resource' and e['path'] in keys) for e in before)
-        remaining = [e for e in stream if not(e['kind'] == 'resource' and e['path'] in keys)]
-        from services.manual_order import insert_block
-        self.storage.set_content_order(parent, insert_block(remaining, moving, position))
+        with self.storage.lock:
+            stream = self.storage.entries_of(parent)
+            keys = set(paths)
+            moving = [e for e in stream if e['kind'] == 'resource' and e['path'] in keys]
+            if not moving:
+                self.assign_resources(paths, parent, position=target.index)
+                return
+            # The worker may prepend imports while the user drags over a
+            # still-visible card. Resolve against that card's stable ID, not
+            # the old numeric slot captured by the viewport.
+            anchor = next((i for i, e in enumerate(stream)
+                           if e['id'] == target.target_id), None)
+            position = (anchor + (target.placement == INSERT_AFTER)) if anchor is not None else (
+                target.index if target.index is not None else len(stream))
+            before = stream[:position]
+            position = sum(not(e['kind'] == 'resource' and e['path'] in keys) for e in before)
+            remaining = [e for e in stream if not(e['kind'] == 'resource' and e['path'] in keys)]
+            from services.manual_order import insert_block
+            self.storage.set_content_order(parent, insert_block(remaining, moving, position))
         self.refresh_content_incremental(reason='drop_order', parents={parent})
 
     def _import_urls(self, mime, target):
@@ -2945,13 +3484,35 @@ class GalleryInterface(QWidget):
     # Hover preview, focus tracking, inbox
     # ==================================================================
     def on_hover_started(self, card, image_path):
+        previous = getattr(self, '_hover_card', None)
+        self._hover_card = card
+        if previous is not None and previous is not card:
+            previous.set_hovered(False)
         if self.feedback_host.toasts or self.feedback_host.hint_label.isVisible():
             return
         self.preview_controller.set_delay(self.config.get("preview_delay", 500))
         self.preview_controller.enter(card, image_path)
 
     def on_hover_ended(self, card):
+        if getattr(self, '_hover_card', None) is card:
+            self._hover_card = None
         self.preview_controller.leave(card)
+
+    def _sync_hover_card(self):
+        """Scrolling moves cards under a stationary pointer without Qt Leave."""
+        previous = getattr(self, '_hover_card', None)
+        if previous is not None and previous._is_dragging:
+            return
+        viewport = self.scroll_area.viewport()
+        hit = QApplication.widgetAt(QCursor.pos())
+        while hit is not None and hit is not viewport and not isinstance(hit, EmojiCard):
+            hit = hit.parentWidget()
+        if not isinstance(hit, EmojiCard) or not viewport.isAncestorOf(hit):
+            hit = None
+        if previous is not None and previous is not hit:
+            previous.set_hovered(False)
+        if hit is not None:
+            hit.set_hovered(True)
 
     def get_preview_size(self):
         return self.config.get("preview_size", 320)
@@ -3074,6 +3635,13 @@ class GalleryInterface(QWidget):
     def on_settings_changed(self, key=""):
         if key in ('sidebar_icon_size', 'sidebar_show_labels', 'sidebar_mode'):
             self.sidebar.apply_presentation()
+        elif key == 'gallery_node_icon_size':
+            anchor = self.renderer.anchor()
+            for card in self._all_card_widgets:
+                if isinstance(card, NodeCard):
+                    card.refresh_icon()
+            self.renderer.relayout(anchor=anchor)
+            self.renderer.sync()
         elif key in ("appearance_mode", "light_theme_key", "dark_theme_key"):
             self.sidebar.update_theme()
             self.context_strip.setStyleSheet(visual.strip_style())
@@ -3091,6 +3659,7 @@ class GalleryInterface(QWidget):
 
     def _show_tools_menu(self):
         menu = RoundMenu(parent=self)
+        from fluent_ui.components.user_feedback import open_feedback
         from fluent_ui.components.ocr_controls import recognize_all,offer_install
         from services.ocr_service import ocr_service
         service=ocr_service(self.storage)
@@ -3109,6 +3678,7 @@ class GalleryInterface(QWidget):
             (FIF.APPLICATION, 'QQ 导入', self.qq_requested.emit),
             (FIF.DOWNLOAD, 'Telegram 导入', self.tg_requested.emit),
             (FIF.INFO, '关于', self.about_requested.emit),
+            (FIF.CHAT, '反馈与建议', lambda:open_feedback(self)),
         ):
             action = translated(Action, icon, label, parent=menu)
             action.triggered.connect(callback)
@@ -3121,7 +3691,7 @@ class GalleryInterface(QWidget):
 
 
 
-    def toggle_node_expansion(self, node_id):
+    def toggle_node_expansion(self, node_id, *, anchor=None):
         # Expanding a node only changes the content at and below it, so the
         # viewport is anchored to the entry it is already showing: laying the
         # grid out at scroll 0 and correcting it on the next frame is what made
@@ -3130,7 +3700,7 @@ class GalleryInterface(QWidget):
         # Everything after this node's own row shifts, and nothing before it
         # does, so the flow index resumes at that row instead of walking the
         # whole library again on every disclosure click.
-        anchor = self.renderer.anchor()
+        anchor = self.renderer.anchor() if anchor is None else anchor
         if node_id in self._expanded_nodes:
             self._expanded_nodes.remove(node_id)
         else:
@@ -3142,18 +3712,17 @@ class GalleryInterface(QWidget):
         key = self._entry_key(entry)
         self._selection_parents[key] = entry['_parent']
         if entry['kind'] == 'node':
-            self.on_node_clicked(key, modifiers)
+            self._select_key(key, modifiers)
         else:
             self.on_image_clicked(key, modifiers)
 
     def _select_single(self, key):
-        self.selected_keys = {key}
-        from PySide6.QtCore import QSignalBlocker
-        for widget in self._all_card_widgets:
-            with QSignalBlocker(widget):
-                widget.set_selected(self._entry_key(widget.content_entry) == key)
-        self._last_clicked_key = key
-        self._sync_command_bar()
+        changed=self.selected_keys ^ {key}
+        self.selected_keys={key}
+        self._shift_anchor=key
+        self._shift_touched.clear()
+        self._last_clicked_key=key
+        self._commit_selection_visuals(changed)
 
     def use_resource(self, path):
         if self.mode == 'manage':
@@ -3174,10 +3743,10 @@ class GalleryInterface(QWidget):
         self.refresh_content()
 
     def _update_resource_sort_label(self):
-        label = {ResourceSort.MANUAL: '自定义顺序', ResourceSort.RECENT_ADDED: '最近添加',
-                 ResourceSort.OLDEST_ADDED: '最早添加'}[ResourceSort(self.content_sort)]
-        self.btn_content_sort.setIcon({ResourceSort.MANUAL:FIF.SORT,ResourceSort.RECENT_ADDED:FIF.TIME_DESC,ResourceSort.OLDEST_ADDED:FIF.TIME_ASC}[ResourceSort(self.content_sort)])
-        bind_text(self.btn_content_sort, t('表情显示排序') + ' · ' + t(label), 'setToolTip')
+        label = {ResourceSort.MANUAL: '表情排序：手动', ResourceSort.RECENT_ADDED: '表情排序：最近添加',
+                 ResourceSort.OLDEST_ADDED: '表情排序：最早添加'}[ResourceSort(self.content_sort)]
+        self.btn_content_sort.setIcon({ResourceSort.MANUAL:FIF.MANUAL_ORDER,ResourceSort.RECENT_ADDED:FIF.RECENT_ADDED,ResourceSort.OLDEST_ADDED:FIF.OLDEST_ADDED}[ResourceSort(self.content_sort)])
+        self.btn_content_sort.setToolTip(t(label))
         self.btn_content_sort.setAccessibleName(self.btn_content_sort.toolTip())
         for mode, action in getattr(self, 'resource_sort_actions', {}).items():
             action.setChecked(mode == self.content_sort)
@@ -3270,9 +3839,9 @@ class GalleryInterface(QWidget):
         visible = {e['path']: e['_parent'] for e in self._selected_entries() if e['kind']=='resource'}
         return {path: visible.get(path, self._selection_parents.get(path, self.content_scope_node())) for path in paths}
 
-    def request_resource_drop(self, paths, target, position=None, global_pos=None):
+    def request_resource_drop(self, paths, target, position=None, global_pos=None, sources=None):
         """After dropping, ask for the membership action before writing data."""
-        sources = self._resource_sources(paths)
+        sources = sources or self._resource_sources(paths)
         pos = global_pos if global_pos is not None else self.top_bar.mapToGlobal(self.top_bar.rect().center())
         def show_menu():
             menu = RoundMenu(parent=self)
@@ -3283,9 +3852,11 @@ class GalleryInterface(QWidget):
                     move = Action(t('移动到「{name}」').format(name=title), parent=menu)
                     move.triggered.connect(lambda: self._apply_drop_action(paths, target, False, sources, position))
                     menu.addAction(move)
-                    label = t('复制到「{name}」').format(name=title)
-                else:
-                    label = t('加入「{name}」').format(name=title)
+                    if any(parent == ROOT for parent in sources.values()):
+                        hint = Action(t('从“全部表情”拖入时，只加入目标分类，保留原有分类关系。'), parent=menu)
+                        hint.setEnabled(False)
+                        menu.addAction(hint)
+                label = t('加入分类「{name}」').format(name=title)
                 add = Action(label, parent=menu)
                 add.triggered.connect(lambda: self._apply_drop_action(paths, target, True, sources, position))
                 menu.addAction(add)

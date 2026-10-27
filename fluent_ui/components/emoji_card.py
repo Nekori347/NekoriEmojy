@@ -3,7 +3,7 @@ import os
 from PySide6.QtWidgets import QLabel, QApplication, QMenu
 from PySide6.QtGui import QCursor, QDrag, QPixmap, QImageReader, QPixmapCache
 from PySide6.QtCore import (
-    Qt, Signal, QMimeData, QPoint, QSize, QTimer, QEasingCurve, QUrl,
+    Qt, Signal, QPoint, QSize, QTimer, QEasingCurve,
     QPropertyAnimation, QObject, QRunnable, QThreadPool
 )
 from PySide6.QtWidgets import QGraphicsOpacityEffect
@@ -15,6 +15,9 @@ try:
 except ImportError:
     def _is_qt_object_valid(obj):
         return True
+
+
+from fluent_ui import visual
 
 
 class _ThumbnailLoadSignals(QObject):
@@ -240,6 +243,9 @@ class EmojiCard(QLabel):
 
     hover_started = Signal(str) # 悬停进入
     hover_ended = Signal()      # 悬停离开
+    drag_started = Signal()
+    drag_finished = Signal()
+    recycle_requested = Signal(object)
 
     def __init__(self, image_path, size=120, parent=None, load_image=True, frame=0, availability=None, status=None):
         super().__init__(parent)
@@ -251,6 +257,8 @@ class EmojiCard(QLabel):
         self.frame = int(frame or 0)
         # Set by the gallery: returns every path that should travel with one drag.
         self.drag_payload_provider = None
+        self.drag_sources_provider = None
+        self.drag_identity_provider = None
         self._loaded_size = 0  # 记录当前实际加载的图片尺寸
         self._is_loaded = False
         self._is_loading = False
@@ -328,13 +336,13 @@ class EmojiCard(QLabel):
             p.drawLine(q.topLeft(),q.bottomRight());p.drawLine(q.topRight(),q.bottomLeft())
             p.setFont(visual.font('data'));p.drawText(image,Qt.AlignBottom|Qt.AlignHCenter,'MISSING')
         if self.is_selected or self._hovered:
-            p.setBrush(Qt.NoBrush);p.setPen(QPen(QColor(c['accent']),1 if self.is_selected else 2))
+            p.setBrush(Qt.NoBrush);p.setPen(QPen(QColor(c['accent']),2 if self._hovered else 1.5))
             selection=r.adjusted(1,1,-1,-1)
             p.drawRoundedRect(selection,9,9)
             if self.is_selected:
                 p.setPen(QPen(QColor(c['accent']),2))
-                p.drawLine(QPointF(selection.left()+5,selection.top()+4),
-                           QPointF(selection.right()-5,selection.top()+4))
+                p.drawLine(QPointF(selection.left()+selection.width()*.22,selection.top()+4),
+                           QPointF(selection.right()-selection.width()*.22,selection.top()+4))
 
     def needs_reload(self, target_size):
         target_img_size = max(10, target_size - 8)
@@ -418,11 +426,13 @@ class EmojiCard(QLabel):
                 pass
 
         animation.finished.connect(finish)
-        animation.start()
+        visual.start_animation(animation, 180)
 
     def animate_appear(self, delay=0):
         """以轻微淡入显示卡片；delay 用于批次内错峰，避免同时闪现。"""
         self._stop_appear_animation()
+        if not visual.animations_enabled():
+            return
         generation = self._animation_generation
 
         if delay <= 0:
@@ -580,22 +590,22 @@ class EmojiCard(QLabel):
         payload = [self.image_path]
         if self.drag_payload_provider is not None:
             resolved = self.drag_payload_provider(self.image_path)
-            if resolved:
-                payload = list(resolved)
+            if resolved is None:
+                self._drag_start_pos=None
+                return  # keep _is_dragging until release, so this never sends
+            payload = list(resolved)
 
-        from fluent_ui.components.node_card import RESOURCE_MIME
-        import json
-        import os
-
+        snapshot = self.drag_identity_provider(payload) if self.drag_identity_provider else None
+        if self.drag_identity_provider and snapshot is None:
+            self._drag_start_pos = None
+            return
+        from services.external_drag import ResourceDragMimeData, execute_resource_drag
         drag = QDrag(self)
-        mime_data = QMimeData()
-        mime_data.setData(RESOURCE_MIME, json.dumps(payload).encode('utf-8'))
-        # File URLs make the same drag usable by Explorer (copy out) and by chat
-        # clients that accept dropped files (send).
-        urls = [QUrl.fromLocalFile(path) for path in payload if os.path.isfile(path)]
-        if urls:
-            mime_data.setUrls(urls)
-            mime_data.setText(os.pathsep.join(payload))
+        mime_data = ResourceDragMimeData(payload)
+        if self.drag_sources_provider is not None:
+            import json
+            from fluent_ui.components.drop_contract import RESOURCE_SOURCES_MIME
+            mime_data.setData(RESOURCE_SOURCES_MIME, json.dumps(self.drag_sources_provider(payload)).encode('utf-8'))
         drag.setMimeData(mime_data)
 
         pixmap = self.grab()
@@ -603,15 +613,34 @@ class EmojiCard(QLabel):
         drag.setHotSpot(QPoint(30, 30))
 
         self.setCursor(QCursor(Qt.ClosedHandCursor))
-        drag.exec(Qt.CopyAction | Qt.MoveAction, Qt.CopyAction if urls else Qt.MoveAction)
-        self._is_dragging = False
-        self.setCursor(QCursor(Qt.PointingHandCursor))
-
-        self._drag_start_pos = None
+        recycled = False
+        try:
+            self.drag_started.emit()
+            # MOVE remains available to our internal placement contract. Shell
+            # receives disposable files, regardless of the reported action.
+            if snapshot is not None:
+                recycled = execute_resource_drag(drag)
+            else:
+                drag.exec(Qt.CopyAction | Qt.MoveAction, Qt.CopyAction)
+        finally:
+            self._is_dragging = False
+            self.setCursor(QCursor(Qt.PointingHandCursor))
+            self._drag_start_pos = None
+            self.drag_finished.emit()
+        if recycled:
+            self.recycle_requested.emit(snapshot)
+        if mime_data.error:
+            from fluent_ui.components import dialogs
+            from services.i18n import t
+            dialogs.message(self.window(), t('无法拖出表情'),
+                            t('准备外部拖放文件失败，图库原件未改动。'), code='DROP')
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
-            if not self._is_dragging:
+            # OLE cancellation may return before the physical button release.
+            # A completed drag has already cleared its press position, so that
+            # later release cannot become a fresh selection/send click.
+            if not self._is_dragging and self._drag_start_pos is not None:
                 modifiers = QApplication.keyboardModifiers()
                 if self.is_selectable and not modifiers:
                     self.set_selected(not self.is_selected)
@@ -623,10 +652,19 @@ class EmojiCard(QLabel):
         super().mouseReleaseEvent(event)
 
     def enterEvent(self, event):
-        self._hovered = True
-        self.update()
-        self.hover_started.emit(self.image_path)
+        self.set_hovered(True)
         super().enterEvent(event)
+
+    def set_hovered(self, hovered):
+        """Transient pointer hit, shared by Qt events and gallery geometry sync."""
+        if self._hovered == hovered:
+            return
+        self._hovered = hovered
+        self.update()
+        if hovered:
+            self.hover_started.emit(self.image_path)
+        else:
+            self.hover_ended.emit()
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -643,11 +681,9 @@ class EmojiCard(QLabel):
         super().keyPressEvent(event)
 
     def leaveEvent(self, event):
-        self._hovered = False
-        self.update()
-        self.hover_ended.emit()
+        self.set_hovered(False)
         super().leaveEvent(event)
 
     def hideEvent(self,event):
-        self._hovered=False
+        self.set_hovered(False)
         super().hideEvent(event)

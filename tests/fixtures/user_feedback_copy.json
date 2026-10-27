@@ -1,0 +1,38 @@
+[
+  {
+    "source": "反馈与建议",
+    "values": {
+      "zh": "反馈与建议",
+      "zh_TW": "回饋與建議",
+      "en": "Feedback & Suggestions",
+      "ja": "フィードバック・ご提案"
+    }
+  },
+  {
+    "source": "复制环境信息",
+    "values": {
+      "zh": "复制环境信息",
+      "zh_TW": "複製環境資訊",
+      "en": "Copy environment info",
+      "ja": "環境情報をコピー"
+    }
+  },
+  {
+    "source": "已复制环境信息",
+    "values": {
+      "zh": "已复制环境信息",
+      "zh_TW": "已複製環境資訊",
+      "en": "Environment info copied",
+      "ja": "環境情報をコピーしました"
+    }
+  },
+  {
+    "source": "无法打开浏览器，已复制反馈链接",
+    "values": {
+      "zh": "无法打开浏览器，已复制反馈链接",
+      "zh_TW": "無法開啟瀏覽器，已複製回饋連結",
+      "en": "Unable to open the browser. Feedback link copied.",
+      "ja": "ブラウザーを開けなかったため、フィードバックのリンクをコピーしました。"
+    }
+  }
+]

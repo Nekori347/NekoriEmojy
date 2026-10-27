@@ -4,13 +4,14 @@ Glass navigation | opaque workspace -> hierarchy -> attached tabs -> raised
 resource sheet. The tag dock is an auxiliary surface inside the sheet. No
 storage, selection, navigation or drag decisions are made here.
 """
-from PySide6.QtCore import Qt,QTimer,QSize
+from PySide6.QtCore import Qt,QTimer,QSize,QRectF
+from PySide6.QtGui import QPainter,QColor
 from PySide6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QBoxLayout,QLabel,QSizePolicy
 from fluent_ui import visual
 from services.i18n import t
 from fluent_ui.icons import Icon as I
 from fluent_ui.components.controls import TransparentToolButton,SplitPushButton,SearchLineEdit
-from fluent_ui.components.navigation import HierarchyLocationHeader,TabStrip,ContentPane,AttachedTabRow
+from fluent_ui.components.navigation import HierarchyLocationHeader,TabStrip,ContentPane,AttachedTabRow,WorkspaceTools,WorkspaceSheet
 from fluent_ui.components.interaction_controls import IconDropDownButton,ResourceSortIcon,FilterCheckboxFlyout
 from fluent_ui.components.panel_host import PanelSplitter
 from fluent_ui.components.safe_round_menu import SafeRoundMenu
@@ -21,6 +22,21 @@ from .surfaces import Surface,CommandWell
 
 class HeadingBand(QWidget):
     """The location and current-view commands share one compact working band."""
+    def paintEvent(self,event):
+        layout=self.layout()
+        if not layout or layout.count()<1:return
+        rail=layout.itemAt(0).widget()
+        if not rail or not rail.isVisible():return
+        # The original grey rule remains in the header. Use the free band
+        # immediately below it, without moving the title/search or growing it.
+        width=max(0,rail.width()-rail.axis_left)*.618
+        gap=width*.04
+        segment=(width-2*gap)/3
+        p=QPainter(self);p.setPen(Qt.NoPen)
+        for index,color in enumerate(('#DF52AC','#FFF500','#00E5FF')):
+            p.setBrush(QColor(color))
+            p.drawRect(QRectF(rail.x()+rail.axis_left+index*(segment+gap),rail.y()+rail.height()+2,segment,2))
+
     def resizeEvent(self,event):
         super().resizeEvent(event)
         layout=self.layout()
@@ -56,16 +72,21 @@ def build_workbench(g):
     g.top_bar_layout.addWidget(g.location_rail,0,Qt.AlignTop)
     g.right_layout.addWidget(g.top_bar)
 
-    g.tab_row=AttachedTabRow(g.right_container)
+    # One shaped sheet: selected ear + fixed tools + resource workspace.
+    g.sheet_surface=WorkspaceSheet(g.right_container)
+    sheet=QVBoxLayout(g.sheet_surface);sheet.setContentsMargins(0,0,0,0);sheet.setSpacing(0)
+    g.right_layout.addWidget(g.sheet_surface,1)
+    g.tab_row=AttachedTabRow(g.sheet_surface)
     tab_layout=QHBoxLayout(g.tab_row);tab_layout.setContentsMargins(0,0,0,0);tab_layout.setSpacing(0)
     g.category_tabs=TabStrip(g.tab_row,location_divider=True)
     g.category_tabs.currentChanged.connect(g._on_category_tab)
     tab_layout.addWidget(g.category_tabs,1)
     g.tab_row.setFixedHeight(g.category_tabs.height())
-    g.right_layout.addWidget(g.tab_row)
-    g.content_pane=ContentPane(g.right_container)
+    sheet.addWidget(g.tab_row)
+    g.content_pane=ContentPane(g.sheet_surface)
+    g.content_pane.setProperty('gallery_workspace',True)
     g.content_pane.content_layout.setContentsMargins(1,0,1,1)
-    g.right_layout.addWidget(g.content_pane,1)
+    sheet.addWidget(g.content_pane,1)
 
     from fluent_ui.components.softframe import SoftframeSlider
     from fluent_ui.presentation.glyphs import ClipboardImportIcon,ToolboxIcon
@@ -87,7 +108,7 @@ def build_workbench(g):
     row.setContentsMargins(0,0,0,0);row.setSpacing(4);row.addStretch()
     g.btn_paste=SplitPushButton(ClipboardImportIcon(),'',commands)
     g.btn_paste.button.ghost=True;g.btn_paste.button.setFixedSize(32,32);g.btn_paste.button.setIconSize(QSize(18,18))
-    g.btn_paste.dropButton.setIcon(I.IMPORT);g.btn_paste.dropButton.setFixedSize(32,32);g.btn_paste.dropButton.setIconSize(QSize(18,18));g.btn_paste.layout().setSpacing(4)
+    g.btn_paste.dropButton.setIcon(I.IMPORT_MENU);g.btn_paste.dropButton.setFixedSize(32,32);g.btn_paste.dropButton.setIconSize(QSize(18,18));g.btn_paste.layout().setSpacing(4)
     bind_text(g.btn_paste.button,'从剪贴板粘贴表情 (Ctrl+V)','setToolTip')
     bind_text(g.btn_paste.dropButton,'导入表情','setToolTip')
     g.btn_paste.clicked.connect(g.handle_global_paste)
@@ -105,8 +126,8 @@ def build_workbench(g):
     g.filter_flyout=FilterCheckboxFlyout(g.btn_filter)
     g.filter_flyout.changed.connect(g._update_filter);g.filter_flyout.clear_requested.connect(g._clear_filter)
     g.top_bar_layout.addWidget(g.search_surface,1)
-    size_host=QWidget(g.tab_row);size_host.setFixedHeight(28)
-    size_row=QHBoxLayout(size_host);size_row.setContentsMargins(0,0,6,0);size_row.setSpacing(0);size_row.setAlignment(Qt.AlignVCenter)
+    size_host=WorkspaceTools(g.tab_row);size_host.setFixedHeight(38)
+    size_row=QHBoxLayout(size_host);size_row.setContentsMargins(6,5,8,5);size_row.setSpacing(0);size_row.setAlignment(Qt.AlignVCenter)
     glyph=IconWidget(I.PHOTO,size_host);glyph.setFixedSize(16,16);bind_text(glyph,'缩略图大小','setToolTip');size_row.addWidget(glyph,0,Qt.AlignVCenter)
     visual.theme.changed.connect(glyph.update)
     g.size_slider=SoftframeSlider(Qt.Horizontal,size_host);g.size_slider.setFixedWidth(88)
@@ -124,10 +145,12 @@ def build_workbench(g):
     bind_text(g.btn_recent,'最近使用','setToolTip');g.btn_recent.setAccessibleName(t('最近使用'))
     g.btn_recent.clicked.connect(g.toggle_recent_view)
     size_row.insertWidget(0,g.btn_recent,0,Qt.AlignVCenter);size_row.insertSpacing(1,5)
-    tab_layout.addSpacing(8);tab_layout.addWidget(size_host,0,Qt.AlignBottom)
+    tab_layout.addSpacing(8);tab_layout.addWidget(size_host,0,Qt.AlignRight|Qt.AlignBottom)
+    g.tab_row.bind_structure(g.category_tabs,size_host)
+    g.sheet_surface.bind_structure(g.tab_row,g.content_pane)
 
     g.content_pane.corner_radius=10
-    g.workspace=Surface('raised',g.content_pane,radius=9,edge=False)
+    g.workspace=QWidget(g.content_pane)
     g.workspace_layout=QVBoxLayout(g.workspace)
     g.workspace_layout.setContentsMargins(0,0,0,0);g.workspace_layout.setSpacing(0)
     g._build_context_strip();g._build_grid();g._build_command_bar();g._build_tag_panel()

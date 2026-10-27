@@ -183,7 +183,32 @@ class StorageService:
         return [resources[e['id']] for e in self.index.content(node) if e['kind'] == 'resource']
 
     def get_categories_by_image(self, filepath):
-        return self.get_image_to_categories_map().get(self._to_abspath(filepath), [])
+        """Read one image's memberships without projecting every library image.
+
+        Hover preview calls this on the GUI thread. The old reverse-map path
+        traversed the entire category tree and opened connections for every
+        category twice, even when this image belonged to no category.
+        """
+        record = self.index.resource(filepath)
+        if not record:
+            return []
+        with self.index.connect() as db:
+            parents = [row[0] for row in db.execute(
+                'SELECT parent_id FROM content WHERE resource_id=? AND parent_id!=?',
+                (record['id'], ROOT))]
+        if not parents:
+            return []
+        nodes = {node['id']: node for node in self.index.nodes()}
+        result = []
+        for parent in parents:
+            trail, positions = [], []
+            while parent != ROOT:
+                node = nodes[parent]
+                trail.append(node['name'].replace('%', '%25').replace('/', '%2F'))
+                positions.append(node['position'])
+                parent = node['parent_id'] or ROOT
+            result.append((tuple(reversed(positions)), ' / '.join(reversed(trail))))
+        return [label for _, label in sorted(result)]
 
     def get_image_to_categories_map(self):
         result = {}
@@ -284,9 +309,9 @@ class StorageService:
     def node(self, node_id):
         return self.index.node(node_id or ROOT) or {"id": ROOT, "name": "Library", "icon": "", "parent_id": None}
 
-    def node_path(self, node_id):
+    def node_path(self, node_id, *, nodes=None):
         """Breadcrumb from the root down to this node; the virtual root is included."""
-        return self.index.node_path(node_id or ROOT)
+        return self.index.node_path(node_id or ROOT, nodes=nodes)
 
     def child_nodes(self, node_id):
         return self.index.child_nodes(node_id or ROOT)
@@ -321,23 +346,20 @@ class StorageService:
         return [(row["id"], "    " * row["depth"] + row["name"])
                 for row in self.node_choice_rows()]
 
-    def node_choice_rows(self):
+    def node_choice_rows(self, *, nodes=None):
         """Every node with its depth and full path, for searchable target pickers.
 
         Kept alongside node_choices because a flat indented label is not enough
         once the tree is deep: search and the path line need the actual
         structure rather than padding.
         """
-        nodes = {n["id"]: n for n in self.index.nodes()}
+        children = {}
+        for node in self.index.nodes() if nodes is None else nodes:
+            children.setdefault(node['parent_id'] or ROOT, []).append(node)
         result = []
 
         def visit(parent, depth, trail):
-            for entry in self.index.content(parent):
-                if entry["kind"] != "node":
-                    continue
-                node = nodes.get(entry["id"])
-                if node is None:
-                    continue
+            for node in children.get(parent, ()):
                 path = trail + [node["name"]]
                 result.append({"id": node["id"], "name": node["name"], "depth": depth,
                                "path": " / ".join(path)})
@@ -373,7 +395,8 @@ class StorageService:
 
     def set_content_order(self, node_id, entries):
         """entries: [{'kind': 'resource'|'node', 'id': ...}] in the wanted order."""
-        self.index.set_order(node_id or ROOT, [(e["kind"], e["id"]) for e in entries])
+        with self.lock:
+            self.index.set_order(node_id or ROOT, [(e["kind"], e["id"]) for e in entries])
 
     def reorder_resources(self, node_id, resource_ids):
         self.index.reorder_resources(node_id or ROOT, resource_ids)
@@ -385,16 +408,37 @@ class StorageService:
     def resource_of(self, filepath):
         return self.index.resource(filepath)
 
-    def set_node_icon(self, node_id, value):
+    def set_node_icon(self, node_id, value, *, frame=None):
         """value is either an emoji/text or a local image path (copied into the library)."""
         if value and Path(value).suffix.lower() in IMAGE_SUFFIXES and Path(value).is_file():
-            value = self._store_node_icon_file(value)
+            if frame is None:
+                frame = self.resource_metadata(value).get('thumb_frame', 0)
+            value = self._store_node_icon_file(value, frame=frame)
         self.index.update_node(node_id, icon=value or "")
 
-    def _store_node_icon_file(self, source):
+    def _store_node_icon_file(self, source, *, frame=0):
         import shutil
         target_dir = Path(self.data_dir) / "category_icons"
         target_dir.mkdir(parents=True, exist_ok=True)
+        from services.image_frames import is_animated, frame_at
+        if is_animated(source):
+            # Category icons are static representations. Freeze the chosen
+            # resource frame once, rather than losing it when copying a GIF or
+            # decoding animation again on every tree/menu paint.
+            from PySide6.QtCore import QByteArray, QBuffer, QIODevice
+            image = frame_at(source, frame)
+            if image is None:
+                raise ValueError('Cannot decode category icon frame')
+            payload = QByteArray();buffer = QBuffer(payload)
+            buffer.open(QIODevice.WriteOnly)
+            if not image.save(buffer, 'PNG'):
+                raise ValueError('Cannot encode category icon frame')
+            data = bytes(payload)
+            filename = hashlib.md5(data).hexdigest() + '.png'
+            target = target_dir / filename
+            if not target.exists():
+                target.write_bytes(data)
+            return 'category_icons/' + filename
         suffix = Path(source).suffix.lower()
         filename = hashlib.md5(Path(source).read_bytes()).hexdigest() + suffix
         target = target_dir / filename
@@ -415,17 +459,10 @@ class StorageService:
 
     def move_resources_to(self, filepaths, target_node, copy=True, source_node=None, position=None):
         """Copy adds the target relation; Move also drops the source relation."""
-        added = 0
-        for offset, path in enumerate(filepaths):
-            record = self.index.resource(path)
-            if not record:
-                continue
-            slot = None if position is None else position + offset
-            if self.index.add_membership(record["id"], target_node or ROOT, slot):
-                added += 1
-            if not copy and source_node and source_node != ROOT:
-                self.index.remove_membership(record["id"], source_node)
-        return added
+        with self.lock:
+            ids = self.index.resource_ids(filepaths)
+            return self.index.assign_memberships(ids, target_node or ROOT, copy=copy,
+                                                 source=source_node, position=position)
 
     def resource_metadata(self, filepath):
         record = self.index.resource(filepath)
@@ -698,9 +735,10 @@ class StorageService:
         self._sync_key_index = None
         return removed
 
-    def delete_images_batch(self, filepaths, progress_callback=None, cancel_check=None):
+    def delete_images_batch(self, filepaths, progress_callback=None, cancel_check=None, *, expected_ids=None):
         from services.recycle_bin import recycle_file
         paths = list(dict.fromkeys(filepaths))
+        expected_ids = set(expected_ids) if expected_ids is not None else None
         result = dict(requested=len(paths), deleted=0, missing_cleaned=0, failed=0,
                       cancelled=0, unprocessed=0, failure_details={})
         for i, path in enumerate(paths):
@@ -712,6 +750,8 @@ class StorageService:
                     resource = self.index.resource(path)
                     if not resource:
                         raise ValueError('Resource is not owned by this library')
+                    if expected_ids is not None and resource['id'] not in expected_ids:
+                        raise ValueError('Resource identity changed after deletion confirmation')
                     absolute = self.index.absolute_path(resource)
                     if self.availability.exists(resource['id'], revalidate=True):
                         recycle_file(absolute, self.library_root)
@@ -822,7 +862,10 @@ class StorageService:
             for filename in filenames:
                 if not filename.lower().endswith(self.SUPPORTED_FORMATS):
                     continue
-                abspath = self._to_abspath(filename)
+                # These names come from the selected library's images/ folder.
+                # _to_abspath() queries the catalog for each name; rebuilding
+                # this index must not issue one SQLite lookup per resource.
+                abspath = os.path.join(self.images_dir, filename)
                 try:
                     stat_res = os.stat(abspath)
                     cur_size = stat_res.st_size

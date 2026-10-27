@@ -52,7 +52,7 @@ class ModeSegment(QWidget):
         self.layout().activate();target=QRectF(self.items[key].geometry())
         self.slideAni.stop()
         if self.isVisible() and not self._selection.isEmpty() and changed:
-            self.slideAni.setStartValue(self._selection);self.slideAni.setEndValue(target);self.slideAni.start()
+            self.slideAni.setStartValue(self._selection);self.slideAni.setEndValue(target);visual.start_animation(self.slideAni, visual.MOTION.select)
         else:self._selection=target;self.update()
         if changed:self.currentItemChanged.emit(key)
     def resizeEvent(self,event):
@@ -72,7 +72,7 @@ class ResourceSortIcon(FluentIconBase):
 
     def render(self, painter, rect, theme=Theme.AUTO, indexes=None, **attributes):
         from fluent_ui.icons import Icon
-        Icon.SORT.render(painter, rect, theme, **attributes)
+        Icon.MANUAL_ORDER.render(painter, rect, theme, **attributes)
 
 
 class ThemeModeIcon(FluentIconBase):
@@ -169,7 +169,7 @@ class FilterCheckboxFlyout(QFrame):
     clear_requested = Signal()
 
     FIELDS = (('no_tag', '无标签'), ('unclassified', '未分类'),
-              ('is_gif', '动图'), ('is_static', '静态表情'), ('missing', '已失效的表情'))
+              ('is_gif', '动图'), ('is_static', '静态表情'), ('missing', '找不到文件的表情'))
 
     def __init__(self, trigger):
         super().__init__(trigger, Qt.Popup)

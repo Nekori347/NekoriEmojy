@@ -365,7 +365,7 @@ class QQExtractor:
             return None
 
         # 尝试常用编码，避免第三方依赖
-        encodings = ['gb18030', 'utf-8', 'utf-16', 'gbk', 'big5', 'utf-16-le', 'latin-1']
+        encodings = ['utf-8-sig', 'gb18030', 'utf-16', 'gbk', 'big5', 'utf-16-le', 'latin-1']
         
         try:
             import chardet
@@ -388,7 +388,8 @@ class QQExtractor:
                 content = data.decode(enc, errors='strict')
             except Exception:
                 continue
-            if target_string in content and (QQExtractor.is_content_valid(content) or not target_string.isascii()):
+            # A valid QQ INI and its data path can be entirely ASCII.
+            if target_string in content:
                 return enc
         return None
 
@@ -445,7 +446,7 @@ class QQExtractor:
         return get_recovered_gif_path(file_path)
 
     @staticmethod
-    def scan_marketface(emoji_root_path):
+    def scan_marketface(emoji_root_path, cancelled=None):
         """扫描 marketface 原图，只返回成功恢复并通过 GIF 校验的文件。"""
         emoji_path = Path(emoji_root_path) if emoji_root_path else None
         if not emoji_path or not emoji_path.exists():
@@ -454,7 +455,9 @@ class QQExtractor:
         recovered_files = []
         try:
             for root, _, files in os.walk(str(emoji_path)):
+                if cancelled and cancelled():return []
                 for filename in files:
+                    if cancelled and cancelled():return []
                     file_path = os.path.join(root, filename)
                     if not is_marketface_candidate(file_path):
                         continue
@@ -483,7 +486,7 @@ class QQExtractor:
         return QQExtractor.get_emoji_root(userdata_save_path, qq_number) / folder_key
 
     @staticmethod
-    def scan_pic_folder(pic_root_path):
+    def scan_pic_folder(pic_root_path, cancelled=None):
         """
         扫描 QQ 收藏图片目录（Pic/日期命名文件夹/Ori 下的原图）。
 
@@ -497,22 +500,25 @@ class QQExtractor:
         candidates = []
         try:
             for root, _, files in os.walk(str(pic_root)):
+                if cancelled and cancelled():return []
                 if os.path.basename(root).lower() != 'ori':
                     continue
                 for filename in files:
+                    if cancelled and cancelled():return []
                     candidates.append(os.path.join(root, filename))
         except Exception:
             return []
 
         images = []
         for file_path in candidates:
+            if cancelled and cancelled():return []
             if QQExtractor.get_actual_extension(file_path):
                 images.append(file_path)
 
         return sorted(images)
 
     @staticmethod
-    def scan_emojis(emoji_root_path, selected_folder=None):
+    def scan_emojis(emoji_root_path, selected_folder=None, cancelled=None):
         """
         针对不同 QQNT 表情分类扫描并筛选图片。
 
@@ -520,9 +526,9 @@ class QQExtractor:
         PNG 派生图和 JPG 原图同时纳入结果。其他分类保持递归扫描行为。
         """
         if selected_folder and selected_folder.lower() == "marketface":
-            return QQExtractor.scan_marketface(emoji_root_path)
+            return QQExtractor.scan_marketface(emoji_root_path, cancelled)
         if selected_folder and selected_folder.lower() == "pic":
-            return QQExtractor.scan_pic_folder(emoji_root_path)
+            return QQExtractor.scan_pic_folder(emoji_root_path, cancelled)
 
         emoji_path = Path(emoji_root_path) if emoji_root_path else None
         if not emoji_path or not emoji_path.exists():
@@ -539,7 +545,9 @@ class QQExtractor:
         raw_files = []
         try:
             for root, _, files in os.walk(str(emoji_path)):
+                if cancelled and cancelled():return []
                 for f in files:
+                    if cancelled and cancelled():return []
                     raw_files.append(os.path.join(root, f))
         except Exception:
             return []
@@ -549,6 +557,7 @@ class QQExtractor:
         groups = {}
 
         for file_path_str in raw_files:
+            if cancelled and cancelled():return []
             actual_ext = QQExtractor.get_actual_extension(file_path_str)
             if not actual_ext:
                 continue

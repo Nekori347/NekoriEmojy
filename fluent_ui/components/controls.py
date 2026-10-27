@@ -30,6 +30,17 @@ def draw_icon(icon, painter, rect, color):
         icon.paint(painter, rect.toRect())
 
 
+def pointer_hits(widget, rect=None):
+    """Current hit relation, including covers; never business selection/focus."""
+    if not widget.isVisible() or not widget.isEnabled() or not widget.window().isActiveWindow():
+        return False
+    position = QCursor.pos()
+    if rect is not None and not rect.contains(widget.mapFromGlobal(position)):
+        return False
+    hit = QApplication.widgetAt(position)
+    return hit is widget or (hit is not None and widget.isAncestorOf(hit))
+
+
 class _ButtonFocusInput(QObject):
     """Track input origin without changing Qt focus or business selection."""
     def __init__(self,app):
@@ -43,8 +54,18 @@ class _ButtonFocusInput(QObject):
             self.keyboard=not pointer
             focused=QApplication.focusWidget()
             if isinstance(focused,ButtonPaint):
-                focused._focus_visible=self.keyboard;focused.update()
+                focused._focus_visible=self.keyboard
+            if focused is not None:
+                focused.update()
         return False
+
+
+def focus_input():
+    """One existing input-origin tracker for buttons and splitter cues."""
+    app = QApplication.instance()
+    if not hasattr(app, '_button_focus_input'):
+        app._button_focus_input = _ButtonFocusInput(app)
+    return app._button_focus_input
 
 
 class ButtonPaint:
@@ -56,9 +77,7 @@ class ButtonPaint:
         self.setFont(visual.font())
         self.setCursor(Qt.PointingHandCursor)
         self.setFocusPolicy(Qt.TabFocus)
-        app=QApplication.instance()
-        if not hasattr(app,'_button_focus_input'):app._button_focus_input=_ButtonFocusInput(app)
-        self._focus_input=app._button_focus_input;self._focus_visible=False
+        self._focus_input=focus_input();self._focus_visible=False
         self._hover = 0.0
         self._hover_animation = QVariantAnimation(self)
         self._hover_animation.setDuration(visual.MOTION.hover)
@@ -77,6 +96,17 @@ class ButtonPaint:
             self._hover_owner.removeEventFilter(self)
             self._hover_owner=owner;owner.installEventFilter(self)
         super().showEvent(event)
+        self._hover_settle_timer.start(0)
+
+    def event(self, event):
+        result = super().event(event)
+        if hasattr(self, '_hover_settle_timer') and event.type() in (
+                QEvent.Move, QEvent.Resize, QEvent.ParentChange, QEvent.EnabledChange,
+                QEvent.UngrabMouse):
+            if event.type() == QEvent.UngrabMouse:
+                self.setDown(False)
+            self._hover_settle_timer.start(0)
+        return result
 
     def eventFilter(self, obj, event):
         if obj is self.window() and event.type() in (QEvent.WindowDeactivate, QEvent.WindowActivate):
@@ -100,8 +130,7 @@ class ButtonPaint:
 
     def _settle_hover(self):
         # An owned window can cover the trigger without delivering Leave.
-        hit = QApplication.widgetAt(QCursor.pos())
-        real_hover = self.isVisible() and self.window().isActiveWindow() and (hit is self or self.isAncestorOf(hit) if hit else False)
+        real_hover = pointer_hits(self)
         self._hover_animation.stop()
         self._set_hover(1.0 if real_hover else 0.0)
         if not real_hover:
@@ -123,10 +152,11 @@ class ButtonPaint:
         self._hover_animation.stop()
         self._hover_animation.setStartValue(self._hover)
         self._hover_animation.setEndValue(target)
-        self._hover_animation.start()
+        visual.start_animation(self._hover_animation, visual.MOTION.hover)
 
     def hideEvent(self,event):
         if hasattr(self,'_hover_animation'):
+            self._hover_settle_timer.stop()
             self._hover_animation.stop();self._hover=0.0;self.setDown(False)
         super().hideEvent(event)
 
@@ -155,6 +185,9 @@ class ButtonPaint:
         border=QColor(c['border_soft']);border.setAlpha(140)
         p.setPen(QPen(border,1) if floating else Qt.NoPen if self.ghost else QPen(QColor(c['border_soft']), 1))
         p.setBrush(surface if floating else Qt.NoBrush if (self.ghost and not selected) or not enabled else QColor(fill))
+        if self.property('outline_toggle'):
+            p.setBrush(Qt.NoBrush)
+            p.setPen(QPen(QColor(c['text_secondary'] if selected else c['muted']),1))
         p.drawRoundedRect(r, visual.CONTROL_RADIUS, visual.CONTROL_RADIUS)
         if enabled and (self._hover or self.isDown()):
             p.setPen(Qt.NoPen)
@@ -167,6 +200,8 @@ class ButtonPaint:
             p.setBrush(Qt.NoBrush)
             p.drawRoundedRect(r.adjusted(2, 2, -2, -2), visual.CONTROL_RADIUS-2, visual.CONTROL_RADIUS-2)
         color = c['accent_text'] if primary and enabled else c['danger'] if self.property('role') == 'danger' else c['warning'] if self.property('update_available') else c['text']
+        if self.property('outline_toggle'):
+            color = c['text'] if selected else c['muted']
         p.setFont(self.font())
         text = self.text()
         icon = getattr(self, '_icon', None)
@@ -413,7 +448,7 @@ class SwitchButton(QAbstractButton):
         self._slide.stop()
         self._slide.setStartValue(self._position)
         self._slide.setEndValue(float(checked))
-        self._slide.start()
+        visual.start_animation(self._slide, visual.MOTION.select)
         self.checkedChanged.emit(checked)
 
     def setChecked(self, checked):
@@ -465,10 +500,16 @@ class CheckBox(FluentCheck):
         p.setPen(QColor(c['text']))
         p.setFont(self.font())
         p.drawText(self.rect().adjusted(29, 0, -2, 0), Qt.AlignVCenter, self.text())
-        if self.hasFocus():
-            p.setPen(QPen(QColor(c['accent']), 1, Qt.DotLine))
-            p.setBrush(Qt.NoBrush)
-            p.drawRoundedRect(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 5, 5)
+        if self.focus_indicator_visible():
+            self.paint_focus_indicator(p)
+
+    def focus_indicator_visible(self):
+        return self.hasFocus()
+
+    def paint_focus_indicator(self, painter):
+        painter.setPen(QPen(QColor(visual.colors()['accent']), 1, Qt.DotLine))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(QRectF(self.rect()).adjusted(.5, .5, -.5, -.5), 5, 5)
 
 
 class LineEdit(FluentLineEdit):

@@ -159,7 +159,7 @@ def test_keycaps_are_painted_objects_and_wrap_without_losing_text(surface,settin
     from fluent_ui.components.keycap_label import KeycapLabel,KEY_OBJECT,KEY_TEXT
     c=settings;c._select_page(2);c._show_tab(1);settle(surface.app)
     label=c._rows['gallery_click_action'][0].hint_label
-    assert isinstance(label,KeycapLabel) and 'Enter' in label.text() and '拖到聊天窗口' in label.text()
+    assert isinstance(label,KeycapLabel) and 'Enter' in label.text() and '拖动表情至聊天窗口' in label.text()
     assert '回车' not in label.text()
     block=label._document.begin();keys=[]
     while block.isValid():

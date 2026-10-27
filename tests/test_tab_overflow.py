@@ -1,0 +1,309 @@
+"""Render the real QTabBar overflow path; no replacement scroll model."""
+import os
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+import pytest
+from PySide6.QtCore import Qt, QPoint, QPointF, QAbstractAnimation
+from PySide6.QtGui import QImage, QPainter, QColor, QRegion, QCursor, QEnterEvent, QWheelEvent
+from PySide6.QtWidgets import QApplication, QToolButton, QWidget
+from PySide6.QtTest import QTest, QSignalSpy
+from fluent_ui.components.navigation import TabStrip
+from fluent_ui import visual
+
+
+@pytest.fixture
+def strip():
+    app = QApplication.instance() or QApplication([])
+    tabs = TabStrip(location_divider=True)
+    tabs.resize(460, 43)
+    tabs.set_tabs(['Location'] + ['Long category label ' + str(i) for i in range(18)])
+    tabs.show()
+    QTest.qWait(200)
+    yield tabs
+    tabs.close()
+    tabs.deleteLater()
+    app.processEvents()
+
+
+def own_paint(tabs):
+    image = QImage(tabs.size(), QImage.Format_ARGB32_Premultiplied)
+    image.fill(Qt.transparent)
+    painter = QPainter(image)
+    tabs.render(painter, QPoint(), QRegion(), QWidget.RenderFlag(0))
+    painter.end()
+    return image
+
+
+@pytest.mark.parametrize('location_divider', [False, True])
+def test_disabled_motion_keeps_selected_line_on_repeated_changes(monkeypatch, location_divider):
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(visual.theme, 'config', {'ui_animations_enabled': False})
+    tabs = TabStrip(location_divider=location_divider)
+    tabs.resize(460, 43)
+    tabs.set_tabs(['Location', 'First', 'Second'])
+    tabs.show()
+    app.processEvents()
+    try:
+        assert check_paint(tabs)
+        for current in (0, 1, 2, 1, 0, 2):
+            tabs.setCurrentIndex(current)
+            app.processEvents()
+            assert not tabs._target_line().isEmpty()
+            assert tabs._line_state == QPointF(0, 1)
+            assert check_paint(tabs), 'selected decoration must remain visible without motion'
+        tabs.set_tabs(['Rebuilt', 'Other'], 1)
+        app.processEvents()
+        assert check_paint(tabs)
+        for width in (260, 650):
+            tabs.resize(width, 43)
+            app.processEvents()
+            assert check_paint(tabs)
+        from qfluentwidgets import Theme, setTheme
+        for theme in (Theme.DARK, Theme.LIGHT):
+            setTheme(theme)
+            visual.theme.refresh()
+            assert check_paint(tabs)
+        monkeypatch.setattr(visual.theme, 'config', {'ui_animations_enabled': True})
+        tabs.setCurrentIndex(0)
+        assert tabs._line_motion.state() == QAbstractAnimation.Running
+        tabs._line_motion.setCurrentTime(150)
+        assert check_paint(tabs)
+        tabs._line_motion.setCurrentTime(250)
+        assert tabs._line_state == QPointF(0, 1) and check_paint(tabs)
+    finally:
+        tabs.close()
+        tabs.deleteLater()
+        app.processEvents()
+
+
+def test_disabled_navigation_indicator_tracks_selection_directly(monkeypatch):
+    from PySide6.QtWidgets import QListWidget
+    from fluent_ui.components.navigation import NavigationItem
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(visual.theme, 'config', {'ui_animations_enabled': False})
+    view = QListWidget()
+    view.addItems(['One', 'Two', 'Three'])
+    delegate = NavigationItem(view)
+    view.setItemDelegate(delegate)
+    view.show()
+    try:
+        for row in (0, 1, 2, 0):
+            view.setCurrentRow(row)
+            app.processEvents()
+            assert delegate._indicator == delegate._indicator_target()
+            assert not delegate._indicator.isEmpty()
+            assert delegate._selection_motion.state() == QAbstractAnimation.Stopped
+    finally:
+        view.close()
+        view.deleteLater()
+        app.processEvents()
+
+
+def check_paint(tabs):
+    image = own_paint(tabs)
+    buttons = [b for b in tabs.findChildren(QToolButton) if b.isVisible()]
+    for button in buttons:
+        rect = button.geometry().intersected(image.rect())
+        assert all(image.pixelColor(x,y).alpha() == 0
+                   for x in range(rect.left(), rect.right()+1)
+                   for y in range(rect.top(), rect.bottom()+1))
+    accent = QColor(visual.colors()['accent'])
+    points = [QPoint(x,y) for x in range(image.width()) for y in range(8,13)
+              if image.pixelColor(x,y) == accent]
+    selected = tabs.content_tab_rect(tabs.currentIndex())
+    assert all(selected.contains(p) for p in points), 'indicator remains over an unrelated tab'
+    if selected.right() < 0 or selected.left() >= tabs.width():
+        assert not points
+    return points
+
+
+def test_overflow_paint_and_selection_survive_both_scroll_boundaries(strip):
+    changes = QSignalSpy(strip.currentChanged)
+    right = next(b for b in strip.findChildren(QToolButton) if b.arrowType() == Qt.RightArrow)
+    left = next(b for b in strip.findChildren(QToolButton) if b.arrowType() == Qt.LeftArrow)
+    assert check_paint(strip)
+    for button in (right, left):
+        for _ in range(strip.count()+2):
+            if not button.isEnabled(): break
+            QTest.mouseClick(button, Qt.LeftButton)
+            QApplication.processEvents()
+            check_paint(strip)
+        assert not button.isEnabled()
+    assert changes.count() == 0 and strip.currentIndex() == 0
+    assert check_paint(strip)
+
+
+def test_selection_animation_retargets_after_scroll_resize_and_tab_changes(strip):
+    strip.setCurrentIndex(3)
+    right = next(b for b in strip.findChildren(QToolButton) if b.arrowType() == Qt.RightArrow)
+    QTest.mouseClick(right, Qt.LeftButton)
+    QTest.qWait(200)
+    check_paint(strip)
+    strip.setFocus()
+    QTest.keyClick(strip, Qt.Key_Right)
+    assert strip.currentIndex() == 4
+    QTest.qWait(200)
+    check_paint(strip)
+    for width in (300, 820, 460):
+        strip.resize(width, 43)
+        QApplication.processEvents()
+        check_paint(strip)
+    strip.set_tabs(['One', 'Two'], 1)
+    QTest.qWait(200)
+    assert check_paint(strip)
+    assert not any(b.isVisible() for b in strip.findChildren(QToolButton))
+    QTest.mouseClick(strip, Qt.LeftButton, pos=strip.tabRect(0).center())
+    assert strip.currentIndex() == 0
+
+
+def test_stationary_pointer_highlight_tracks_visible_tab_after_scroll(strip, monkeypatch):
+    pointer = QPoint(215, 21)
+    global_pointer = strip.mapToGlobal(pointer)
+    monkeypatch.setattr(QCursor, 'pos', staticmethod(lambda: global_pointer))
+    QApplication.sendEvent(strip, QEnterEvent(QPointF(pointer), QPointF(pointer), QPointF(global_pointer)))
+    right = next(b for b in strip.findChildren(QToolButton) if b.arrowType() == Qt.RightArrow)
+    hovered = []
+    for _ in range(5):
+        own_paint(strip)
+        hovered.append(strip._hovered_tab)
+        assert strip._hovered_tab == strip.tabAt(pointer)
+        QTest.mouseClick(right, Qt.LeftButton)
+        QApplication.processEvents()
+    assert len(set(hovered)) > 1
+    # The scroll button itself is outside the tab paint region.
+    button_pointer = right.geometry().center()
+    monkeypatch.setattr(QCursor, 'pos', staticmethod(lambda: strip.mapToGlobal(button_pointer)))
+    own_paint(strip)
+    assert strip._hovered_tab == -1
+
+
+def test_wheel_scrolls_visible_tabs_without_selecting_or_reloading(strip):
+    changes = QSignalSpy(strip.currentChanged)
+    initial = strip.tabRect(0).x()
+    point = QPointF(215, 20)
+
+    def send(angle=QPoint(), pixels=QPoint()):
+        wheel = QWheelEvent(point, QPointF(strip.mapToGlobal(point.toPoint())), pixels, angle,
+                            Qt.NoButton, Qt.NoModifier, Qt.ScrollUpdate, False)
+        QApplication.sendEvent(strip, wheel)
+        QApplication.processEvents()
+        assert wheel.isAccepted()
+
+    send(angle=QPoint(0, -120))
+    assert strip.tabRect(0).x() < initial
+    after_notch = strip.tabRect(0).x()
+    for _ in range(4):
+        send(pixels=QPoint(0, -10))
+    assert strip.tabRect(0).x() == after_notch
+    send(pixels=QPoint(0, -10))
+    assert strip.tabRect(0).x() < after_notch
+    assert strip.currentIndex() == 0 and changes.count() == 0
+    check_paint(strip)
+
+    for _ in range(strip.count()+2):
+        send(angle=QPoint(0, 120))
+    assert strip.tabRect(0).x() == initial
+    assert strip.currentIndex() == 0 and changes.count() == 0
+
+
+def test_existing_scroll_buttons_show_hover_press_and_real_disabled_state(strip):
+    right = next(b for b in strip.findChildren(QToolButton) if b.arrowType() == Qt.RightArrow)
+    left = next(b for b in strip.findChildren(QToolButton) if b.arrowType() == Qt.LeftArrow)
+    assert not left.isEnabled() and left.cursor().shape() == Qt.ArrowCursor
+    assert right.isEnabled() and right.cursor().shape() == Qt.PointingHandCursor
+    QTest.mouseMove(strip, QPoint(220, 20))
+    QApplication.processEvents()
+    normal = right.grab().toImage().pixelColor(10, 21)
+    QTest.mouseMove(right, right.rect().center())
+    QApplication.processEvents()
+    hover = right.grab().toImage().pixelColor(10, 21)
+    QTest.mousePress(right, Qt.LeftButton, pos=right.rect().center())
+    QApplication.processEvents()
+    pressed = right.grab().toImage().pixelColor(10, 21)
+    QTest.mouseRelease(right, Qt.LeftButton, pos=right.rect().center())
+    assert normal != hover != pressed
+    assert left.isEnabled() and left.cursor().shape() == Qt.PointingHandCursor
+    check_paint(strip)
+
+
+def test_scroll_hover_is_inset_but_full_button_remains_clickable(strip):
+    right = next(b for b in strip.findChildren(QToolButton) if b.arrowType() == Qt.RightArrow)
+    size = right.size()
+    QTest.mouseMove(right, right.rect().center())
+    QApplication.processEvents()
+    hover = right.grab().toImage()
+    assert hover.pixelColor(2, 21).alpha() > 0
+    assert hover.pixelColor(2, 2).alpha() == 0
+    assert hover.pixelColor(2, size.height() - 3).alpha() == 0
+    for y in (2, size.height() - 3):
+        before = strip.tabRect(0).x()
+        QTest.mouseClick(right, Qt.LeftButton, pos=QPoint(size.width() // 2, y))
+        QApplication.processEvents()
+        assert strip.tabRect(0).x() < before
+    assert right.size() == size
+
+
+def test_selected_rule_tracks_full_body_through_switch_scroll_resize(strip,monkeypatch):
+    def matches():
+        strip.grab()  # drive the existing geometry synchronization path
+        body=strip.content_tab_rect(strip.currentIndex())
+        target=strip._target_line()
+        if strip._tab_viewport().intersects(body):
+            assert target.left()==body.left()+8 and target.width()==max(0,body.width()-16)
+            assert target.top()==9
+        else:assert target.isEmpty()
+    matches()
+    for index in (1,3,0):
+        strip.setCurrentIndex(index);QTest.qWait(280);matches()
+        assert strip._line_state==QPointF(0,1)
+    right=next(b for b in strip._scroll_buttons if b.arrowType()==Qt.RightArrow)
+    for _ in range(4):
+        right.click();QApplication.processEvents();matches()
+    strip.resize(680,43);QApplication.processEvents();matches()
+    strip.set_tabs(['Short','Much longer category title'],1);QTest.qWait(280);matches()
+    assert strip._target_line().width()>38
+    from PySide6.QtCore import QRect
+    monkeypatch.setattr(strip,'content_tab_rect',lambda index:QRect(0,0,12,43))
+    assert strip._target_line().width()==0  # no negative line on an exceptionally narrow body
+
+
+def test_selected_tab_reveal_is_local_bounded_and_interruptible(strip):
+    tabs=strip;tabs.setCurrentIndex(1);target=tabs._target_line()
+    assert tabs._line_state.y()==0
+    offsets=[]
+    for ms in (0,20,60,130,170,210,250):
+        tabs._line_motion.setCurrentTime(ms);image=own_paint(tabs)
+        offsets.append(tabs._line_state.x())
+        assert tabs._line_target==target
+        moving=target.translated(0,tabs._line_state.x())
+        assert moving.top()>=7 and moving.bottom()<=15
+        assert moving.left()==target.left() and moving.width()==target.width()
+    assert min(offsets)<0 and tabs._line_state==QPointF(0,1)
+    for index in (2,0,3):
+        tabs.setCurrentIndex(index)
+        assert tabs._line_target==tabs._target_line() and tabs._line_state.y()==0
+    tabs._line_motion.setCurrentTime(250)
+    assert tabs._line_state==QPointF(0,1)
+
+
+def test_reveal_paints_visible_upward_motion_and_rebound_in_reserved_band(strip):
+    tabs=strip
+    tabs.set_tabs(['One','Two','Three'],2)
+    target=tabs._target_line()
+    tabs._move_line(QPointF(0,0))
+    baseline=own_paint(tabs)
+    offsets=[];opacities=[]
+    # Render every phase, including partial opacity, rather than just endpoints.
+    for ms in (20,40,80,110,150,180,200,230,250):
+        tabs._line_motion.setCurrentTime(ms)
+        offsets.append(tabs._line_state.x());opacities.append(tabs._line_state.y())
+        image=own_paint(tabs)
+        changed=[QPoint(x,y) for y in range(image.height()) for x in range(image.width())
+                 if image.pixel(x,y)!=baseline.pixel(x,y)]
+        assert changed, 'an intermediate reveal frame must actually be painted'
+        assert all(target.left()<=p.x()<=target.right() and 7<=p.y()<15 for p in changed)
+        assert abs((min(p.x() for p in changed)+max(p.x() for p in changed))/2-target.center().x())<=1
+        assert tabs._line_target==target and tabs.currentIndex()==2
+    assert 0<opacities[1]<.8  # the entrance is not already fully opaque at 40ms
+    assert offsets[1]>offsets[3]>offsets[4]  # rising from below the final line
+    assert offsets[4]<0<offsets[6]  # bounded, visible settling rebound
+    assert tabs._line_state==QPointF(0,1)

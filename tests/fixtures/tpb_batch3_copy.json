@@ -1,0 +1,356 @@
+{
+  "baseline": "76a62da",
+  "records": [
+    {
+      "id": "key-01",
+      "previous": "正在扫描表情合集...",
+      "source": "正在扫描表情…",
+      "values": {
+        "zh": "正在扫描表情…",
+        "zh_TW": "正在掃描表情…",
+        "en": "Scanning emotes…",
+        "ja": "スタンプをスキャンしています…"
+      }
+    },
+    {
+      "id": "key-02",
+      "previous": "正在扫描分类 [{folder}]...",
+      "source": "正在扫描分类「{folder}」…",
+      "values": {
+        "zh": "正在扫描分类「{folder}」…",
+        "zh_TW": "正在掃描分類「{folder}」…",
+        "en": "Scanning category “{folder}”…",
+        "ja": "カテゴリ「{folder}」をスキャン中…"
+      }
+    },
+    {
+      "id": "key-03",
+      "previous": "扫描完成",
+      "source": "扫描完成",
+      "values": {
+        "zh": "扫描完成",
+        "zh_TW": "掃描完成",
+        "en": "Scan complete",
+        "ja": "スキャン完了"
+      }
+    },
+    {
+      "id": "key-04",
+      "previous": "未筛选出任何有效的表情合集表情",
+      "source": "未找到可用的表情文件",
+      "values": {
+        "zh": "未找到可用的表情文件",
+        "zh_TW": "找不到可用的表情檔案",
+        "en": "No usable emote files found.",
+        "ja": "利用可能なスタンプファイルが見つかりませんでした。"
+      }
+    },
+    {
+      "id": "key-05",
+      "previous": "共发现 {count} 个有效表情",
+      "source": "找到 {count} 张表情",
+      "values": {
+        "zh": "找到 {count} 张表情",
+        "zh_TW": "找到 {count} 張表情",
+        "en": "Found {count} emotes",
+        "ja": "スタンプ {count} 件を検出"
+      }
+    },
+    {
+      "id": "key-06",
+      "previous": "扫描失败",
+      "source": "扫描失败",
+      "values": {
+        "zh": "扫描失败",
+        "zh_TW": "掃描失敗",
+        "en": "Scan failed",
+        "ja": "スキャン失敗"
+      }
+    },
+    {
+      "id": "key-07",
+      "previous": "正在导出表情...",
+      "source": "正在导出表情…",
+      "values": {
+        "zh": "正在导出表情…",
+        "zh_TW": "正在匯出表情…",
+        "en": "Exporting emotes…",
+        "ja": "スタンプを書き出しています…"
+      }
+    },
+    {
+      "id": "key-08",
+      "previous": "准备导出 {total} 个表情...",
+      "source": "准备导出 {total} 张表情…",
+      "values": {
+        "zh": "准备导出 {total} 张表情…",
+        "zh_TW": "準備匯出 {total} 張表情…",
+        "en": "Preparing to export {total} emotes…",
+        "ja": "スタンプ {total} 件の書き出しを準備中…"
+      }
+    },
+    {
+      "id": "key-09",
+      "previous": "正在处理: {done}/{total} ({percent}%)",
+      "source": "已导出 {done}/{total} 张（{percent}%）",
+      "values": {
+        "zh": "已导出 {done}/{total} 张（{percent}%）",
+        "zh_TW": "已匯出 {done}/{total} 張（{percent}%）",
+        "en": "Exported {done}/{total} emotes ({percent}%)",
+        "ja": "スタンプ {done}/{total} 件を書き出し済み（{percent}%）"
+      }
+    },
+    {
+      "id": "key-10",
+      "previous": "导出已中断",
+      "source": "导出已中断",
+      "values": {
+        "zh": "导出已中断",
+        "zh_TW": "匯出已中斷",
+        "en": "Export stopped",
+        "ja": "書き出しを中断しました"
+      }
+    },
+    {
+      "id": "key-11",
+      "previous": "已由用户手动中断，已导出 {count} 个表情文件",
+      "source": "已停止导出，已导出的 {count} 个文件会保留。",
+      "values": {
+        "zh": "已停止导出，已导出的 {count} 个文件会保留。",
+        "zh_TW": "已停止匯出，已匯出的 {count} 個檔案會保留。",
+        "en": "Export stopped. The {count} files already exported have been kept.",
+        "ja": "書き出しを中断しました。書き出し済みの {count} ファイルは残ります。"
+      }
+    },
+    {
+      "id": "key-12",
+      "previous": "操作出错",
+      "source": "操作出错",
+      "values": {
+        "zh": "操作出错",
+        "zh_TW": "操作發生錯誤",
+        "en": "An error occurred",
+        "ja": "エラーが発生しました"
+      }
+    },
+    {
+      "id": "key-13",
+      "previous": "当前有正在进行的操作，请稍候或先中止当前任务！",
+      "source": "已有任务正在进行，请等待完成或先停止该任务。",
+      "values": {
+        "zh": "已有任务正在进行，请等待完成或先停止该任务。",
+        "zh_TW": "已有工作正在執行，請等待完成或先停止該工作。",
+        "en": "A task is already running. Wait for it to finish or stop it first.",
+        "ja": "現在タスクを実行中です。完了を待つか、先に停止してください。"
+      }
+    },
+    {
+      "id": "key-14",
+      "previous": "正在解析 Telegram 表情合集...",
+      "source": "正在获取 Telegram 表情合集信息…",
+      "values": {
+        "zh": "正在获取 Telegram 表情合集信息…",
+        "zh_TW": "正在取得 Telegram 表情合集資訊…",
+        "en": "Fetching Telegram collection information…",
+        "ja": "Telegram スタンプパックの情報を取得中…"
+      }
+    },
+    {
+      "id": "key-15",
+      "previous": "正在解析表情合集 [{link}] ...",
+      "source": "正在获取表情合集信息：{link}",
+      "values": {
+        "zh": "正在获取表情合集信息：{link}",
+        "zh_TW": "正在取得表情合集資訊：{link}",
+        "en": "Fetching collection information: {link}",
+        "ja": "スタンプパックの情報を取得中：{link}"
+      }
+    },
+    {
+      "id": "key-16",
+      "previous": "解析完成",
+      "source": "合集信息已获取",
+      "values": {
+        "zh": "合集信息已获取",
+        "zh_TW": "已取得合集資訊",
+        "en": "Collection information loaded",
+        "ja": "スタンプパック情報を取得しました"
+      }
+    },
+    {
+      "id": "key-17",
+      "previous": "已加载《{title}》，共 {total} 张表情",
+      "source": "已找到「{title}」，共 {total} 张表情",
+      "values": {
+        "zh": "已找到「{title}」，共 {total} 张表情",
+        "zh_TW": "已找到「{title}」，共 {total} 張表情",
+        "en": "Found “{title}” ({total} emotes)",
+        "ja": "「{title}」にスタンプ {total} 件を確認しました"
+      }
+    },
+    {
+      "id": "key-18",
+      "previous": "正在导出 Telegram 表情...",
+      "source": "正在导出 Telegram 表情…",
+      "values": {
+        "zh": "正在导出 Telegram 表情…",
+        "zh_TW": "正在匯出 Telegram 表情…",
+        "en": "Exporting Telegram emotes…",
+        "ja": "Telegram スタンプを書き出しています…"
+      }
+    },
+    {
+      "id": "key-19",
+      "previous": "准备导出 {count} 张表情",
+      "source": "准备导出 {count} 张表情",
+      "values": {
+        "zh": "准备导出 {count} 张表情",
+        "zh_TW": "準備匯出 {count} 張表情",
+        "en": "Preparing to export {count} emotes",
+        "ja": "スタンプ {count} 件の書き出しを準備中"
+      }
+    },
+    {
+      "id": "051-title",
+      "source": "导出完成",
+      "values": {
+        "zh": "导出完成",
+        "zh_TW": "匯出完成",
+        "en": "Export complete",
+        "ja": "書き出し完了"
+      },
+      "context": "tg_file_export"
+    },
+    {
+      "id": "051-body",
+      "source": "已导出 {success} 张表情。",
+      "values": {
+        "zh": "已导出 {success} 张表情。",
+        "zh_TW": "已匯出 {success} 張表情。",
+        "en": "Exported {success} emotes.",
+        "ja": "スタンプ {success} 件を書き出しました。"
+      },
+      "context": null
+    },
+    {
+      "id": "052-title",
+      "source": "导出部分完成",
+      "values": {
+        "zh": "导出部分完成",
+        "zh_TW": "匯出部分完成",
+        "en": "Export partially completed",
+        "ja": "一部の書き出しが完了しました"
+      },
+      "context": "tg_file_export"
+    },
+    {
+      "id": "052-body",
+      "source": "已导出 {success} 张，{failed} 张导出失败；已导出的文件会保留。",
+      "values": {
+        "zh": "已导出 {success} 张，{failed} 张导出失败；已导出的文件会保留。",
+        "zh_TW": "已匯出 {success} 張，{failed} 張匯出失敗；已匯出的檔案會保留。",
+        "en": "Exported {success} emotes; {failed} failed. Exported files are kept.",
+        "ja": "スタンプ {success} 件を書き出し、{failed} 件は失敗しました。書き出し済みのファイルは残ります。"
+      },
+      "context": null
+    },
+    {
+      "id": "053-title",
+      "source": "导出失败",
+      "values": {
+        "zh": "导出失败",
+        "zh_TW": "匯出失敗",
+        "en": "Export failed",
+        "ja": "書き出しに失敗しました"
+      },
+      "context": "tg_file_export"
+    },
+    {
+      "id": "053-body",
+      "source": "没有表情成功导出，{failed} 张失败。请查看日志后重试。",
+      "values": {
+        "zh": "没有表情成功导出，{failed} 张失败。请查看日志后重试。",
+        "zh_TW": "沒有表情成功匯出，{failed} 張失敗。請查看記錄後重試。",
+        "en": "No emotes were exported; {failed} failed. Check the log before retrying.",
+        "ja": "スタンプは書き出せませんでした。{failed} 件が失敗しました。ログを確認してから再試行してください。"
+      },
+      "context": null
+    },
+    {
+      "id": "ocr-092",
+      "previous": "识别完成",
+      "source": "识别处理结束",
+      "values": {
+        "zh": "识别处理结束",
+        "zh_TW": "識別處理結束",
+        "en": "Recognition task finished",
+        "ja": "認識処理が終了しました"
+      }
+    },
+    {
+      "id": "ocr-096",
+      "previous": null,
+      "source": "识别来源不可用，任务待恢复",
+      "values": {
+        "zh": "识别来源不可用，任务待恢复",
+        "zh_TW": "識別來源無法使用，工作待恢復",
+        "en": "Recognition paused: source unavailable",
+        "ja": "認識元を利用できません。再開待ち"
+      }
+    },
+    {
+      "id": "ocr-097",
+      "previous": "已完成 {done} / {total} 张\n失败 {failed} 张 · 跳过 {skipped} 张",
+      "source": "已处理 {done} / {total} 张\n失败 {failed} 张 · 跳过 {skipped} 张",
+      "values": {
+        "zh": "已处理 {done} / {total} 张\n失败 {failed} 张 · 跳过 {skipped} 张",
+        "zh_TW": "已處理 {done} / {total} 張\n失敗 {failed} 張 · 略過 {skipped} 張",
+        "en": "Processed {done} / {total} emotes\nFailed: {failed} · Skipped: {skipped}",
+        "ja": "処理済み {done} / {total} 枚\n失敗 {failed} 枚 · スキップ {skipped} 枚"
+      }
+    },
+    {
+      "id": "ocr-098",
+      "previous": "部分表情未能识别，请查看详情或重试。",
+      "source": "文字识别出现问题，请查看详情。",
+      "values": {
+        "zh": "文字识别出现问题，请查看详情。",
+        "zh_TW": "文字識別發生問題，請查看詳細資料。",
+        "en": "There was a problem with text recognition. View details.",
+        "ja": "文字認識で問題が発生しました。詳細を確認してください。"
+      }
+    },
+    {
+      "id": "batch-078",
+      "previous": "批量处理结束：成功 {success} 包，失败 {failed} 包，取消 {cancelled} 包。",
+      "source": "批量处理结束：已生成 {success} 个 ZIP，失败 {failed} 包，取消 {cancelled} 包；具体跳过项见各包详情。",
+      "values": {
+        "zh": "批量处理结束：已生成 {success} 个 ZIP，失败 {failed} 包，取消 {cancelled} 包；具体跳过项见各包详情。",
+        "zh_TW": "批次處理結束：已產生 {success} 個 ZIP，失敗 {failed} 包，取消 {cancelled} 包；略過項目請查看各包詳細資料。",
+        "en": "Batch finished: {success} ZIPs created, {failed} packs failed, {cancelled} cancelled. Check each pack for skipped emotes.",
+        "ja": "一括処理が終了しました。ZIP を {success} 件作成、失敗 {failed} 件、キャンセル {cancelled} 件。スキップされたスタンプは各パックの詳細で確認できます。"
+      }
+    },
+    {
+      "id": "qq-folder-naming",
+      "source": "导出文件夹优先以“昵称（QQ 号）”命名；无法获取昵称时使用 QQ 号。",
+      "values": {
+        "zh": "导出文件夹优先以“昵称（QQ 号）”命名；无法获取昵称时使用 QQ 号。",
+        "zh_TW": "匯出資料夾優先以「暱稱（QQ 號）」命名；無法取得暱稱時使用 QQ 號。",
+        "en": "Export folders are named with the nickname (QQ number) when available, or the QQ number if the nickname cannot be retrieved.",
+        "ja": "出力フォルダー名には、取得できた場合は「ニックネーム（QQ番号）」を使用し、取得できない場合はQQ番号を使用します。"
+      }
+    }
+  ],
+  "help_binding": {
+    "previous": "使用帮助：\n\n1. 使用时请确保已登录过QQ并加载过全部表情合集\n2. 提取的时候会自动创建以QQ号开头的文件夹\n3. 选择一个账号后，点击'扫描表情合集预览'获取表情合集，然后选择表情，最后'导出选中'或'导出全部'。\n4. 导出的表情合集比账号内实际的表情合集要多属正常现象，因为QQ会缓存一些表情合集\n\n  注意：如果没有找到任何用户，请确保QQ已经在本地登录过。并确保路径正确\n  可以尝试手动指定聊天数据文件夹的所在位置",
+    "legacy_source": "使用帮助：\n\n1. 使用时请确保已登录过QQ并加载过全部表情合集\n2. 提取的时候会自动创建以QQ号开头的文件夹\n3. 选择一个账号后，点击'扫描表情合集预览'获取表情合集，然后选择表情，最后'导出选中表情'或'导出全部表情'。\n4. 导出的表情合集比账号内实际的表情合集要多属正常现象，因为QQ会缓存一些表情合集\n\n  注意：如果没有找到任何用户，请确保QQ已经在本地登录过。并确保路径正确\n  可以尝试手动指定聊天数据文件夹的所在位置",
+    "source": "使用帮助：\n\n1. 使用时请确保已登录过QQ并加载过全部表情合集\n2. 导出文件夹优先以“昵称（QQ 号）”命名；无法获取昵称时使用 QQ 号。\n3. 选择一个账号后，点击'扫描表情合集预览'获取表情合集，然后选择表情，最后'导出选中'或'导出全部'。\n4. 导出的表情合集比账号内实际的表情合集要多属正常现象，因为QQ会缓存一些表情合集\n\n  注意：如果没有找到任何用户，请确保QQ已经在本地登录过。并确保路径正确\n  可以尝试手动指定聊天数据文件夹的所在位置",
+    "values": {
+      "zh": "使用帮助：\n\n1. 使用时请确保已登录过QQ并加载过全部表情合集\n2. 导出文件夹优先以“昵称（QQ 号）”命名；无法获取昵称时使用 QQ 号。\n3. 选择一个账号后，点击'扫描表情合集预览'获取表情合集，然后选择表情，最后'导出选中'或'导出全部'。\n4. 导出的表情合集比账号内实际的表情合集要多属正常现象，因为QQ会缓存一些表情合集\n\n  注意：如果没有找到任何用户，请确保QQ已经在本地登录过。并确保路径正确\n  可以尝试手动指定聊天数据文件夹的所在位置",
+      "zh_TW": "使用說明：\n\n1. 請確認已登入 QQ 並載入所有表情合集。\n2. 匯出資料夾優先以「暱稱（QQ 號）」命名；無法取得暱稱時使用 QQ 號。\n3. 選擇帳號後按下「掃描表情合集預覽」，選取表情，再按下「匯出所選」或「匯出全部」。\n4. 擷取到的表情合集多於帳號目前顯示的數量屬正常情況，因為 QQ 會快取部分表情合集。\n\n注意：若找不到任何使用者，請確認 QQ 曾在本機登入且路徑正確。\n也可以手動指定聊天資料資料夾。",
+      "en": "Help:\n\n1. Make sure you have logged in to QQ and loaded all emote packs.\n2. Export folders are named with the nickname (QQ number) when available, or the QQ number if the nickname cannot be retrieved.\n3. Select an account, click 'Scan Emote Preview', select emotes, then click 'Export Selected' or 'Export All'.\n4. It is normal to find more emotes than are currently shown in the account because QQ caches some packs.\n\nNote: If no users are found, make sure QQ has been logged in locally and the path is correct.\nYou can also select the chat data directory manually.",
+      "ja": "ヘルプ：\n\n1. QQにログインし、すべてのスタンプパックを読み込んでください。\n2. 出力フォルダー名には、取得できた場合は「ニックネーム（QQ番号）」を使用し、取得できない場合はQQ番号を使用します。\n3. アカウントを選択し、「スタンプをスキャンしてプレビュー」をクリックしてからスタンプを選択し、「選択項目をエクスポート」または「すべてエクスポート」をクリックします。\n4. QQが一部のパックをキャッシュするため、アカウントに表示される数より多く見つかる場合があります。\n\nユーザーが見つからない場合は、QQにローカルでログイン済みで、パスが正しいことを確認してください。\nチャットデータディレクトリを手動で指定することもできます。"
+    }
+  }
+}

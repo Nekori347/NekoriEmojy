@@ -50,6 +50,26 @@ def test_nodes_memberships_mixed_order_survive_reconnect_and_library_move(tmp_pa
     assert reconnected.get_category_icon('First') == '◇'
 
 
+def test_batch_assignment_keeps_copy_move_and_mixed_order_semantics(tmp_path):
+    storage = storage_at(tmp_path)
+    source = storage.create_node('Source')
+    target = storage.create_node('Target')
+    child = storage.create_node('Child', target)
+    paths = [storage.save_file(str(image_file(tmp_path / f'{i}.png', color)),
+                               target=ImportTarget(source))[0]
+             for i, color in enumerate(('red', 'green', 'blue'))]
+    ids = [storage.index.resource(path)['id'] for path in paths]
+    assert storage.move_resources_to(paths[:1], target, copy=True) == 1
+    assert storage.move_resources_to(paths, target, copy=True, position=0) == 2
+    assert [(entry['kind'], entry['id']) for entry in storage.index.content(target)] == [
+        ('resource', ids[0]), ('resource', ids[1]), ('resource', ids[2]), ('node', child)]
+    assert [entry['id'] for entry in storage.index.content(source)] == ids
+    assert storage.move_resources_to(paths, target, copy=False, source_node=source) == 0
+    assert not storage.index.content(source)
+    assert [entry['id'] for entry in storage.index.content(target)[:3]] == ids
+    assert len(storage.index.resources()) == 3
+
+
 def test_missing_rebind_search_remove_and_recycle_semantics(tmp_path):
     storage = storage_at(tmp_path)
     node = storage.index.create_node('Memes')

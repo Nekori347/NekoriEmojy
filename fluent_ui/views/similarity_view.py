@@ -14,7 +14,7 @@ from fluent_ui.components.softframe import SoftframeSlider as Slider
 from fluent_ui.components.softframe import SoftframeProgress as ProgressBar
 from fluent_ui.components.controls import PushButton, PrimaryPushButton, ComboBox, CheckBox
 
-from services.i18n import t
+from services.i18n import t, bind_text, i18n_engine
 from services.similarity import scan, group_features, ScanCancelled
 from fluent_ui.components.exchange_task_dialog import ExchangeWorker
 from fluent_ui.visual import colors
@@ -250,6 +250,24 @@ class SimilarityDialog(QDialog):
         QApplication.instance().aboutToQuit.connect(self.shutdown)
         self.render_page()
         self.apply_theme()
+        self._set_status('选择范围后点击开始扫描。')
+        i18n_engine.language_changed.connect(self._refresh_texts)
+
+    def _set_status(self, source, *, detail='', **values):
+        self._status_source, self._status_values, self._status_detail = source, values, detail
+        self._refresh_status()
+
+    def _refresh_status(self):
+        text = str(t(self._status_source).format(**self._status_values)) + self._status_detail
+        if self._status_source == '找到 {groups} 组疑似相似表情，共涉及 {entries} 张表情。' and self.failures:
+            text += '\n' + t('有 {failed} 个文件无法读取，已跳过。').format(failed=len(self.failures))
+        self.status.setText(text)
+
+    def _refresh_texts(self, *_):
+        # This dialog owns dynamic status/counts; fixed construction bindings must
+        # not replay their initial values over an active task or selection.
+        self._refresh_status()
+        self.update_selection()
 
     def apply_theme(self):
         from qfluentwidgets import qconfig
@@ -268,7 +286,7 @@ class SimilarityDialog(QDialog):
         self.groups, self.entries, self.failures = [], [], []
         self.selected.clear()
         self.page = 0
-        self.status.setText(t('范围已变更，请点击开始扫描。'))
+        self._set_status('范围已变更，请点击开始扫描。')
         self.render_page()
 
     def refresh_categories(self):
@@ -311,7 +329,8 @@ class SimilarityDialog(QDialog):
         self.page = 0
         self.render_page()
         self.set_busy(True)
-        self.status.setText(t('正在扫描…') if features is None else t('正在重新匹配…'))
+        self.status.setToolTip('')
+        self._set_status('正在扫描…' if features is None else '正在重新匹配…')
         self.feedback_host.action_button.setEnabled(True)
         self.feedback_host.task(self.status.text(), cancel=self.cancel)
         self.worker = SimilarityWorker(paths, os.path.join(self.storage.data_dir, 'cache', 'similarity-v1.db'),
@@ -331,7 +350,7 @@ class SimilarityDialog(QDialog):
         self.next.setEnabled(not busy and (self.page + 1) * self.PAGE_SIZE < len(self.entries))
 
     def on_progress(self, phase, current, total):
-        self.status.setText(f'{t(phase)}：{current} / {total}')
+        self._set_status(phase, detail=f'：{current} / {total}')
         self.feedback_host.update_task(current, total, self.status.text())
 
     def worker_finished(self):
@@ -340,22 +359,21 @@ class SimilarityDialog(QDialog):
         self.set_busy(False)
         if worker.error:
             self.features = None
-            self.status.setText(t('扫描失败：') + worker.error)
+            self._set_status('扫描失败：', detail=worker.error)
         elif worker.cancelled:
             self.features = None
-            self.status.setText(t('已取消，已完成的特征缓存可在下次扫描时复用。'))
+            self._set_status('已取消，已完成的特征缓存可在下次扫描时复用。')
         else:
             self.features = worker.features
             self.groups = worker.groups
             self.failures = worker.failures or self.failures
             self.entries = [(g, i) for g, group in enumerate(self.groups) for i in range(len(group))]
-            self.status.setText(t('扫描完成：') + f'{len(self.groups)} ' + t('组疑似相似表情')
-                                + f' · {len(self.entries)} ' + t('张表情')
-                                + (f' · {len(self.failures)} ' + t('个文件无法读取，已跳过') if self.failures else ''))
+            self._set_status('找到 {groups} 组疑似相似表情，共涉及 {entries} 张表情。',
+                             groups=len(self.groups), entries=len(self.entries))
             self.status.setToolTip('\n'.join(f'{os.path.basename(p)}: {error}' for p, error in self.failures[:20]))
-            self.scan_button.setText(t('重新扫描'))
+            bind_text(self.scan_button, '重新扫描')
         self.feedback_host.finish(self.status.text(), self.status.toolTip(),
-                                  outcome="error" if worker.error else "partial" if self.failures else "success")
+                                  outcome="error" if worker.error else "cancelled" if worker.cancelled else "partial" if self.failures else "success")
         worker.deleteLater()
         self.render_page()
         if self.closing:
@@ -365,7 +383,7 @@ class SimilarityDialog(QDialog):
         if self.worker:
             self.worker.requestInterruption()
             self.cancel_button.setEnabled(False)
-            self.status.setText(t('正在取消…'))
+            self._set_status('正在取消…')
             self.feedback_host.action_button.setEnabled(False)
 
     def render_page(self):
@@ -477,7 +495,7 @@ class SimilarityDialog(QDialog):
         for picture in self.pictures:
             picture.stop()
         self.set_busy(True)
-        self.status.setText(t('正在删除所选表情…'))
+        self._set_status('正在删除所选表情…')
         self.feedback_host.task(self.status.text(), total=len(paths))
         try:
             self.delete_worker = ExchangeWorker(
@@ -493,11 +511,11 @@ class SimilarityDialog(QDialog):
                 self.delete_worker = None
             self.deleting = False
             self.set_busy(False)
-            self.status.setText(t('删除失败：') + str(error))
+            self._set_status('删除失败：', detail=str(error))
             self.feedback_host.finish(self.status.text(), outcome='error')
 
     def deletion_progress(self, current, total, message):
-        self.status.setText(f'{message} {current} / {total}')
+        self._set_status('正在删除所选表情…', detail=f' {current} / {total}')
         self.feedback_host.update_task(current, total, self.status.text())
 
     def deletion_finished(self):
@@ -524,7 +542,7 @@ class SimilarityDialog(QDialog):
             self.page = min(self.page, max(0, (len(self.entries) - 1) // self.PAGE_SIZE))
             self.render_page()
             details = str(error) if error else '\n'.join(result.get('failure_details', {}).values())
-            self.status.setText(t('删除失败：') + (details or str(result.get('failed'))))
+            self._set_status('删除失败：', detail=details or str(result.get('failed')))
             self.feedback_host.finish(self.status.text(), details, outcome='partial' if result.get('deleted') else 'error')
         else:
             self.feedback_host.finish()

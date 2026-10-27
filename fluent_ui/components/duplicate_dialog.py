@@ -1,11 +1,33 @@
 """Compare the real duplicate candidates, streaming animated frames with Pillow."""
 from pathlib import Path
-from PySide6.QtCore import Qt,QTimer
-from PySide6.QtGui import QImage,QPixmap
+from PySide6.QtCore import Qt,QTimer,QRectF
+from PySide6.QtGui import QImage,QPixmap,QPen,QColor
 from PySide6.QtWidgets import QWidget,QVBoxLayout,QHBoxLayout,QLabel
 from services.i18n import t,translated
 from fluent_ui.components.hover_preview import PreviewImage
 from fluent_ui.components.dialogs import NekoriDialog
+
+from fluent_ui.components.controls import ButtonPaint, CheckBox
+from fluent_ui import visual
+
+
+class DuplicateApplyCheckBox(ButtonPaint, CheckBox):
+    """Only this row uses the shared input-origin focus ring, without a full-row dot box."""
+    def __init__(self,parent):
+        super().__init__(parent)
+        self._init_surface()
+        self.setFocusPolicy(Qt.StrongFocus)
+
+    def paintEvent(self,event):
+        CheckBox.paintEvent(self,event)
+
+    def focus_indicator_visible(self):
+        return self.keyboard_focus_visible()
+
+    def paint_focus_indicator(self,painter):
+        width=min(self.width()-4,self.fontMetrics().horizontalAdvance(self.text())+34)
+        painter.setPen(QPen(QColor(visual.accent()),1));painter.setBrush(Qt.NoBrush)
+        painter.drawRoundedRect(QRectF(2,2,max(0,width),max(0,self.height()-4)),4,4)
 
 
 class CandidatePreview(PreviewImage):
@@ -65,3 +87,57 @@ class DuplicateDialog(NekoriDialog):
     def _finish(self,decide):
         for preview in self.previews:preview.stop()
         decide(self.choice)
+
+
+class DuplicateBatchDialog(NekoriDialog):
+    """One batch decision window; decode only the currently compared pair."""
+    def __init__(self,parent,candidates,storage,decide):
+        super().__init__(parent,t('处理重复表情'))
+        self.setModal(False);self.setWindowModality(Qt.NonModal);self.resize(760,510)
+        self.candidates=candidates;self.storage=storage;self.choices=[];self.previews=[]
+        self.counter=QLabel(self);self.body.addWidget(self.counter)
+        self.comparison=QHBoxLayout();self.body.addLayout(self.comparison)
+        self.apply_all=DuplicateApplyCheckBox(self);self.body.addWidget(self.apply_all)
+        self.add_button('跳过此项',on_click=lambda:self.select('skip'))
+        self.add_button('保留两者',on_click=lambda:self.select('keep'))
+        self.add_button('使用已存在文件导入',role='primary',on_click=lambda:self.select('reuse'))
+        self.add_button('跳过剩余重复项',on_click=self.reject)
+        self.finished.connect(lambda *_:self._finish_batch(decide))
+        self.show_candidate()
+
+    def show_candidate(self):
+        for preview in self.previews:preview.stop()
+        self.previews=[]
+        while self.comparison.count():
+            item=self.comparison.takeAt(0)
+            if item.widget():item.widget().hide();item.widget().deleteLater()
+        index=len(self.choices);candidate=self.candidates[index]
+        self.counter.setText(t('重复项 {current} / {total}').format(current=index+1,total=len(self.candidates)))
+        self.apply_all.setText(t('全部应用（{count}）').format(count=len(self.candidates)-index))
+        self.apply_all.setChecked(False)
+        for title,source in [('已存在的表情',candidate.existing),('准备导入的新文件',candidate.source)]:
+            column=QWidget(self);layout=QVBoxLayout(column)
+            layout.setAlignment(Qt.AlignTop)
+            label=QLabel(t(title),column);layout.addWidget(label)
+            preview=CandidatePreview(source,column);self.previews.append(preview);layout.addWidget(preview,1)
+            preview.setFixedHeight(240)
+            if title=='已存在的表情':
+                record=self.storage.index.resource(candidate.existing)
+                if record and record['display_name']!=Path(candidate.existing).name:
+                    preview.description=record['display_name']+'\n'+preview.description
+            info=QLabel(preview.description,column);info.setWordWrap(True);layout.addWidget(info)
+            if title=='已存在的表情':
+                categories=self.storage.get_categories_by_image(candidate.existing)
+                category=QLabel(t('所属分类：{categories}').format(categories='、'.join(categories) or t('未分类')),column)
+                category.setWordWrap(True);layout.addWidget(category)
+            self.comparison.addWidget(column,1,Qt.AlignTop)
+
+    def select(self,choice):
+        self.choices.extend([choice]*(len(self.candidates)-len(self.choices)) if self.apply_all.isChecked() else [choice])
+        if len(self.choices)==len(self.candidates):self.accept()
+        else:self.show_candidate()
+
+    def _finish_batch(self,decide):
+        for preview in self.previews:preview.stop()
+        self.choices.extend(['skip']*(len(self.candidates)-len(self.choices)))
+        decide(self.choices)

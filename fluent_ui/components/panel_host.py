@@ -1,10 +1,11 @@
 """A movable panel and the shared thin-line / wide-hit-target splitter."""
 from enum import Enum
-from PySide6.QtCore import Qt, QEvent, QRect, QRectF, QPointF, QSize, QVariantAnimation
-from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath, QMouseEvent, QRegion
+from PySide6.QtCore import Qt, QEvent, QRect, QRectF, QPoint, QPointF, QSize, Signal, QSignalBlocker, QVariantAnimation, QAbstractAnimation
+from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath, QRegion
 from PySide6.QtWidgets import QAbstractButton, QApplication, QSplitter, QSplitterHandle, QVBoxLayout, QWidget, QSizePolicy
 from fluent_ui.icons import Icon as FIF
 from fluent_ui import visual
+from fluent_ui.components.controls import ButtonPaint, pointer_hits, focus_input
 from services.i18n import t, i18n_engine
 
 
@@ -43,10 +44,12 @@ def paint_dock_chevron(painter, points, active=False):
     painter.drawPath(path)
 
 
-class EdgeDockPanelChrome(QAbstractButton):
-    """Collapsed identity: the entire available rail is one expand action."""
-    def __init__(self, panel):
+class EdgeDockPanelChrome(ButtonPaint, QAbstractButton):
+    """One transparent linear action, with identity on the collapsed rail."""
+    def __init__(self, panel, *, expanded=False):
         super().__init__(panel)
+        self.expanded = expanded
+        self._init_surface()
         self.panel = panel
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setFocusPolicy(Qt.TabFocus)
@@ -57,39 +60,57 @@ class EdgeDockPanelChrome(QAbstractButton):
         self.refresh_text()
 
     def refresh_text(self, *_):
-        self.setToolTip(t('展开标签'))
-        self.setAccessibleName(t('展开标签'))
+        self.setToolTip(t('收起标签' if self.expanded else '展开标签'))
+        self.setAccessibleName(self.toolTip())
 
     def sizeHint(self):
         extent = self.panel.collapsed_extent()
         return QSize(extent, extent)
 
     def chevron_points(self):
-        return dock_chevron_points(self.rect(), self.panel._placement, expanded=False)
+        return dock_chevron_points(self.rect(), self.panel._placement, expanded=self.expanded)
+
+    def _action_hovered(self):
+        return pointer_hits(self) or (self.expanded and self.panel.header_action_hovered())
+
+    def _settle_hover(self):
+        # Same ButtonPaint lifecycle, with the header's existing action area.
+        hovered=self._action_hovered()
+        self._hover_animation.stop();self._set_hover(float(hovered))
+        if not hovered:self.setDown(False)
 
     def paintEvent(self, event):
         p = QPainter(self)
         c = visual.colors()
-        if self.underMouse() or self.isDown() or self.hasFocus():
-            p.fillRect(self.rect(), QColor(c['surface_selected'] if self.isDown() else c['surface_hover']))
-        side = self.panel.collapsed_metrics.icon_size
-        r = QRect(0, 0, side, side)
-        # Same identity and leading alignment on both axes.
-        inset = self.panel.collapsed_metrics.edge_padding
-        r.moveTo(inset if self.panel._collapsed_horizontal else (self.width()-side)//2,
-                 (self.height()-side)//2 if self.panel._collapsed_horizontal else inset)
-        FIF.TAG.render(p, r, fill=c['text_primary'])
-        flow = getattr(self.panel, 'flow', None)
-        if flow is not None and flow.active_filters:
-            p.setPen(QPen(QColor(c['accent']), 3, Qt.SolidLine, Qt.RoundCap))
-            if self.panel._collapsed_horizontal:
-                p.drawLine(r.left(),self.height()-4,r.right(),self.height()-4)
+        active = self._action_hovered() or self.isDown() or self.keyboard_focus_visible()
+        p.setRenderHint(QPainter.Antialiasing)
+        points=self.chevron_points();center=self.rect().center()
+        path=QPainterPath(points[0])
+        for point in points[1:]:path.lineTo(point)
+        rules=QPainterPath()
+        # The original short rules rotate together with the directional mark.
+        for start,end in ((-28,-9),(9,28)):
+            if self.panel._placement.horizontal:
+                rules.moveTo(center.x()+start,center.y());rules.lineTo(center.x()+end,center.y())
             else:
-                p.drawLine(4,r.top(),4,r.bottom())
-        paint_dock_chevron(p, self.chevron_points(), self.underMouse() or self.hasFocus())
-        if self.hasFocus():
-            p.setPen(QPen(QColor(c['accent']), visual.LINE_WIDTH))
-            p.drawRect(self.rect().adjusted(1, 1, -2, -2))
+                rules.moveTo(center.x(),center.y()+start);rules.lineTo(center.x(),center.y()+end)
+        color=QColor(c['accent' if active else 'text_secondary'])
+        if active:
+            glow=QColor(color);glow.setAlpha(52 if self.isDown() else 28)
+            p.setPen(QPen(glow,5 if self.isDown() else 4,Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin));p.drawPath(path);p.drawPath(rules)
+        p.setPen(QPen(color,visual.COMPACT_CONTROLS.chevron_stroke,Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin));p.drawPath(rules)
+        paint_dock_chevron(p,points,active)
+        if not self.expanded:
+            side=self.panel.collapsed_metrics.icon_size
+            r=QRect(0,0,side,side)
+            inset=self.panel.collapsed_metrics.edge_padding
+            r.moveTo(inset if self.panel._collapsed_horizontal else (self.width()-side)//2,
+                     (self.height()-side)//2 if self.panel._collapsed_horizontal else (30-side)//2)
+            FIF.TAG.render(p,r,fill=c['text_primary'])
+            flow=getattr(self.panel,'flow',None)
+            if flow is not None and flow.active_filters:
+                p.setPen(QPen(QColor(c['accent']),2,Qt.SolidLine,Qt.RoundCap))
+                p.drawLine(r.bottomLeft()+QPoint(0,2),r.bottomRight()+QPoint(0,2))
 
     def enterEvent(self, event):
         super().enterEvent(event)
@@ -101,111 +122,58 @@ class EdgeDockPanelChrome(QAbstractButton):
 
 
 class ResizeHandle(QSplitterHandle):
-    def __init__(self, orientation, parent):
-        super().__init__(orientation, parent)
-        self.setAttribute(Qt.WA_Hover)
-        self.setMouseTracking(True)
-        self._ear_press = None
-        self._dragging = False
-        self._ear_hover = False
-        self.setCursor(Qt.SplitHCursor if orientation == Qt.Horizontal else Qt.SplitVCursor)
+    """Only resize here; the panel header owns its collapse command."""
+    def __init__(self,orientation,parent):
+        super().__init__(orientation,parent)
+        self.setAttribute(Qt.WA_Hover);self.setMouseTracking(True)
+        self._dragging=False;self._keyboard_focus=False;self._focus_input=focus_input()
+        self.setCursor(Qt.SplitHCursor if orientation==Qt.Horizontal else Qt.SplitVCursor)
 
     @property
-    def dock_host(self):
-        return getattr(self.splitter(), 'dock_host', None)
+    def dock_host(self):return getattr(self.splitter(),'dock_host',None)
 
-    def ear_rect(self, hit=False):
-        m = visual.COMPACT_CONTROLS
-        length = max(60,m.ear_hit_length) if hit else m.ear_length
-        r = QRect(0, 0, self.width(), length) if self.orientation() == Qt.Horizontal else QRect(0, 0, length, self.height())
-        r.moveCenter(self.rect().center())
-        return r.intersected(self.rect())
+    def ear_rect(self,hit=False):
+        length=max(60,visual.COMPACT_CONTROLS.ear_hit_length) if hit else visual.COMPACT_CONTROLS.ear_length
+        r=QRect(0,0,self.width(),length) if self.orientation()==Qt.Horizontal else QRect(0,0,length,self.height())
+        r.moveCenter(self.rect().center());return r.intersected(self.rect())
 
-    def chevron_points(self):
-        host = self.dock_host
-        if not host:
-            return []
-        return dock_chevron_points(self.ear_rect(), host.placement, expanded=True)
+    def mousePressEvent(self,event):
+        self._keyboard_focus=False;self._dragging=event.button()==Qt.LeftButton
+        super().mousePressEvent(event);self.update()
 
-    def mousePressEvent(self, event):
-        self._dragging = False
-        if self.dock_host and event.button() == Qt.LeftButton and self.ear_rect(True).contains(event.position().toPoint()):
-            self._ear_press = QMouseEvent(event)
-            event.accept()
-            return
-        super().mousePressEvent(event)
+    def mouseMoveEvent(self,event):
+        super().mouseMoveEvent(event);self.update()
 
-    def mouseMoveEvent(self, event):
-        if not self.isEnabled():
-            return
-        self._ear_hover=bool(self.dock_host and self.ear_rect(True).contains(event.position().toPoint()))
-        self.update()
-        if self._ear_press is not None:
-            if (event.position()-self._ear_press.position()).manhattanLength() < QApplication.startDragDistance():
-                return
-            super().mousePressEvent(self._ear_press)
-            self._ear_press = None
-            self._dragging = True
-        self.setCursor(Qt.PointingHandCursor if self.dock_host and not self._dragging and self.ear_rect(True).contains(event.position().toPoint())
-                       else Qt.SplitHCursor if self.orientation() == Qt.Horizontal else Qt.SplitVCursor)
-        super().mouseMoveEvent(event)
+    def mouseReleaseEvent(self,event):
+        self._dragging=False;super().mouseReleaseEvent(event);self.update()
 
-    def mouseReleaseEvent(self, event):
-        if self._ear_press is not None and event.button() == Qt.LeftButton:
-            self._ear_press = None
-            if self.ear_rect(True).contains(event.position().toPoint()):
-                self.dock_host.set_expanded(False)
-            event.accept()
-            return
-        self._dragging = False
-        super().mouseReleaseEvent(event)
+    def focusInEvent(self,event):
+        self._keyboard_focus=event.reason() in (Qt.TabFocusReason,Qt.BacktabFocusReason,Qt.ShortcutFocusReason)
+        super().focusInEvent(event);self.update()
 
-    def leaveEvent(self,event):
-        self._ear_hover=False;self.update()
-        super().leaveEvent(event)
+    def focusOutEvent(self,event):
+        self._keyboard_focus=False;super().focusOutEvent(event);self.update()
 
-    def keyPressEvent(self, event):
-        if self.dock_host and event.key() in (Qt.Key_Space, Qt.Key_Return):
-            self.dock_host.set_expanded(False)
-            self.dock_host.panel.chrome.setFocus()
-            event.accept()
-            return
-        super().keyPressEvent(event)
+    def keyPressEvent(self,event):
+        self._keyboard_focus=True;super().keyPressEvent(event);self.update()
 
-    def event(self, event):
+    def event(self,event):
+        result=super().event(event)
+        if event.type() in (QEvent.UngrabMouse,QEvent.Hide,QEvent.WindowDeactivate) or (event.type()==QEvent.EnabledChange and not self.isEnabled()):
+            self._dragging=False;self.update()
         if event.type() in (QEvent.HoverEnter,QEvent.HoverMove,QEvent.HoverLeave):
-            self._ear_hover=bool(self.dock_host and event.type()!=QEvent.HoverLeave and self.ear_rect(True).contains(event.position().toPoint()))
-            if self.dock_host and not self._dragging:
-                self.setCursor(Qt.PointingHandCursor if self._ear_hover else Qt.SplitHCursor if self.orientation()==Qt.Horizontal else Qt.SplitVCursor)
-            self.update()
-        return super().event(event)
+            self.setCursor(Qt.SplitHCursor if self.orientation()==Qt.Horizontal else Qt.SplitVCursor);self.update()
+        return result
 
-    def paintEvent(self, event):
-        if self.dock_host and not self.dock_host.expanded:
-            return
-        painter = QPainter(self)
-        active = self.isEnabled() and self.underMouse()
-        if not self.dock_host:
-            painter.setPen(QPen(QColor(visual.accent() if active else visual.colors()['border_soft']),1))
-            if self.orientation()==Qt.Horizontal:
-                painter.drawLine(self.width()//2,0,self.width()//2,self.height())
-            else:
-                painter.drawLine(0,self.height()//2,self.width(),self.height()//2)
-            return
-        active=self.isEnabled() and not self._dragging and (self._ear_hover or self.hasFocus())
-        painter.setPen(QPen(QColor(visual.accent() if active else visual.colors()['border']),
-                           2 if self.isEnabled() else visual.LINE_WIDTH))
-        middle=self.rect().center()
-        if self.orientation() == Qt.Horizontal:
-            painter.drawLine(middle.x(),middle.y()-28,middle.x(),middle.y()-9)
-            painter.drawLine(middle.x(),middle.y()+9,middle.x(),middle.y()+28)
-        else:
-            painter.drawLine(middle.x()-28,middle.y(),middle.x()-9,middle.y())
-            painter.drawLine(middle.x()+9,middle.y(),middle.x()+28,middle.y())
-        if self.dock_host and self.isEnabled():
-            c = visual.colors()
-            # The command is discoverable at rest. Hover only emphasizes it.
-            paint_dock_chevron(painter, self.chevron_points(), active)
+    def paintEvent(self,event):
+        if self.dock_host and not self.dock_host.expanded:return
+        p=QPainter(self);active=pointer_hits(self) or self._dragging
+        p.setPen(QPen(QColor(visual.accent() if active else visual.colors()['border_soft']),1))
+        if self.orientation()==Qt.Horizontal:p.drawLine(self.width()//2,0,self.width()//2,self.height())
+        else:p.drawLine(0,self.height()//2,self.width(),self.height()//2)
+        if self.hasFocus() and self._keyboard_focus and self._focus_input.keyboard:
+            p.setPen(QPen(QColor(visual.accent()),1,Qt.DotLine));p.setBrush(Qt.NoBrush)
+            p.drawRect(self.ear_rect().adjusted(0,0,-1,-1))
 
 
 class PanelSplitter(QSplitter):
@@ -219,167 +187,148 @@ class PanelSplitter(QSplitter):
 
 
 class TagPanelHost(QWidget):
-    """One panel: placement, extent and collapsed state in a single owner.
+    """One full-size gallery, one masked local foreground splitter.
 
-    Four placements, one mechanism. `placement` says which edge the panel is
-    docked to and therefore which axis its extent is measured on; `expanded`
-    says whether the panel shows its content or only its header strip. The two
-    extents (horizontal height / vertical width) are remembered separately, so
-    BOTTOM -> LEFT -> BOTTOM restores each one's own value and neither is
-    overwritten by the smaller size a small window forces.
-
-    Collapsing never touches the window: the splitter hands the released extent
-    to the content pane, which is how a docked panel is supposed to behave.
-    Growing the outer window instead would fight the saved window geometry and
-    would cover the gallery rather than making room for it.
+    The splitter retains Qt's resize mechanics and two remembered extents; its
+    transparent spare pane is not a second gallery. Only panel/handle rectangles
+    participate in painting and input. Neither expansion nor resizing lays out
+    the content again.
     """
-    def __init__(self, content, panel, config, parent=None):
+    occlusion_changed=Signal()
+
+    def __init__(self,content,panel,config,parent=None,*,viewport=None):
         super().__init__(parent)
-        self.content, self.panel, self.config = content, panel, config
-        self.placement = None
-        self.expanded = bool(config.get('tag_panel_expanded', True))
-        self._applying = False
-        self._motion=QVariantAnimation(self)
-        self._motion.setDuration(visual.MOTION.expand)
-        self._motion.setEasingCurve(visual.MOTION.easing)
-        self._motion.valueChanged.connect(self._animate_extent)
-        self._motion.finished.connect(self.apply_extent)
-        self.splitter = PanelSplitter(Qt.Vertical, self)
-        self.splitter.dock_host = self
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.splitter)
+        self.content,self.panel,self.config=content,panel,config
+        self.viewport=viewport if viewport is not None else content
+        self.placement=None;self.expanded=bool(config.get('tag_panel_expanded',True));self._applying=False
+        self._covered=QRect()
+        layout=QVBoxLayout(self);layout.setContentsMargins(0,0,0,0);layout.setSpacing(0);layout.addWidget(content)
+        self.splitter=PanelSplitter(Qt.Vertical,self);self.splitter.dock_host=self
+        self.splitter.setStyleSheet('QSplitter, QSplitterHandle {background:transparent;}')
+        self._spare=QWidget(self.splitter);self._spare.setAutoFillBackground(False)
+        self._motion=QVariantAnimation(self);self._motion.setDuration(visual.MOTION.expand);self._motion.setEasingCurve(visual.MOTION.easing)
+        self._motion.valueChanged.connect(self._animate_extent);self._motion.finished.connect(self._finish_motion)
         self.splitter.splitterMoved.connect(self._extent_changed)
         panel.toggle_collapse_requested.connect(self.toggle_expanded)
-        self.set_placement(config.get('tag_panel_placement', 'bottom'))
+        panel.installEventFilter(self);self.viewport.installEventFilter(self)
+        self.set_placement(config.get('tag_panel_placement','bottom'))
 
     @property
-    def horizontal(self):
-        return self.placement.horizontal
+    def horizontal(self):return self.placement.horizontal
 
     @property
-    def extent_key(self):
-        return 'tag_panel_horizontal_extent' if self.horizontal else 'tag_panel_vertical_extent'
+    def extent_key(self):return 'tag_panel_horizontal_extent' if self.horizontal else 'tag_panel_vertical_extent'
 
-    def set_placement(self, placement):
-        placement = TagPanelPlacement(placement)
-        if placement == self.placement:
-            return
-        self.placement = placement
+    def set_placement(self,placement):
+        placement=TagPanelPlacement(placement)
+        if placement==self.placement:return
+        self._motion.stop();self.placement=placement
         self.splitter.setOrientation(Qt.Vertical if self.horizontal else Qt.Horizontal)
-        panel_first = placement.leading
-        for index, widget in enumerate((self.panel, self.content) if panel_first else (self.content, self.panel)):
-            self.splitter.insertWidget(index, widget)
-            self.splitter.setStretchFactor(index, 0 if widget is self.panel else 1)
-        self.apply_panel_axis()
-        self.panel.set_collapsed(not self.expanded, self.horizontal)
-        self.apply_extent()
+        for index,widget in enumerate((self.panel,self._spare) if placement.leading else (self._spare,self.panel)):
+            self.splitter.insertWidget(index,widget);self.splitter.setStretchFactor(index,0 if widget is self.panel else 1)
+        self.panel.set_collapsed(not self.expanded,self.horizontal)
+        self.apply_panel_axis();self.apply_extent();self.panel.sync_chrome_layout()
 
     def apply_panel_axis(self):
-        """Both presentation axes are a function of the placement, nothing else.
+        self.panel.set_panel_placement(self.placement);self.panel.apply_placement_axis(self.horizontal)
+        return self.horizontal
 
-        Not of the widget's width, height or aspect ratio: the axes are decided
-        by where the panel *is*, and they are re-asserted at every geometry
-        boundary so a stale axis cannot outlive the placement that produced it.
-        """
-        horizontal = self.horizontal
-        self.panel.set_panel_placement(self.placement)
-        self.panel.apply_placement_axis(horizontal)
-        return horizontal
+    def set_expanded(self,expanded,persist=True):
+        expanded=bool(expanded)
+        if expanded==self.expanded:return
+        self._motion.stop();start=self.panel.height() if self.horizontal else self.panel.width()
+        animate=self.isVisible() and QApplication.platformName() not in ('offscreen','minimal') and visual.animations_enabled()
+        self.expanded=expanded;self.panel.set_collapsed(not expanded,self.horizontal,transitioning=animate)
+        if persist:self.config.set('tag_panel_expanded',expanded)
+        target=self.apply_extent(resize=not animate)
+        if animate and target is not None:
+            # Reconfiguring a finished QVariantAnimation evaluates its old
+            # progress. Only a running transition may change drawer geometry.
+            with QSignalBlocker(self._motion):
+                self._motion.setStartValue(start);self._motion.setEndValue(target);self._motion.setCurrentTime(0)
+            visual.start_animation(self._motion,visual.MOTION.expand)
 
-    # -- collapsed presentation ----------------------------------------
-    def set_expanded(self, expanded, persist=True):
-        expanded = bool(expanded)
-        if expanded == self.expanded:
-            return
-        self._motion.stop()
-        previous=self.splitter.sizes()
-        self.expanded = expanded
-        self.panel.set_collapsed(not expanded, self.horizontal)
-        if persist:
-            self.config.set('tag_panel_expanded', expanded)
-        self.apply_extent()
-        target=self.splitter.sizes()
-        if self.isVisible() and QApplication.platformName() not in ('offscreen','minimal') and len(previous)==2:
-            index=0 if self.splitter.widget(0) is self.panel else 1
-            self._motion_index=index
-            # The new semantic state is immediate; only the allocated extent
-            # interpolates. Resizing by hand never goes through this animation.
-            if self.horizontal:
-                self.panel.setMinimumHeight(min(previous[index],target[index]));self.panel.setMaximumHeight(max(previous[index],target[index]))
-            else:
-                self.panel.setMinimumWidth(min(previous[index],target[index]));self.panel.setMaximumWidth(max(previous[index],target[index]))
-            self._motion.setStartValue(previous[index]);self._motion.setEndValue(target[index]);self._motion.start()
+    def toggle_expanded(self):self.set_expanded(not self.expanded)
 
-    def _animate_extent(self,value):
-        length=self.splitter.height() if self.horizontal else self.splitter.width()
-        sizes=[max(0,length-int(value)-self.splitter.handleWidth())]*2
-        sizes[self._motion_index]=int(value)
-        self._applying=True
-        self.splitter.setSizes(sizes)
-        self._applying=False
+    def _animate_extent(self,value):self._set_extent(int(value))
 
-    def toggle_expanded(self):
-        self.set_expanded(not self.expanded)
+    def _finish_motion(self):
+        self.panel.set_collapsed(not self.expanded,self.horizontal);self.apply_extent()
 
-    def apply_extent(self):
-        if not self.isVisible():
-            return
-        # Every real geometry boundary re-derives the axis and the extent from
-        # the placement, so neither can lag behind it.
+    def apply_extent(self,*,resize=True):
+        if not self.isVisible():return
         self.apply_panel_axis()
-        handle_extent = visual.COMPACT_CONTROLS.splitter_extent if self.expanded else self.panel.collapsed_metrics.separator_extent
-        self.splitter.setHandleWidth(handle_extent)
-        handle = self.splitter.handle(1)
-        if handle is not None:
-            handle.setEnabled(self.expanded)
-            handle.setFocusPolicy(Qt.StrongFocus if self.expanded else Qt.NoFocus)
-            handle.setCursor((Qt.SplitVCursor if self.horizontal else Qt.SplitHCursor) if self.expanded else Qt.ArrowCursor)
-            handle.setToolTip(t('收起标签') if self.expanded else '')
-            handle.setAccessibleName(t('收起标签') if self.expanded else '')
-            handle.update()
-        length = self.splitter.height() if self.horizontal else self.splitter.width()
-        if self.expanded:
-            reserve, minimum = (220, 84) if self.horizontal else (300, 110)
-            if length < reserve+minimum+handle_extent:
-                return
-            default = self.config.get('tag_panel_height', 116) if self.horizontal else 220
-            requested = int(self.config.get(self.extent_key, default))
-            # Clamped to what is left after the content keeps its usable
-            # extent; the requested value itself stays in the config, so a
-            # bigger window later restores the extent the user chose.
-            extent = max(minimum, min(requested, length-reserve-handle_extent))
-        else:
-            # A collapsed panel is exactly its compact strip, so it always fits.
-            extent = self.panel.collapsed_extent()
-        self._applying = True
+        bounds=QRect(self.viewport.mapTo(self,QPoint()),self.viewport.size()).intersected(self.rect())
+        self._applying=True
         try:
-            rest = max(0, length-extent-handle_extent)
-            panel_first = self.splitter.widget(0) is self.panel
-            self.splitter.setSizes([extent, rest] if panel_first else [rest, extent])
-        finally:
-            self._applying = False
+            self.splitter.setGeometry(bounds)
+            handle_width=visual.COMPACT_CONTROLS.splitter_extent if self.expanded or self._motion.state()==QAbstractAnimation.Running or not resize else 1
+            self.splitter.setHandleWidth(handle_width)
+            handle=self.splitter.handle(1);handle.setEnabled(self.expanded);handle.setFocusPolicy(Qt.StrongFocus if self.expanded else Qt.NoFocus)
+            handle.setToolTip('');handle.setAccessibleName('')
+            length=bounds.height() if self.horizontal else bounds.width()
+            reserve=min(220 if self.horizontal else 300,max(40,length//2))
+            self._spare.setMinimumSize(0,reserve) if self.horizontal else self._spare.setMinimumSize(reserve,0)
+            if self.expanded:
+                minimum=min(84 if self.horizontal else 110,max(1,length-reserve-handle_width))
+                axis_minimum=min(minimum,self.panel.collapsed_extent()) if not resize or self._motion.state()==QAbstractAnimation.Running else minimum
+                if self.horizontal:self.panel.setMinimumHeight(axis_minimum)
+                else:self.panel.setMinimumWidth(axis_minimum)
+                default=self.config.get('tag_panel_height',116) if self.horizontal else 220
+                requested=int(self.config.get(self.extent_key,default))
+                extent=max(minimum,min(requested,length-reserve-handle_width))
+            else:extent=self.panel.collapsed_extent()
+            if resize and self._motion.state()!=QAbstractAnimation.Running:self._set_extent(extent)
+            self.splitter.raise_();self._sync_mask()
+        finally:self._applying=False
+        return extent
 
-    def _extent_changed(self, pos, index):
-        if self._applying or not self.isVisible():
-            return
-        if not self.expanded:
-            # The collapsed extent is not a user choice: a stray move must not
-            # leave the panel larger than the header it is allowed to show.
-            self.apply_extent()
-            return
-        extent = self.splitter.sizes()[self.splitter.indexOf(self.panel)]
-        self.config.set(self.extent_key, extent)
+    def _set_extent(self,extent):
+        length=self.splitter.height() if self.horizontal else self.splitter.width()
+        rest=max(0,length-int(extent)-self.splitter.handleWidth())
+        previous=self._applying;self._applying=True
+        try:self.splitter.setSizes([int(extent),rest] if self.placement.leading else [rest,int(extent)])
+        finally:self._applying=previous
+        self._sync_mask()
 
-    def showEvent(self, event):
-        super().showEvent(event)
-        self.layout().activate()
-        self.apply_extent()
+    def _sync_mask(self):
+        if self.splitter.count()!=2:return
+        region=QRegion(self.panel.geometry());handle=self.splitter.handle(1)
+        if self.expanded or self._motion.state()==QAbstractAnimation.Running:region=region.united(QRegion(handle.geometry()))
+        self.splitter.setMask(region)
+        covered=region.boundingRect().translated(self.splitter.pos())
+        if covered!=self._covered:
+            self._covered=covered;self.occlusion_changed.emit()
 
-    def resizeEvent(self, event):
+    def available_rect(self,widget):
+        rect=QRect(widget.mapFromGlobal(self.viewport.mapToGlobal(QPoint())),self.viewport.size())
+        if self._covered.isEmpty():return rect
+        covered=self._covered.translated(widget.mapFromGlobal(self.mapToGlobal(QPoint())))
+        if self.placement==TagPanelPlacement.TOP:rect.setTop(min(rect.bottom()+1,covered.bottom()+1))
+        elif self.placement==TagPanelPlacement.BOTTOM:rect.setBottom(max(rect.top()-1,covered.top()-1))
+        elif self.placement==TagPanelPlacement.LEFT:rect.setLeft(min(rect.right()+1,covered.right()+1))
+        else:rect.setRight(max(rect.left()-1,covered.left()-1))
+        return rect
+
+    def _extent_changed(self,pos,index):
+        if self._applying or not self.isVisible():return
+        if not self.expanded:self.apply_extent();return
+        self.config.set(self.extent_key,self.splitter.sizes()[self.splitter.indexOf(self.panel)])
+        self._sync_mask()
+
+    def eventFilter(self,obj,event):
+        if obj is self.viewport and event.type() in (QEvent.Move,QEvent.Resize):self.apply_extent()
+        elif obj is self.panel and event.type() in (QEvent.Move,QEvent.Resize):self._sync_mask()
+        return super().eventFilter(obj,event)
+
+    def showEvent(self,event):
+        super().showEvent(event);self.layout().activate();self.apply_extent()
+
+    def resizeEvent(self,event):
         super().resizeEvent(event)
-        self.layout().activate()
-        self.apply_extent()
+        if self._motion.state()==QAbstractAnimation.Running:
+            self._motion.stop();self.panel.set_collapsed(not self.expanded,self.horizontal)
+        self.layout().activate();self.apply_extent()
         r=QRectF(self.rect());radius=12
         path=QPainterPath();path.moveTo(0,0);path.lineTo(r.width(),0);path.lineTo(r.width(),r.height()-radius)
         path.quadTo(r.width(),r.height(),r.width()-radius,r.height());path.lineTo(radius,r.height())

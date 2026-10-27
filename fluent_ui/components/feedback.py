@@ -49,29 +49,50 @@ class Toast(QFrame):
         self.natural_width=min(420,label.sizeHint().width()+48)
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
-        self.timer.timeout.connect(self._expire)
-        self.timer.start(duration)
+        from fluent_ui.components.notification_timing import DisplayDeadline, CountdownLine
+        self.deadline = DisplayDeadline(self.timer, self)
+        self.deadline.expired.connect(self._expire)
+        self.countdown = CountdownLine(self, self.deadline)
+        self.deadline.start(duration)
 
     def showEvent(self,event):
         super().showEvent(event)
-        self._motion.stop();self._motion.setStartValue(0.0);self._motion.setEndValue(1.0);self._motion.start()
+        self.deadline.set_presented(True)
+        self._motion.stop();self._motion.setStartValue(0.0);self._motion.setEndValue(1.0);visual.start_animation(self._motion, visual.MOTION.feedback)
 
     def _expire(self):
+        self.deadline.stop()
         self._exiting=True
-        self._motion.stop();self._motion.setStartValue(self._opacity.opacity());self._motion.setEndValue(0.0);self._motion.start()
+        self._motion.stop();self._motion.setStartValue(self._opacity.opacity());self._motion.setEndValue(0.0);visual.start_animation(self._motion, visual.MOTION.feedback)
 
     def _finished(self):
         if self._exiting:
             self.expired.emit(self)
 
     def enterEvent(self, event):
-        self.timer.stop()
-        self._exiting=False;self._motion.stop();self._opacity.setOpacity(1)
+        if not self._exiting:
+            self.deadline.pause()
+            self._motion.stop();self._opacity.setOpacity(1)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
-        self.timer.start(self.duration)
+        self.deadline.resume()
         super().leaveEvent(event)
+
+    def reannounce(self):
+        self._motion.stop()
+        self._exiting=False
+        self._opacity.setOpacity(1)
+        self.deadline.start(self.duration,self.message)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.countdown.setGeometry(5, self.height()-3, max(0, self.width()-10), 2)
+
+    def hideEvent(self, event):
+        self.deadline.set_presented(False)
+        self.deadline.resume()
+        super().hideEvent(event)
 
 
 class FeedbackHost(QObject):
@@ -193,7 +214,7 @@ class FeedbackHost(QObject):
         for item in self.toasts:
             if item.message == message:
                 if not item.underMouse():
-                    item.timer.start(item.duration)
+                    item.reannounce()
                 return
         while len(self.toasts) >= 3:
             self._remove_toast(self.toasts[0])
@@ -207,6 +228,7 @@ class FeedbackHost(QObject):
 
     def _remove_toast(self, item):
         if item in self.toasts:
+            item.deadline.stop()
             self.toasts.remove(item)
             self.toast_layout.removeWidget(item)
             item.deleteLater()
@@ -244,8 +266,15 @@ class FeedbackHost(QObject):
             self.notices.append(item)
         if hasattr(self,'_caption_window') or not self.task_active:self._display_notice(item)
 
+    def _sync_action_role(self, danger):
+        role = 'danger' if danger else ''
+        if self.action_button.property('role') != role:
+            self.action_button.setProperty('role', role)
+            self.action_button.update()
+
     def _display_notice(self, item):
         title, content, error, action, action_text = item
+        self._sync_action_role(False)
         if hasattr(self,'_caption_window'):
             key='notice:'+str(hash((title,content)))
             self.upsert_task(key,title,state=self._notice_kinds.get((title,content),'info'),content=content,kind='notice',resume=action,action_text=action_text,details=self._notice_details.get((title,content),''))
@@ -293,6 +322,7 @@ class FeedbackHost(QObject):
         self._action = cancel
         self.action_button.setText(t('取消'))
         self.action_button.setVisible(cancel is not None)
+        self._sync_action_role(cancel is not None)
         self.close_button.hide()
         self.strip.show()
         self.reposition();self.strip.raise_()
@@ -406,13 +436,21 @@ class FeedbackHost(QObject):
         return False
 
 
-    def upsert_task(self,key,title,*,current=0,total=0,state='running',content='',kind='import',cancel=None,resume=None,details='',action_text=None):
+    def upsert_task(self,key,title,*,current=0,total=0,state='running',content='',kind='import',cancel=None,resume=None,details='',action_text=None,phase='',caption=None):
         """Update the existing job identity; presentation never starts or cancels work."""
         if self._dismissed_task_states.get(key)==state and state not in {'running','waiting'}:return
         if state in {'running','waiting'}:self._dismissed_task_states.pop(key,None)
         previous=self.named_tasks.get(key)
         value=dict(title=clean_message(title),current=current,total=total,state=state,content=clean_message(content),kind=kind,cancel=cancel,resume=resume,details=str(details),action_text=action_text)
+        value['phase']=phase
+        value['caption']=caption
         if previous==value:return
+        if not previous or previous.get('state')!=state:
+            from services.crash_evidence import breadcrumb
+            breadcrumb('task_state',kind=kind,state=state)
+        if state in {'error','partial'} and (not previous or previous.get('state') not in {'error','partial'}):
+            from services.crash_evidence import record_task_failure
+            record_task_failure(key,kind,previous)
         self.named_tasks[key]=value
         if not hasattr(self,'_caption_ui'):self.dock_to_caption(self.owner.window())
         self._caption_ui.sync(key,previous)
@@ -440,6 +478,14 @@ class FeedbackHost(QObject):
         if timer:timer.stop();timer.deleteLater()
         if job:self.notices=[n for n in self.notices if n[:2]!=(job['title'],job['content'])]
         if hasattr(self,'_caption_ui'):self._caption_ui.removed(key)
+
+    def clearable_tasks(self):
+        return [key for key,job in self.named_tasks.items()
+                if job['state'] in {'success','info'} and not job['resume'] and not job['details']]
+
+    def clear_completed(self):
+        for key in self.clearable_tasks():self.remove_task(key)
+        if hasattr(self,'_caption_ui'):self._caption_ui.collapse()
 
 
     def _position_named(self):

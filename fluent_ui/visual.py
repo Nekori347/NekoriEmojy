@@ -168,6 +168,7 @@ SURFACE_ROLES = ('window', 'sidebar', 'content', 'raised_panel', 'popover', 'dia
 class UiTheme(QObject):
     changed = Signal()
     accent_changed = Signal()
+    motion_changed = Signal()
 
     def __init__(self):
         super().__init__()
@@ -208,6 +209,11 @@ class UiTheme(QObject):
 
     def configure(self, config):
         self.config = config
+        # Startup only: reuse the native material's existing process-local
+        # opaque path, before shells create HWNDs. Save does not switch Alpha.
+        if not config.get('window_acrylic_enabled', True):
+            import os
+            os.environ['NEKORI_OPAQUE_MATERIAL'] = '1'
         load_fonts()
 
     def refresh(self):
@@ -224,6 +230,30 @@ class UiTheme(QObject):
 
 
 theme = UiTheme()
+
+
+def animations_enabled():
+    return theme.config is None or bool(theme.config.get('ui_animations_enabled', True))
+
+
+def start_animation(animation, duration):
+    """UI transitions keep Qt's end values and finished signals in both modes."""
+    animation.setDuration(duration if animations_enabled() else 0)
+    animation.start()
+
+
+def finish_ui_animations():
+    if animations_enabled():
+        return
+    from PySide6.QtCore import QAbstractAnimation
+    from PySide6.QtWidgets import QApplication
+    for window in QApplication.topLevelWidgets():
+        for animation in window.findChildren(QAbstractAnimation):
+            if animation.state() == QAbstractAnimation.Running:
+                if animation.totalDuration() < 0:
+                    animation.stop()
+                else:
+                    animation.setCurrentTime(animation.totalDuration() if animation.direction() == QAbstractAnimation.Forward else 0)
 
 
 def accent():
@@ -362,7 +392,7 @@ def command_bar_style(dark=None):
         QWidget#CommandBar {{ background: {c['surface_alt']};
             border-top: {LINE_WIDTH}px solid {c['border']}; }}
         QWidget#CommandBar QLabel {{ color: {c['text_primary']}; }}
-        QLabel#CommandCount {{ font-family: {DATA_FONT}; }}
+        QLabel#CommandCount {{ font-family: '{BODY_FONT}'; color: {c['text_muted']}; }}
     '''
 
 

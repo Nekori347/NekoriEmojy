@@ -29,12 +29,16 @@ class OcrService(QObject):
         self.install_state='';self.install_error='';self.download=(0,0)
         self.summary=json.loads(storage.index.meta('ocr_task_summary','{}'))
         self.jobs={job['id']:job for job in json.loads(storage.index.meta('ocr_task_jobs','[]'))}
+        self.session_jobs=set()
         if self.summary.get('id') and self.summary['id'] not in self.jobs:self.jobs[self.summary['id']]=self.summary
         self._current_job=None;self._active_item=None
         for job in self.jobs.values():
             if job.get('state')=='running':job['state']='interrupted'
         if self.summary.get('id'):self.summary=self.jobs[self.summary['id']]
         self._save_summary()
+        with storage.index.connect(search=False) as db:
+            db.executemany("DELETE FROM task_checkpoints WHERE task_id=? AND kind='ocr'",
+                           [(j['id'],) for j in self.jobs.values() if j['state'] in {'completed','cancelled'}])
         self.imported.connect(self._auto_enqueue)
         self._import_callback=self.imported.emit
         storage.import_listeners.append(self._import_callback)
@@ -55,7 +59,58 @@ class OcrService(QObject):
         jobs=list(self.jobs.values())
         recent={j['id'] for j in jobs[-20:]}
         self.storage.index.set_meta('ocr_task_jobs',json.dumps(
-            [j for j in jobs if j['state'] in {'running','interrupted','cancelled'} or j['id'] in recent],ensure_ascii=False))
+            [j for j in jobs if j['state'] in {'running','interrupted','waiting_source'} or j['id'] in recent],ensure_ascii=False))
+
+    def _items(self,job_id,rid=None):
+        with self.storage.index.connect(search=False) as db:
+            return {r[0]:json.loads(r[1]) for r in db.execute(
+                "SELECT unit_id,payload FROM task_checkpoints WHERE task_id=? AND kind='ocr'"+
+                (' AND unit_id=?' if rid is not None else '')+' ORDER BY rowid',
+                (job_id,rid) if rid is not None else (job_id,))}
+
+    def _record_items(self,job_id,ids,force,overwrite,automatic,marker=None):
+        # One batch read/transaction, no source stats or decoding on the GUI.
+        records={r['id']:r for r in self.storage.index.resource_records([r for r in ids if not r.startswith('__')])}
+        rows=[]
+        for rid in ids:
+            record=records.get(rid)
+            rows.append((job_id,rid,'ocr',json.dumps(dict(state='pending',force=force,overwrite=overwrite,
+                automatic=automatic,revision=self.storage.index._ocr_state(record)['revision'] if record else None,
+                path=record['relative_path'] if record else None))))
+        with self.storage.index.connect(search=False) as db:
+            db.executemany('INSERT OR IGNORE INTO task_checkpoints VALUES (?,?,?,?)',rows)
+            if marker:db.execute('DELETE FROM task_checkpoints WHERE task_id=? AND unit_id=?',(job_id,marker))
+            jobs=list(self.jobs.values());recent={j['id'] for j in jobs[-20:]}
+            payload=json.dumps([j for j in jobs if j['state'] in {'running','interrupted','waiting_source'} or j['id'] in recent],ensure_ascii=False)
+            db.execute("INSERT INTO library_meta VALUES ('ocr_task_jobs',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(payload,))
+
+    def abandon(self,job_id):
+        if self.jobs[job_id]['state'] not in {'interrupted','waiting_source'}:return
+        self.cancel(job_id=job_id)
+        with self.storage.index.connect(search=False) as db:
+            db.execute("DELETE FROM task_checkpoints WHERE task_id=? AND kind='ocr'",(job_id,))
+
+    def resume(self,job_id):
+        if self.jobs[job_id]['state'] not in {'interrupted','waiting_source'}:return
+        if not self.available:raise RuntimeError('请先安装 OCR 组件')
+        items=self._items(job_id);job=self.jobs[job_id]
+        if not items:raise RuntimeError('此任务没有可靠的恢复清单')
+        self.summary=job
+        with self._condition:
+            self.session_jobs.add(job_id)
+            job['state']='running';job['generation']+=1;job['error']=''
+            job['total']=len(items)
+            for name in ('done','failed','skipped'):job[name]=sum(v.get('outcome')==name for v in items.values())
+            for rid,item in items.items():
+                if item['state']=='done':continue
+                self._queue.append((rid,item['force'],False,item['automatic'],job['generation'],job_id))
+                self._pending.add((job_id,rid))
+            if not any(v['state']!='done' for v in items.values()):job['state']='completed'
+            self._save_summary();self._ensure_thread();self._condition.notify_all()
+            if job['state']=='completed':
+                with self.storage.index.connect(search=False) as db:
+                    db.execute("DELETE FROM task_checkpoints WHERE task_id=? AND kind='ocr'",(job_id,))
+        self.changed.emit()
 
     def _auto_enqueue(self,rid):
         if not self._closing and self.config.get('ocr_auto',False) and self.available:
@@ -66,13 +121,16 @@ class OcrService(QObject):
         if not self.available:raise RuntimeError('请先安装 OCR 组件')
         with self._condition:
             job_id=job_id or uuid.uuid4().hex
+            self.session_jobs.add(job_id)
             job=self.jobs.get(job_id)
             if job is None or job['state']!='running':
                 job=dict(id=job_id,origin='automatic' if automatic and origin=='manual' else origin,
                          force=force,state='running',done=0,total=0,failed=0,skipped=0,error='',generation=(job or {}).get('generation',-1)+1)
                 self.jobs[job_id]=job
             self.summary=job
-            for rid in dict.fromkeys(resource_ids):
+            resource_ids=list(dict.fromkeys(resource_ids))
+            self._record_items(job_id,resource_ids,force,overwrite,automatic)
+            for rid in resource_ids:
                 pair=(job_id,rid)
                 if pair in self._pending or pair==self._active_item:continue
                 self._pending.add(pair)
@@ -123,6 +181,7 @@ class OcrService(QObject):
                 with self._condition:
                     if generation!=job['generation']:continue
                     job['total']-=1
+                    self._record_items(job_id,ids,force,False,False,marker=rid)
                     for key in ids:
                         if (job_id,key) not in self._pending:
                             self._pending.add((job_id,key));self._queue.append((key,force,False,False,generation,job_id))
@@ -138,8 +197,14 @@ class OcrService(QObject):
                 record=self.storage.index.resource_by_id(rid)
                 if not record:continue
                 state=self.storage.index._ocr_state(record)
+                item=self._items(job_id,rid).get(rid,{})
+                if item.get('revision') is not None and (state['revision']!=item['revision'] or record['relative_path']!=item.get('path')):continue
                 if state.get('manual') and not overwrite:continue
                 stamp=source_stamp(self.storage.index,record)
+                if item.get('source') and stamp!=item['source']:continue
+                with self.storage.index.connect(search=False) as db:
+                    from services.task_recovery import write_checkpoint
+                    write_checkpoint(db,(job_id,rid),source=stamp)
                 if not force and state['status'] in {'ready','empty'} and state.get('source')==stamp and state.get('version')==OCR_VERSION:
                     continue
                 result=self.process.recognize(self.storage.index.absolute_path(record),stamp['thumbnail'])
@@ -148,24 +213,34 @@ class OcrService(QObject):
                 current=self.storage.index.resource_by_id(rid)
                 if not current or source_stamp(self.storage.index,current)!=stamp:continue
                 if self.storage.index.commit_ocr(rid,result,revision=state['revision'],source=stamp,
-                                               version=OCR_VERSION,overwrite=overwrite):
+                                               version=OCR_VERSION,overwrite=overwrite,checkpoint=(job_id,rid)):
                     outcome='done';self.text_changed.emit(rid)
+            except FileNotFoundError:
+                self.cancel('waiting_source',job_id=job_id)
+                job['error']='来源不可用，请连接原设备后继续'
+                self._save_summary()
             except Exception as exc:
                 if generation!=job['generation'] or self._closing:
                     self.process.close();continue
                 outcome='failed';error=str(exc)
                 if state is not None:
                     self.storage.index.commit_ocr(rid,{},revision=state['revision'],source=stamp,
-                        version=OCR_VERSION,overwrite=overwrite,error=error)
+                        version=OCR_VERSION,overwrite=overwrite,error=error,checkpoint=(job_id,rid))
                 self.process.close()
             finally:
                 with self._condition:
                     if self._active_item==(job_id,rid):self._active_item=None
                     if generation==job['generation']:
+                        with self.storage.index.connect(search=False) as db:
+                            from services.task_recovery import write_checkpoint
+                            write_checkpoint(db,(job_id,rid),state='done',outcome=outcome)
                         job[outcome]=job.get(outcome,0)+1
                         if error:job['error']=error
                         if sum(job[k] for k in ('done','failed','skipped'))>=job['total']:job['state']='completed'
                         self._save_summary()
+                        if job['state']=='completed':
+                            with self.storage.index.connect(search=False) as db:
+                                db.execute("DELETE FROM task_checkpoints WHERE task_id=? AND kind='ocr'",(job_id,))
                 self.changed.emit()
         self.process.close()
 
@@ -184,6 +259,9 @@ class OcrService(QObject):
                         if self._active_item and self._active_item[0]==key:remaining.insert(0,self._active_item[1])
                         job['resume_ids']=list(dict.fromkeys(remaining))
                     self.jobs[key]['generation']+=1;self.jobs[key]['state']=state
+                    if state=='cancelled':
+                        with self.storage.index.connect(search=False) as db:
+                            db.execute("DELETE FROM task_checkpoints WHERE task_id=? AND kind='ocr'",(key,))
             self._queue=deque(row for row in self._queue if row[-1] not in selected)
             self._pending={pair for pair in self._pending if pair[0] not in selected}
             self._save_summary();self._condition.notify_all()

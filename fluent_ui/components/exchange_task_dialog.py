@@ -8,17 +8,24 @@ from PySide6.QtWidgets import QDialog, QLabel, QProgressBar, QVBoxLayout, QPlain
 class ExchangeWorker(QThread):
     progress = Signal(int, int, str)
 
-    def __init__(self, operation, parent=None):
+    def __init__(self, operation, parent=None, *, cancellable=False):
         super().__init__(parent)
         self.operation = operation
+        self.cancellable = cancellable
         self.result = None
         self.error = None
 
     def run(self):
         try:
-            self.result = self.operation(self.progress.emit)
+            self.result = (self.operation(self.progress.emit, self.isInterruptionRequested)
+                           if self.cancellable else self.operation(self.progress.emit))
         except Exception as exc:
             self.error = exc
+            from services.export_control import ExportCancelled
+            if not isinstance(exc,ExportCancelled):
+                import sys
+                from services.crash_evidence import record_task_failure
+                record_task_failure(f'exchange:{id(self)}','exchange',exc_info=sys.exc_info())
 
 
 from fluent_ui.components.dialogs import NekoriDialog
@@ -67,14 +74,23 @@ class ExchangeTaskDialog(NekoriDialog):
         event.ignore()
 
 
-def run_exchange_task(parent, title, operation):
+def run_exchange_task(parent, title, operation, *, cancellable=False):
     from fluent_ui.components.feedback import feedback_for
     host = feedback_for(parent)
     if host.task_active:
         raise RuntimeError(t('已有任务正在运行'))
-    host.task(t(title))
-    worker = ExchangeWorker(operation, parent)
-    worker.progress.connect(lambda current, total, message: host.update_task(current, total, message))
+    worker = ExchangeWorker(operation, parent, cancellable=cancellable)
+    cancel = worker.requestInterruption if cancellable else None
+    host.task(t(title), cancel=cancel)
+    def progress(current, total, message):
+        if cancellable:
+            # Keep the real phase first: the caption elides long titles and
+            # otherwise hides the phase behind the fixed "export package" text.
+            host.upsert_task('legacy', str(message), current=current,
+                             total=total, content=t(title) + '\n' + str(message), cancel=cancel)
+        else:
+            host.update_task(current, total, message)
+    worker.progress.connect(progress)
     loop = QEventLoop(parent)
     worker.finished.connect(loop.quit)
     QTimer.singleShot(0, worker.start)

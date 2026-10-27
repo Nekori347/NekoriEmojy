@@ -45,6 +45,7 @@ def test_shift_large_real_file_ranges_one_commit(surface, monkeypatch):
             monkeypatch.setattr(g, name, Mock(side_effect=AssertionError('Selection rebuilt gallery')))
     for card in g._all_card_widgets:
         monkeypatch.setattr(card, 'update_size', Mock(side_effect=AssertionError('Selection reloaded thumbnail')))
+    original_connect=s.storage.index.connect
     monkeypatch.setattr(s.storage.index, 'connect', Mock(side_effect=AssertionError('Selection queried SQL')))
     measurements = []
     for count in (500, 3000, 600, 2000, 3):
@@ -65,6 +66,7 @@ def test_shift_large_real_file_ranges_one_commit(surface, monkeypatch):
     result = {'real_files': 3000, 'active_cards': len(g._all_card_widgets), 'ranges': measurements,
               'selection_sql_calls': 0, 'renderer_rebuilds': 0, 'thumbnail_reloads': 0}
     Path('../DevData/l1-l3-shift-performance.json').write_text(json.dumps(result, indent=2), encoding='utf-8')
+    monkeypatch.setattr(s.storage.index,'connect',original_connect)
 
 
 def test_root_header_and_owner_feedback_layout(surface):

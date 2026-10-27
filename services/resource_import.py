@@ -23,6 +23,19 @@ class ImportSkipped(Exception):
     """The user skipped only this item; not an import failure."""
 
 
+@dataclass
+class DuplicateCandidate:
+    existing: str
+    source: object
+    target: ImportTarget
+    before: tuple | None = None
+    checkpoint: tuple | None = None
+
+
+class ImportDeferred(Exception):
+    """Collected for this desktop batch; no relation has been accepted yet."""
+
+
 class ResourceImporter:
     def __init__(self, storage):
         self.storage = storage
@@ -31,6 +44,12 @@ class ResourceImporter:
         if not saved:
             raise RuntimeError("Resource could not be saved")
         index = self.storage.index
+        checkpoint = getattr(self.storage.import_context, 'checkpoint', None)
+        if checkpoint:
+            index.register(saved, source_name, library_added_seq=library_added_seq, target=target,
+                           checkpoint=checkpoint, duplicate=duplicate,
+                           kept=getattr(self.storage.import_context,'duplicate_choice','')=='keep' and not duplicate)
+            return saved, duplicate
         existing = index.resource(saved)
         resource_id = index.register(saved, source_name, library_added_seq=library_added_seq)
         already_member = existing and any(e['kind'] == 'resource' and e['id'] == resource_id
@@ -44,29 +63,41 @@ class ResourceImporter:
         return saved, duplicate
 
     def file(self, source, target=ImportTarget(), strict=False, *, library_added_seq=None):
+        # The first deduplication index build scans the existing library. It
+        # owns its own single-flight lock and need not block gallery ordering.
+        self.storage._get_sync_key_index()
         with self.storage.lock:
             self._validate_target(target)
             saved, duplicate = self.storage._save_file_source(source, strict=strict)
             if not saved:
                 return None, False
             normalized=getattr(self.storage.import_context,'normalized',None)
-        if duplicate:saved,duplicate=self._resolve_duplicate(saved,source,normalized)
+        if duplicate and getattr(self.storage.import_context,'checkpoint',None) and not self.storage.index.resource(saved):
+            # A crash may leave validated bytes/features but no accepted catalog
+            # resource. Reuse those bytes as a new acceptance, not a user conflict.
+            duplicate=False
+        if duplicate:
+            self._defer_duplicate(saved,source,target)
+            saved,duplicate=self._resolve_duplicate(saved,source,normalized)
         with self.storage.lock:
             result = self._accept(saved, duplicate, Path(source).name, target, library_added_seq)
-        self._notify(saved,duplicate)
+        self._notify(saved,duplicate,target)
         return result
 
     def image(self, image, target=ImportTarget()):
+        self.storage._get_sync_key_index()
         with self.storage.lock:
             self._validate_target(target)
             saved, duplicate = self.storage._save_qimage_source(image)
             if not saved:
                 return None, False
             normalized=getattr(self.storage.import_context,'normalized',None)
-        if duplicate:saved,duplicate=self._resolve_duplicate(saved,image,normalized)
+        if duplicate:
+            self._defer_duplicate(saved,image,target)
+            saved,duplicate=self._resolve_duplicate(saved,image,normalized)
         with self.storage.lock:
             result = self._accept(saved, duplicate, Path(saved).name, target)
-        self._notify(saved,duplicate)
+        self._notify(saved,duplicate,target)
         return result
 
     def _resolve_duplicate(self,saved,source,normalized):
@@ -74,6 +105,7 @@ class ResourceImporter:
         if not resolver:return saved,True
         # No storage/database lock is held while the GUI waits for a choice.
         decision=resolver(saved,source)
+        if decision=='reuse':return saved,True
         if decision=='skip':
             context=self.storage.import_context
             context.skipped=getattr(context,'skipped',0)+1
@@ -84,7 +116,20 @@ class ResourceImporter:
         if decision=='replace':return self.storage.replace_normalized(saved,normalized),True
         raise ValueError('Unknown duplicate decision')
 
-    def _notify(self,saved,duplicate=False):
+    def _defer_duplicate(self,saved,source,target):
+        pending=getattr(self.storage.import_context,'deferred_duplicates',None)
+        if pending is None:return
+        before=None
+        if target.insert_position is not None:
+            entries=self.storage.index.content(target.parent_node)
+            if 0<=target.insert_position<len(entries):
+                entry=entries[target.insert_position];before=(entry['kind'],entry['id'])
+        pending.append(DuplicateCandidate(saved,source,target,before,getattr(self.storage.import_context,'checkpoint',None)))
+        raise ImportDeferred()
+
+    def _notify(self,saved,duplicate=False,target=ImportTarget()):
+        committed=getattr(self.storage.import_context,'committed',None)
+        if committed:committed([saved],{ROOT,target.parent_node})
         accepted=getattr(self.storage.import_context,'accepted',None)
         if accepted is not None:accepted.append((saved,duplicate))
         if getattr(self.storage.import_context,'job_id',None):return
@@ -122,6 +167,8 @@ class ResourceImporter:
                         position=destination.insert_position)
                     if siblings and destination.insert_position is not None:
                         self.storage.index.move_node(node, destination.parent_node, destination.insert_position)
+                    committed=getattr(self.storage.import_context,'committed',None)
+                    if committed:committed([],{destination.parent_node,node})
                     for child in sorted(path.iterdir(), key=lambda p: p.name.casefold()):
                         if child.is_dir() or child.suffix.lower() in self.storage.SUPPORTED_FORMATS:
                             visit(child, ImportTarget(node))
@@ -134,9 +181,16 @@ class ResourceImporter:
                     result.imported += 1
                 if progress:
                     progress(result.imported + result.duplicates + len(result.errors), str(path))
+            except ImportDeferred:
+                pass
             except ImportSkipped:
                 result.cancelled+=1
             except InterruptedError:
+                raise
+            except KeyError:
+                if getattr(self.storage.import_context,'checkpoint',None):
+                    from services.task_recovery import RecoveryWait
+                    raise RecoveryWait('目标分类已改变，无法安全继续')
                 raise
             except Exception as exc:
                 result.errors[str(path)] = str(exc)

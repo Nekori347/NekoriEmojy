@@ -1,7 +1,7 @@
 """Caption presentation contract using the real FeedbackHost and Gallery widgets."""
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtWidgets import QApplication
-from PySide6.QtTest import QTest
+from PySide6.QtTest import QTest,QSignalSpy
 from test_phase2_interaction import surface, settle
 
 
@@ -26,17 +26,66 @@ def test_inline_single_and_long_title_keep_identical_bar_geometry(surface):
     assert h.progress.width()>=80
 
 
+def test_task_actions_paint_danger_only_for_live_cancel(surface):
+    from PySide6.QtGui import QColor
+    from fluent_ui import visual
+    h,u=dock(surface)
+    h.upsert_task('a','正在导入表情',current=1,total=10,cancel=lambda:None)
+    settle(surface.app)
+    header,row=h.action_button,h._named_widgets['a'][5]
+    assert header.property('role')=='danger' and row.property('role')=='danger'
+    # ButtonPaint reads the dynamic property itself; confirm the rendered text
+    # really uses the shared danger token instead of trusting the property.
+    c=visual.colors();danger=QColor(c['danger']);normal=QColor(c['text'])
+    image=header.grab().toImage()
+    pixels=[QColor(image.pixelColor(x,y)) for x in range(image.width()) for y in range(image.height())]
+    def close(color,target):
+        return all(abs(getattr(color,channel)()-getattr(target,channel)())<=8
+                   for channel in ('red','green','blue'))
+    assert any(p.alpha()>200 and close(p,danger) for p in pixels)
+    assert not any(p.alpha()>200 and close(p,normal) for p in pixels)
+    # A finished job offers no destructive action, including its row button.
+    h.upsert_task('a','导入处理完成',state='success',content='新增 1 张')
+    settle(surface.app)
+    assert row.property('role')==''
+    assert header.property('role')==''
+    # A replacement live job recalculates both shared action surfaces.
+    h.upsert_task('a','等待导入表情',state='waiting',cancel=lambda:None)
+    settle(surface.app)
+    assert header.property('role')=='danger' and row.property('role')=='danger'
+    h.upsert_task('a','等待导入表情',state='waiting')
+    settle(surface.app)
+    assert header.property('role')=='' and row.property('role')==''
+    h.remove_task('a')
+
+
+def test_legacy_task_cancel_uses_same_danger_role(surface):
+    from PySide6.QtWidgets import QWidget
+    from fluent_ui.components.feedback import FeedbackHost
+    host=FeedbackHost(QWidget())
+    host.task('正在扫描…',cancel=lambda:None)
+    assert host.action_button.property('role')=='danger'
+    host.finish('扫描完成')
+    host.notice('扫描完成','已完成')
+    assert host.action_button.property('role')==''
+    host.task('正在扫描…')
+    assert host.action_button.property('role')==''
+
+
 def test_main_stable_internal_scroll_list_and_hover_bridge(surface):
     h,u=dock(surface);cancelled=[]
     for i in range(12):
         h.upsert_task(str(i),'补充识别',kind='ocr',current=i,total=30,
                       state='running' if i<2 else 'waiting',cancel=lambda i=i:cancelled.append(i))
     settle(surface.app)
-    assert u.primary=='0' and u.panel.isHidden() and u.ear.isVisible()
+    assert u.primary=='0' and u.panel.isHidden() and u.ear.isHidden()
+    QApplication.sendEvent(h.strip,QEvent(QEvent.Enter));settle(surface.app)
+    assert u.ear.isVisible()
     h.upsert_task('1','补充识别',kind='ocr',current=12,total=30)
     assert u.primary=='0'
+    QApplication.sendEvent(h.strip,QEvent(QEvent.Leave))
     QApplication.sendEvent(u.ear,QEvent(QEvent.Enter));settle(surface.app)
-    QTest.qWait(250)
+    u.ear.click();QTest.qWait(250)
     assert u.panel.isVisible() and not u.panel.isWindow()
     assert surface.g.rect().contains(u.panel.geometry()) and u.panel.height()<=300
     assert u.scroll.verticalScrollBar().maximum()>0
@@ -44,10 +93,15 @@ def test_main_stable_internal_scroll_list_and_hover_bridge(surface):
     QApplication.sendEvent(u.panel,QEvent(QEvent.Enter));QTest.qWait(220)
     assert u.panel.isVisible()
     h._named_widgets['0'][5].click();assert cancelled==[0]
-    QApplication.sendEvent(u.panel,QEvent(QEvent.Leave));QTest.qWait(450)
+    folded=QSignalSpy(u.fold.finished)
+    QApplication.sendEvent(u.panel,QEvent(QEvent.Leave))
+    if not u.panel.isHidden():assert folded.wait(2000)
     assert u.panel.isHidden()
+    QApplication.sendEvent(h.strip,QEvent(QEvent.Enter))
     u.ear.click();assert u.panel.isVisible()
-    u.ear.click();QTest.qWait(250);assert u.panel.isHidden()
+    folded=QSignalSpy(u.fold.finished);u.ear.click()
+    if not u.panel.isHidden():assert folded.wait(2000)
+    assert u.panel.isHidden()
 
 
 def test_sequential_overlay_restores_latest_job_and_retains_warning(surface):
@@ -61,7 +115,12 @@ def test_sequential_overlay_restores_latest_job_and_retains_warning(surface):
     u.expire_overlay();assert u.overlay!=first
     warning=u.overlay;u.expire_overlay()
     assert u.overlay is None and h.progress.isVisible() and h.progress.value()==17
-    assert warning in h.named_tasks and u.ear.isVisible() and u.primary=='a'
+    for root in (h.strip,u.cover,u.panel,u.ear,u.clear_button):QApplication.sendEvent(root,QEvent(QEvent.Leave))
+    from fluent_ui.components.controls import focus_input
+    focus_input().keyboard=False
+    QTest.qWait(200)
+    assert warning in h.named_tasks and u.ear.isHidden() and u.primary=='a'
+    QApplication.sendEvent(h.strip,QEvent(QEvent.Enter));assert u.ear.isVisible()
     h.remove_task(warning);h.remove_task('a')
     assert h.strip.isHidden() and u.ear.isHidden()
 
@@ -90,7 +149,7 @@ def test_update_button_matches_real_install_capability_and_check_state(surface,m
         assert button.text()=='获取更新'
         (tmp_path/MANIFEST).write_text('{}')
         center.set_release({'version':'0.2.1'})
-        assert button.text()=='立即更新'
+        assert button.text()=='下载更新'
         center.set_release({'version':'0.2.1','manual_only':True})
         assert button.text()=='获取更新'
         width=version.sizeHint().width();version.set_update_available(True)

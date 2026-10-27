@@ -17,6 +17,7 @@ from fluent_ui.components.controls import LineEdit, PushButton, PrimaryPushButto
 from services.i18n import t
 from services.tg_downloader import TGStickerDownloader
 from services.tg_batch_export import TGPackageBatchRunner, package_filename_stem
+from services.tg_public_config import RECOVERY_MESSAGES
 
 
 class BatchPackageWorker(QThread):
@@ -183,6 +184,16 @@ class TGBatchPackageDialog(dialogs.OwnerCenteredDialog):
         self.worker.start()
 
     def _progress(self, row, stage, done, total, message):
+        source = self.sender()
+        if isinstance(source, BatchPackageWorker) and source is not self.worker:return
+        if stage == 'recovery':
+            if self.worker.cancel_event.is_set():return
+            if message not in RECOVERY_MESSAGES:return
+            self.table.item(row, 1).setText(t('连接已恢复') if message == 'success' else t('正在恢复连接'))
+            self.table.item(row, 2).setText('' if message == 'failed' else '…')
+            self.table.item(row, 3).setText(t(RECOVERY_MESSAGES[message]))
+            self.table.item(row, 3).setToolTip(t(RECOVERY_MESSAGES[message]))
+            return
         labels = {
             "parse": "解析中", "parsed": "等待下载", "download": "下载中",
             "ready": "等待入库", "import": "入库中", "export": "打包中",
@@ -194,6 +205,7 @@ class TGBatchPackageDialog(dialogs.OwnerCenteredDialog):
             message = ""
         self.table.item(row, 1).setText(t(labels[stage]))
         self.table.item(row, 2).setText(f"{done}/{total}" if total else "")
+        message = str(message)
         self.table.item(row, 3).setText(message.replace("\n", " "))
         self.table.item(row, 3).setToolTip(message)
 
@@ -212,6 +224,7 @@ class TGBatchPackageDialog(dialogs.OwnerCenteredDialog):
         dialog.exec()
 
     def _finished(self):
+        if isinstance(self.sender(), BatchPackageWorker) and self.sender() is not self.worker:return
         counts = {status: sum(r["status"] == status for r in self.worker.results)
                   for status in ("done", "failed", "cancelled")}
         if self.worker.error:
@@ -220,7 +233,7 @@ class TGBatchPackageDialog(dialogs.OwnerCenteredDialog):
                 if self.table.item(row, 1).text() not in (t("已完成"), t("失败"), t("已取消")):
                     self._progress(row, "failed", 0, 0, self.worker.error)
         else:
-            self.summary.setText(t("批量处理结束：成功 {success} 包，失败 {failed} 包，取消 {cancelled} 包。").format(
+            self.summary.setText(t("批量处理结束：已生成 {success} 个 ZIP，失败 {failed} 包，取消 {cancelled} 包；具体跳过项见各包详情。").format(
                 success=counts["done"], failed=counts["failed"], cancelled=counts["cancelled"],
             ))
         for widget in (self.links_edit, self.path_edit, self.browse_button, self.start_button, self.close_button):
@@ -230,6 +243,9 @@ class TGBatchPackageDialog(dialogs.OwnerCenteredDialog):
     def reject(self):
         if self._running():
             self.worker.cancel()
+            for row in range(self.table.rowCount()):
+                if self.table.item(row, 1).text() in (t('正在恢复连接'), t('连接已恢复')):
+                    self._progress(row, 'cancelled', 0, 0, '')
             self.summary.setText(t("正在取消，等待当前操作收尾；已完成的 ZIP 将保留。"))
             self.close_button.setEnabled(False)
             return

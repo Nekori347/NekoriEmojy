@@ -30,7 +30,7 @@ from services.autostart import AutostartService
 from services.i18n import SUPPORTED_LANGUAGES, i18n_engine, t, bind_text, translated
 
 PREVIEW_KEYS = {"appearance_mode", "light_theme_key", "dark_theme_key",
-                "thumbnail_size", "sidebar_icon_size", "accent_color", "sidebar_mode", "sidebar_show_labels",
+                "thumbnail_size", "sidebar_icon_size", "gallery_node_icon_size", "accent_color", "sidebar_mode", "sidebar_show_labels",
                 "quick_panel_thumbnail_size", "tag_panel_placement"}
 APPEARANCE_KEYS = ("appearance_mode", "accent_color")
 
@@ -74,6 +74,7 @@ class SettingsCenter(QWidget):
         footer=DecisionBar(self);footer.setObjectName('SettingsFooter')
         preview=QWidget(footer);preview_layout=QHBoxLayout(preview);preview_layout.setContentsMargins(0,0,0,0);preview_layout.setSpacing(6)
         self.preview_switch=translated(PushButton,'实时预览',preview);self.preview_switch.setCheckable(True);self.preview_switch.setChecked(self.preview_enabled)
+        self.preview_switch.setProperty('outline_toggle', True);self.preview_switch.setFixedHeight(32);self.preview_switch.setIconSize(QSize(16,16))
         from fluent_ui.icons import Icon
         self.preview_switch.setIcon(Icon.EYE if self.preview_enabled else Icon.EYE_OFF)
         self.preview_switch.toggled.connect(self._on_preview_toggled)
@@ -238,7 +239,7 @@ class SettingsCenter(QWidget):
         section = self._section("WINDOW")
         for title, hint, key, default in (
             ("主窗口始终置顶", "让 Nekori 始终显示在其他窗口之上。", "always_on_top", True),
-            ("粘贴后自动隐藏主面板", "复制并尝试粘贴后隐藏主面板，仍可用快捷键呼出。",
+            ("发送后自动隐藏主面板", "表情发送成功后隐藏主面板，仍可使用快捷键重新呼出。",
              "hide_main_after_paste", False),
             ("在任务栏显示应用图标", "关闭后不再占用任务栏入口，仍驻留托盘；下次显示主窗口或重启后生效。",
              "show_taskbar_icon", True),
@@ -358,6 +359,14 @@ class SettingsCenter(QWidget):
             "appearance_mode", "system"))
         row = AccentRow(self.pending.get('accent_color', self.config.get('accent_color', visual.DEFAULT_ACCENT)), self)
         section.add_row(self._track(row, 'accent_color', visual.DEFAULT_ACCENT))
+        section.add_row(self._track(SwitchRow(
+            '界面动效', '控制窗口及界面的过渡动画，不影响表情动图播放。',
+            'ui_animations_enabled', self.config.get('ui_animations_enabled', True), self),
+            'ui_animations_enabled', True))
+        section.add_row(self._track(SwitchRow(
+            '窗口毛玻璃', '控制窗口背景的毛玻璃效果；关闭后使用不透明背景。',
+            'window_acrylic_enabled', self.config.get('window_acrylic_enabled', True), self),
+            'window_acrylic_enabled', True))
 
     def _page_gallery_display(self):
         section = self._section("表情显示")
@@ -382,6 +391,10 @@ class SettingsCenter(QWidget):
             RangeRow("分类树图标大小", "调整分类树中的图标尺寸。",
                      "sidebar_icon_size", self.config.get("sidebar_icon_size", 20), 14, 48, 1, self),
             "sidebar_icon_size", 20))
+        section.add_row(self._track(
+            RangeRow("图库分类图标大小", "调整右侧图库中分类节点的图标大小，不影响左侧分类树。",
+                     "gallery_node_icon_size", self.config.get("gallery_node_icon_size", 22), 14, 48, 1, self),
+            "gallery_node_icon_size", 22))
         section = self._section('标签面板')
         section.add_row(self._track(SpatialRow(
             "标签面板位置", "选择标签面板在表情库中的停靠位置。\n点击示意窗口的对应边缘进行调整。", 'tag_panel_placement',
@@ -411,7 +424,7 @@ class SettingsCenter(QWidget):
             f"border: 1px solid {visual.colors()['border']};")
         self._refresh_icon_preview()
         from fluent_ui.components.setting_rows import SettingRow
-        row = SettingRow("当前软件图标", "用于主窗口、任务栏和托盘。\n动图使用已选的缩略图帧；未选择时使用第一帧。", self)
+        row = SettingRow("当前软件图标", "用于主窗口、任务栏和托盘。动图使用选定的缩略图帧，未选择时使用第一帧。更换图标会立即生效。", self)
         row.add_control(self.icon_preview)
         section.add_row(row)
         from fluent_ui.components.interaction_controls import DropDownButton
@@ -487,7 +500,15 @@ class SettingsCenter(QWidget):
     def _page_hotkeys(self):
         section = self._section("GLOBAL HOTKEYS")
         section.add_row(self._track(
-            HotkeyRow("唤醒快捷键", "全局显示 / 隐藏主面板。", "global_hotkey",
+            SwitchRow('全局快捷键导入表情', '在其它应用中复制后，直接导入根层资源。',
+                      'clipboard_import_enabled', self.config.get('clipboard_import_enabled', True), self),
+            'clipboard_import_enabled', True))
+        section.add_row(self._track(
+            HotkeyRow('导入快捷键', '', 'clipboard_import_hotkey',
+                      self.config.get('clipboard_import_hotkey', 'ctrl+alt+v'), self),
+            'clipboard_import_hotkey', 'ctrl+alt+v'))
+        section.add_row(self._track(
+            HotkeyRow("主面板快捷键", "通过全局快捷键显示或隐藏主面板。", "global_hotkey",
                       self.config.get("global_hotkey", "ctrl+shift+e"), self),
             "global_hotkey", "ctrl+shift+e"))
         section.add_row(self._track(
@@ -496,7 +517,7 @@ class SettingsCenter(QWidget):
             "quick_panel_hotkey", "alt+2"))
         section = self._section('Esc 隐藏面板')
         for key, title in (('esc_hide_main', '主面板'), ('esc_hide_quick', '快速面板')):
-            row = SwitchRow(title, '按 Esc 隐藏主面板。' if key == 'esc_hide_main' else '按 Esc 隐藏快速面板。',
+            row = SwitchRow(title, '没有其他需要优先取消的操作时，按 Esc 隐藏主面板。' if key == 'esc_hide_main' else '按 Esc 隐藏快速面板。',
                             key, self.config.get(key, False), self)
             section.add_row(self._track(row, key, False))
 
@@ -543,15 +564,26 @@ class SettingsCenter(QWidget):
             return
         if not path.lower().endswith(".zip"):
             path += ".zip"
+        from services.export_control import ExportCancelled
         service = NekoriPackageService(self.storage)
         try:
             manifest = run_exchange_task(
                 self.window(), "正在导出 Nekori 表情合集",
-                lambda progress: service.export(path, progress))
+                lambda progress, cancel: service.export(path, progress, cancel_check=cancel), cancellable=True)
+        except ExportCancelled:
+            from fluent_ui.components.feedback import feedback_for
+            feedback_for(self.window()).notice(t('导出已停止'), t('未完成的临时文件已清理，原有目标文件保持不变。'))
+            return
         except Exception as exc:
             self.show_error(t("导出失败"), str(exc))
             return
-        self.show_success(t("导出完成"), t('表情 {value_0} 项，分类 {value_1} 个\n{value_2}').format(value_0=manifest['resources'], value_1=manifest['nodes'], value_2=path))
+        if manifest.get('skipped'):
+            from fluent_ui.components.feedback import feedback_for
+            feedback_for(self.window()).notice(t('导出不完整'),
+                t('已导出 {written} 张表情，另有 {skipped} 张未能写入。请检查来源文件后重试。').format(
+                    written=manifest['resources'], skipped=manifest['skipped']) + '\n' + path, warning=True)
+        else:
+            self.show_success(t("导出完成"), t('表情 {value_0} 项，分类 {value_1} 个\n{value_2}').format(value_0=manifest['resources'], value_1=manifest['nodes'], value_2=path))
 
     def import_nekori_package(self):
         from services.nekori_package import NekoriPackageService
@@ -614,14 +646,14 @@ class SettingsCenter(QWidget):
     def _page_settings_file(self):
         section = self._section("SETTINGS FILE")
         self.export_hint = ActionRow(
-            "导出设置", "把当前应用设置写入一个 JSON 文件。",
+            "导出设置", "将已保存的应用设置导出为 JSON 文件。",
             [("导出…", self._export_settings, True)], self)
         section.add_row(self.export_hint)
         import_row = ActionRow(
-            "导入设置", "从 JSON 文件恢复应用设置。",
+            "导入设置", "从 JSON 文件载入设置，需点击“保存”才能保留这些更改。",
             [("导入…", self._import_settings, False)], self)
         reset_row = ActionRow(
-            "恢复全部默认", "把所有应用设置恢复到程序默认值；不会改动表情库内容。",
+            "恢复全部默认", "将应用设置恢复为默认值。点击“保存”后才会保留修改；不会改动表情库内容。",
             [("恢复全部默认", self._restore_all_defaults, False)], self)
         section.add_row(import_row)
         section.add_row(reset_row)
@@ -640,6 +672,14 @@ class SettingsCenter(QWidget):
         self.btn_update=UpdateCheckButton(self.version_row)
         self.btn_update.clicked.connect(self._open_updates);self.version_row.add_control(self.btn_update)
         section.add_row(self.version_row)
+        section.add_row(self._track(SwitchRow(
+            '启动时自动检查更新', '后台检查，每24小时最多一次；不会自动下载或安装。',
+            'auto_check_updates', self.config.get('auto_check_updates', True), self),
+            'auto_check_updates', True))
+        self.diagnostics_row=ActionRow(
+            '诊断资料', '查看本地日志，或导出经脱敏处理的日志及版本、系统运行信息；不包含表情文件或应用配置文件，也不会自动上传。',
+            [('查看日志',self._open_logs,False),('导出诊断资料…',self._export_diagnostics,False)],self)
+        section.add_row(self.diagnostics_row)
         self.update_badge=QLabel(self.version_row)
         self.version_row.layout().itemAt(0).layout().addWidget(self.update_badge)
         self.update_badge.hide()
@@ -652,6 +692,32 @@ class SettingsCenter(QWidget):
     def _open_updates(self):
         from fluent_ui.components.update_center import update_center
         update_center().open(self.window())
+
+    def _open_logs(self):
+        from services.crash_evidence import install
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        directory=install()
+        if directory is None or not QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory))):
+            self.show_error(t('无法打开日志目录'),'')
+
+    def _export_diagnostics(self):
+        from services.diagnostic_export import export_diagnostics
+        from services.export_control import ExportCancelled
+        from fluent_ui.components.exchange_task_dialog import run_exchange_task
+        from fluent_ui.components.feedback import feedback_for
+        path,_=QFileDialog.getSaveFileName(self.window(),t('导出诊断资料'),
+                                          'NekoriEmojy-diagnostics.zip','ZIP (*.zip)')
+        if not path:
+            feedback_for(self).notice(t('诊断导出已取消'));return
+        try:
+            run_exchange_task(self.window(),t('导出诊断资料'),
+                              lambda progress,cancel:export_diagnostics(path,progress,cancel),cancellable=True)
+            self.show_success(t('诊断导出完成'),path)
+        except ExportCancelled:
+            feedback_for(self).notice(t('诊断导出已取消'))
+        except Exception as exc:
+            self.show_error(t('诊断导出失败'),str(exc))
 
     def _sync_update_status(self):
         if not hasattr(self,'update_badge'):return
@@ -753,6 +819,11 @@ class SettingsCenter(QWidget):
         original.update(self._preview_backup)
         autostart_before = self._autostart_enabled()
         autostart_applied = False
+        command = getattr(self.config, 'clipboard_import_command', None)
+        hotkey_changed = bool({'clipboard_import_enabled', 'clipboard_import_hotkey'} & keys.keys())
+        if command and hotkey_changed and not command.configure(keys):
+            self.show_error(t('保存失败'), t(command.hotkey.error))
+            return False
         try:
             from contextlib import nullcontext
             from services.library_setup import prepare_library
@@ -767,6 +838,7 @@ class SettingsCenter(QWidget):
             if 'library_path' not in keys and not isinstance(error,(OSError,RuntimeError)):raise
             self.config.config.clear()
             self.config.config.update(original)
+            if command and hotkey_changed:command.configure(original)
             failure = str(error)
             if 'library_path' in keys:
                 from services.library_setup import LibraryLocationError
@@ -785,12 +857,18 @@ class SettingsCenter(QWidget):
         self.pending.clear()
         self.config.preview_values.clear()
         self._preview_backup.clear()
+        if 'ui_animations_enabled' in keys:
+            visual.finish_ui_animations()
+            visual.theme.motion_changed.emit()
         for key in keys:
             if key == 'language':
                 i18n_engine.set_language(keys[key])
             self.settings_changed.emit(key)
         self._set_dirty(False)
-        self.show_success(t('设置已保存'), quiet=True)
+        if 'window_acrylic_enabled' in keys:
+            self.feedback_host.notice(t('需要重启'), t('窗口毛玻璃设置将在重启后生效。'))
+        else:
+            self.show_success(t('设置已保存'), quiet=True)
         return True
 
     def _hotkeys_valid(self, keys):
@@ -801,8 +879,29 @@ class SettingsCenter(QWidget):
         for key in ('global_hotkey', 'quick_panel_hotkey'):
             row = self._all_rows.get(key, (None,))[0]
             if row is not None:
-                row.set_hint(t('唤醒快捷键与快速面板快捷键不能相同') if conflict else '')
+                row.set_hint(t('主面板快捷键与快速面板快捷键不能相同') if conflict else '')
                 row.hint_label.setStyleSheet(f'color: {visual.colors()["danger"]};' if conflict else '')
+        row = self._all_rows.get('clipboard_import_hotkey', (None,))[0]
+        enabled = keys.get('clipboard_import_enabled', self.config.get('clipboard_import_enabled', True))
+        text = keys.get('clipboard_import_hotkey', self.config.get('clipboard_import_hotkey', 'ctrl+alt+v'))
+        error = ''
+        if enabled:
+            from services.import_hotkey import hotkey_parts
+            try:
+                parts = hotkey_parts(text)
+                for other in (main, quick):
+                    try: same = parts == hotkey_parts(other)
+                    except ValueError: same = False
+                    if same:error = '导入快捷键不能与主面板或快速面板快捷键相同。'
+            except ValueError as exc:error = str(exc)
+        command = getattr(self.config, 'clipboard_import_command', None)
+        if row is not None:
+            status = command.hotkey.error if command else ''
+            if not status:
+                status = '快捷键已生效' if command and command.hotkey.binding else '快捷键未启用'
+            row.set_hint(t(error or status))
+            row.hint_label.setStyleSheet(f'color: {visual.colors()["danger"]};' if error or (command and command.hotkey.error) else '')
+        conflict = conflict or bool(error)
         return not conflict
 
     def discard(self):

@@ -40,6 +40,8 @@ mini_launcher.py
 
 # Logs
 *.log
+*.swp
+*.swo
 
 # User Data & Config
 .update/

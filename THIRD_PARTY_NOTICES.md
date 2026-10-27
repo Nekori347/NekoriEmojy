@@ -23,3 +23,13 @@ original creators; personal libraries and test images are never distributed.
 
 OCR is optional and is not included in the base application. Its separate package
 retains its own RapidOCR, ONNX Runtime and model notices.
+
+UI icon additions (post-0.2.1): approved Tabler Outline candidates retain the
+MIT notice in fluent_ui/assets/icons/LICENSE. mood-plus, tag-plus, menu-order,
+clock-up/down and mirrored playlist-add originate at Tabler commit
+a4ce1404bc6d24d3c365afe7b258d6bf6f48d62d; list-tree-stroke-2.25 is a local stroke-only derivative.
+photo-circle.svg: same Tabler commit, blob 420f6b7ef028abd96e4f79ce9c2ab191d5849830.
+Phosphor Regular sticker.svg (unchanged filled outline): phosphor-icons/core
+commit 2b75f3ad12b420c9504ef05df8d2564a28f8500e, blob 0c6fbc26bd53018f2e7afd8cd75283f3c07ebcb9.
+Source: https://github.com/phosphor-icons/core/tree/2b75f3ad12b420c9504ef05df8d2564a28f8500e
+MIT license retained in fluent_ui/assets/icons/LICENSE-Phosphor.

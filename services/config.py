@@ -11,9 +11,14 @@ class ConfigService:
         self.load_error=None
         
         self.default_config = {
+            "clipboard_import_enabled": True,
+            "clipboard_import_hotkey": "ctrl+alt+v",
+            "auto_check_updates": True,
             "light_theme_key": "nekori",
             "dark_theme_key": "nekori",
             "appearance_mode": "system",
+            "ui_animations_enabled": True,
+            "window_acrylic_enabled": True,
             "accent_color": "#FFF500",
             "language": "zh",
             "always_on_top": True,   # 默认置顶
@@ -41,6 +46,7 @@ class ConfigService:
             "quick_panel_height": 480,
             "quick_panel_thumbnail_size": 72,
             "sidebar_icon_size": 20,
+            "gallery_node_icon_size": 22,
             "sidebar_width_list": 220,
             "sidebar_mode": "tree",
             "sidebar_show_labels": True,

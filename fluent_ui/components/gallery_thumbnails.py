@@ -24,6 +24,16 @@ class GalleryThumbnails(QObject):
         for path in paths:
             self.revisions.pop(path, None)
 
+    def retain_bound_requests(self, cards):
+        """Drop offscreen requests without restarting decodes still in view."""
+        active = set(cards)
+        for key, request in list(self.wanted.items()):
+            path = request[0]
+            request[4][:] = [card for card in request[4]
+                             if card in active and card.content_entry['path'] == path]
+            if not request[4]:
+                del self.wanted[key]
+
     def key(self, entry, size):
         path = entry['path']
         if path not in self.revisions:

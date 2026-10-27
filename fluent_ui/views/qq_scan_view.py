@@ -1,8 +1,8 @@
 from fluent_ui.presentation.tools import WrapCommands, build_import_tool
 from fluent_ui.components import dialogs
 from PySide6.QtCore import (
-    Qt, QSize, Signal, QCoreApplication, QRect, QStandardPaths,
-    QEasingCurve, QPropertyAnimation, QTimer, QEventLoop, QThread,Slot
+    Qt, QSize, Signal, QRect, QStandardPaths,
+    QEasingCurve, QPropertyAnimation, QTimer, QThread,Slot
 )
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLayout,
@@ -20,6 +20,7 @@ from fluent_ui.icons import Icon as FIF
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 from services.qq_extractor import QQExtractor
@@ -30,6 +31,8 @@ from fluent_ui.components.rotating_chevron_button import RotatingChevronButton
 from fluent_ui.components.state_tool_tip_manager import StateToolTipManager
 from fluent_ui.components.feedback import feedback_for, notify
 from fluent_ui.visual import colors
+
+NICKNAME_NOTICE = "确认导出后，昵称缓存过期或缺失时会向第三方 uapis.cn 发送所选 QQ 号码，用于获取昵称并生成导出文件夹名；结果在本地缓存 24 小时。账号发现、扫描和导入不发起此查询。"
 
 
 def _tf(text, **kwargs):
@@ -89,11 +92,50 @@ class QQScanWorker(QThread):
     failed = Signal(str)
     def __init__(self, target_path, selected_folder, parent=None):
         super().__init__(parent); self.target_path = target_path; self.selected_folder = selected_folder
+        self.was_cancelled=False
     def run(self):
-        try: self.finished_scan.emit(QQExtractor.scan_emojis(self.target_path, self.selected_folder))
+        try: self.finished_scan.emit(QQExtractor.scan_emojis(
+            self.target_path, self.selected_folder, cancelled=lambda:self.was_cancelled))
         except Exception as e: self.failed.emit(str(e))
     def cancel(self):
-        pass
+        self.was_cancelled=True
+
+
+class QQPreviewWorker(QThread):
+    """Decode one existing lazy-load batch; only small QImages cross to the UI."""
+    ready=Signal(int,int,int,list)
+
+    def __init__(self,generation,start,paths,marketface,parent=None):
+        super().__init__(parent)
+        self.generation=generation;self.start_index=start;self.paths=paths;self.marketface=marketface
+
+    def run(self):
+        records=[]
+        for path in self.paths:
+            if self.isInterruptionRequested():return
+            try:
+                ext=QQExtractor.get_actual_extension(path)
+                source=path;frames=0
+                if self.marketface:
+                    info=QQExtractor.get_marketface_info(path)
+                    if info is not None:
+                        _,frames=info;source=QQExtractor.get_marketface_gif_path(path);ext='gif'
+                if not ext or not source:continue
+                reader=QImageReader(source)
+                animated=frames>1 if self.marketface else (reader.supportsAnimation() and reader.imageCount()>1)
+                badge='APNG' if ext=='png' and QQExtractor.is_apng_file(path) else ext.upper()
+                animated=animated or badge=='APNG'
+                size=reader.size()
+                if size.isValid():reader.setScaledSize(size.scaled(100,100,Qt.KeepAspectRatio))
+                image=reader.read()
+                if image.isNull():continue
+                image=image.scaled(100,100,Qt.KeepAspectRatio,Qt.SmoothTransformation)
+                records.append((path,image,animated,badge))
+            except (OSError,ValueError):
+                continue
+        if not self.isInterruptionRequested():
+            self.ready.emit(self.generation,self.start_index,self.start_index+len(self.paths),records)
+
 class QQImportWorker(QThread):
     """后台异步入库线程：执行 APNG 转码、Marketface 提取、StorageService 保存与分类"""
     progress = Signal(int, int, str, bool)  # done, total, filename, is_duplicated
@@ -276,6 +318,10 @@ class QQDiscovery(QThread):
             root=QQExtractor.get_userdata_save_path(self.ini,self.root) if self.kind=='users' else self.root
             data={'root':str(root or ''),'items':[]}
             if self.kind=='users' and root and os.path.isdir(root):
+                path=Path(root)
+                if path.name.isdigit() and (path/'nt_qq').is_dir():
+                    data['preferred']=path.name
+                    root=str(path.parent);data['root']=root
                 cache=QQExtractor.load_nickname_cache()
                 for account in QQExtractor.get_numeric_subdirectories(root):
                     if self.isInterruptionRequested():return
@@ -336,8 +382,13 @@ class QQScanInterface(QWidget):
         self._current_worker = None
         self._discovery_workers=[];self._users_generation=0;self._categories_generation=0
         self._discovery_closed=False
+        self._users_loading=False;self._categories_loading=False
+        self._background_workers=[];self._scan_generation=0
+        self._preview_generation=0;self._preview_worker=None;self._scan_context=None
 
         self._init_ui()
+        from PySide6.QtWidgets import QApplication
+        QApplication.instance().aboutToQuit.connect(self._finish_shutdown)
         i18n_engine.language_changed.connect(self.update_texts)
 
     def _init_ui(self):
@@ -641,6 +692,24 @@ class QQScanInterface(QWidget):
         super().resizeEvent(event)
         self.tooltip.reposition()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._discovery_closed:
+            self._discovery_closed=False
+            self.populateUserComboBox()
+            if self.emoji_file_paths and self.loaded_emoji_count==0:self.loadMoreEmojis()
+
+    def _start_worker(self, worker):
+        self._background_workers.append(worker)
+        worker.finished.connect(self._worker_finished,Qt.QueuedConnection)
+        worker.start()
+
+    @Slot()
+    def _worker_finished(self):
+        worker=self.sender()
+        if worker in self._background_workers:self._background_workers.remove(worker)
+        if worker is not None:worker.deleteLater()
+
     def show_log_dialog(self):
         """弹出日志查看窗口"""
         dialog = LogDialog(self.log_history, self.window())
@@ -650,11 +719,11 @@ class QQScanInterface(QWidget):
         """设置操作中的繁忙状态，禁用/启用操作按钮以防重入"""
         self._busy=busy
         self._sync_result_actions()
-        self.scanButton.setEnabled(not busy)
+        self.scanButton.setEnabled(not busy and not self._categories_loading and bool(self.emojiFolderComboBox.count()))
         self.selectReadDirButton.setEnabled(not busy)
         self.selectDirButton.setEnabled(not busy)
-        self.userComboBox.setEnabled(not busy)
-        self.emojiFolderComboBox.setEnabled(not busy)
+        self.userComboBox.setEnabled(not busy and not self._users_loading)
+        self.emojiFolderComboBox.setEnabled(not busy and not self._categories_loading and bool(self.emojiFolderComboBox.count()))
 
     def _sync_result_actions(self):
         ready=bool(self.emoji_file_paths) and not getattr(self,'_busy',False)
@@ -669,9 +738,6 @@ class QQScanInterface(QWidget):
             if reply == QMessageBox.Yes:
                 self.log(t("💬 用户确认中断任务并返回"))
                 self._current_worker.cancel()
-                self._current_worker.wait(2000)
-                self.tooltip.cancel()
-                self._set_busy(False)
                 self.back_requested.emit()
         else:
             self.back_requested.emit()
@@ -683,14 +749,39 @@ class QQScanInterface(QWidget):
             self._current_worker.cancel()
 
     def shutdown(self):
-        """窗口或页面退出时，停止后台任务并等待"""
+        """Tool close requests cancellation; worker completion never blocks its owner."""
         self._discovery_closed=True;self._users_generation+=1;self._categories_generation+=1
-        if self._current_worker and self._current_worker.isRunning():
-            self._current_worker.cancel()
-            self._current_worker.wait(2000)
+        self._users_loading=False;self._categories_loading=False
+        self._scan_generation+=1
+        if self._current_worker:
+            if self._current_worker.isRunning():self._current_worker.cancel()
+            if isinstance(self._current_worker,QQScanWorker):
+                self._current_worker=None;self._set_busy(False)
         for worker in list(self._discovery_workers):
-            worker.requestInterruption();worker.wait(2000)
+            worker.requestInterruption()
         self.tooltip.cancel()
+        self._cancel_preview()
+        if self.detail_movie:self.detail_movie.stop()
+
+    def _cancel_preview(self):
+        self._preview_generation+=1
+        if self._preview_worker:self._preview_worker.requestInterruption()
+        self._preview_worker=None;self.is_loading=False
+
+    def _clear_results(self):
+        self._cancel_preview()
+        self.emoji_file_paths=[];self.loaded_emoji_count=0
+        if self.detail_movie:self.detail_movie.stop();self.detail_movie=None
+        self.previewListWidget.clear();self.detailPreviewLabel.clear()
+        self.detailInfoLabel.setText(t('未选中表情'))
+        self._sync_result_actions()
+
+    def _finish_shutdown(self):
+        """Only process exit has a bounded drain; ordinary tool close has none."""
+        self.shutdown()
+        deadline=time.monotonic()+2
+        for worker in list(self._discovery_workers)+list(self._background_workers):
+            worker.wait(max(0,int((deadline-time.monotonic())*1000)))
 
     def toggle_config(self):
         """手动展开/收起配置面板"""
@@ -753,7 +844,7 @@ class QQScanInterface(QWidget):
         if self._config_anim is not None:
             self._config_anim.stop()
         self._config_anim = QPropertyAnimation(self.configCard, b'maximumHeight', self)
-        from fluent_ui.visual import MOTION
+        from fluent_ui.visual import MOTION, start_animation
         self._config_anim.setDuration(MOTION.expand)
         self._config_anim.setEasingCurve(QEasingCurve.OutCubic)
         self._config_anim.setStartValue(height_from)
@@ -765,7 +856,7 @@ class QQScanInterface(QWidget):
             self._config_anim = None
 
         self._config_anim.finished.connect(_finish)
-        self._config_anim.start()
+        start_animation(self._config_anim, MOTION.expand)
 
     def _update_summary_label(self):
         user_text = self.userComboBox.currentText() or t("未选择账号")
@@ -779,6 +870,8 @@ class QQScanInterface(QWidget):
         folder = self.getSelectedFolder()
         if not folder:
             return
+        if self._scan_context and self._scan_context!=(self.userdata_save_path_cache,self.get_selected_qq(),folder):
+            self._clear_results()
         self._update_summary_label()
 
     def _category_display_name(self, folder_name):
@@ -844,9 +937,8 @@ class QQScanInterface(QWidget):
 
     def selectReadPath(self):
         directory = QFileDialog.getExistingDirectory(
-            self, 
-            t("选择QQ聊天记录所在目录（即包含QQ号数字文件夹的 Tencent Files 目录）")
-        )
+            self,
+            t("选择QQ聊天记录所在目录（即包含QQ号数字文件夹的 Tencent Files 目录）"))
         if directory:
             self.log(_tf("✅ 已选择数据目录: {path}", path=directory))
             self.userdata_save_path_cache = directory
@@ -903,6 +995,10 @@ class QQScanInterface(QWidget):
     def populateUserComboBox(self):
         if self._discovery_closed:return
         self._categories_generation+=1
+        self._users_loading=True;self._categories_loading=False
+        for worker in self._discovery_workers:
+            if worker.kind=='categories':worker.requestInterruption()
+        self.readPathEdit.setText(str(self.userdata_save_path_cache or ''))
         self.userComboBox.setEnabled(False);self.emojiFolderComboBox.setEnabled(False);self.scanButton.setEnabled(False)
         self.userComboBox.setPlaceholderText(t('正在读取 QQ 账号…'))
         self._start_discovery('users')
@@ -912,23 +1008,30 @@ class QQScanInterface(QWidget):
         if self._discovery_closed:return
         attr='_users_generation' if kind=='users' else '_categories_generation'
         if generation!=getattr(self,attr):return
+        if kind=='users':self._users_loading=False
+        else:self._categories_loading=False
         combo=self.userComboBox if kind=='users' else self.emojiFolderComboBox
         previous=combo.currentData();combo.blockSignals(True);combo.clear()
+        # Fluent ComboBox's placeholder setter also replaces the label at
+        # index 0. Set it while empty, then let actual items own the text.
+        combo.setPlaceholderText(t('未选择账号' if kind=='users' else '未选择分类'))
         if kind=='users':
             root=data['root'];self.userdata_save_path_cache=root or None;self.readPathEdit.setText(root)
             if root and self.config:self.config.set('qq_data_path',root)
             for account,name in data['items']:combo.addItem(f'{name}（{account}）' if name else account,userData=account)
         else:
             for category in data['items']:combo.addItem(self._category_display_name(category),userData=category)
-        index=combo.findData(previous)
+        index=combo.findData(data.get('preferred',previous))
         if index>=0:combo.setCurrentIndex(index)
         combo.blockSignals(False);combo.setEnabled(not getattr(self,'_busy',False))
-        combo.setPlaceholderText(t('未选择账号' if kind=='users' else '未选择分类'))
         if data.get('error'):self.log(t('无法读取 QQ 数据，请重新选择目录。'))
-        if kind=='users':self.onUserChanged()
+        if kind=='users':
+            if not data['root']:self.readPathEdit.setPlaceholderText(t('未找到 QQ 数据目录，请手动选择。'))
+            if not data['items']:self.log(t('未发现 QQ 账号，请选择包含数字账号文件夹的 Tencent Files 目录。'))
+            self.onUserChanged()
         else:
             self.scanButton.setEnabled(bool(data['items']) and not getattr(self,'_busy',False))
-            self._update_summary_label()
+            self.onCategoryChanged();self._update_summary_label()
 
     def sanitize_filename(self, name):
         invalid_chars = '<>:"/\\|?*'
@@ -952,8 +1055,13 @@ class QQScanInterface(QWidget):
     def onUserChanged(self):
         self.emojiFolderComboBox.blockSignals(True);self.emojiFolderComboBox.clear();self.emojiFolderComboBox.blockSignals(False)
         selected=self.get_selected_qq()
+        if self._scan_context and self._scan_context[:2]!=(self.userdata_save_path_cache,selected):
+            self._clear_results()
         if not selected:
-            self._categories_generation+=1;self.emojiFolderComboBox.setEnabled(False);self.scanButton.setEnabled(False);return
+            self._categories_generation+=1;self._categories_loading=False
+            self.emojiFolderComboBox.setPlaceholderText(t('未选择分类'))
+            self.emojiFolderComboBox.setEnabled(False);self.scanButton.setEnabled(False);return
+        self._categories_loading=True
         self.emojiFolderComboBox.setEnabled(False);self.scanButton.setEnabled(False)
         self.emojiFolderComboBox.setPlaceholderText(t('正在读取分类…'))
         self._start_discovery('categories',selected)
@@ -966,114 +1074,35 @@ class QQScanInterface(QWidget):
                 self.loadMoreEmojis()
 
     def loadMoreEmojis(self):
-        if self.is_loading:
-            return
-        self.is_loading = True
+        if self.is_loading or self._discovery_closed:return
+        start=self.loaded_emoji_count
+        end=min(start+self.batch_size,len(self.emoji_file_paths))
+        if start>=end:return
+        self.is_loading=True
+        worker=QQPreviewWorker(self._preview_generation,start,self.emoji_file_paths[start:end],self._is_marketface(),self)
+        self._preview_worker=worker
+        worker.ready.connect(self._preview_ready,Qt.QueuedConnection)
+        self._start_worker(worker)
 
-        start_idx = self.loaded_emoji_count
-        end_idx = min(start_idx + self.batch_size, len(self.emoji_file_paths))
-
-        if start_idx >= end_idx:
-            self.is_loading = False
-            return
-
-        self.log(_tf(
-            "💬 正在加载预览图 {start} - {end} ...",
-            start=start_idx + 1, end=end_idx
-        ))
-
-        batch_paths = self.emoji_file_paths[start_idx:end_idx]
-
-        for idx, file_path_str in enumerate(batch_paths):
-            actual_ext = QQExtractor.get_actual_extension(file_path_str)
-            marketface_data = None
-            marketface_gif_path = None
-            marketface_frames = 0
-            if self._is_marketface():
-                marketface_info = QQExtractor.get_marketface_info(file_path_str)
-                if marketface_info is not None:
-                    marketface_data, marketface_frames = marketface_info
-                    marketface_gif_path = QQExtractor.get_marketface_gif_path(file_path_str)
-                    actual_ext = "gif"
-
-            if actual_ext:
-                try:
-                    if marketface_data is not None:
-                        file_data = marketface_data
-                    else:
-                        with open(file_path_str, 'rb') as f:
-                            file_data = f.read()
-
-                    pixmap = QPixmap()
-                    if pixmap.loadFromData(file_data):
-                        is_animated = False
-                        badge_text = "GIF"
-
-                        if marketface_data is not None:
-                            is_animated = marketface_frames > 1
-                            badge_text = "GIF" if is_animated else ""
-                        elif actual_ext.lower() == 'png' and QQExtractor.is_apng_file(file_path_str):
-                            is_animated = True
-                            badge_text = "APNG"
-                        else:
-                            try:
-                                reader = QImageReader(file_path_str)
-                                if reader.supportsAnimation():
-                                    is_animated = reader.imageCount() > 1
-                            except Exception:
-                                pass
-
-                        canvas = QPixmap(100, 100)
-                        canvas.fill(Qt.transparent)
-
-                        scaled_pixmap = pixmap.scaled(
-                            100, 100, 
-                            Qt.KeepAspectRatio, 
-                            Qt.SmoothTransformation
-                        )
-
-                        painter = QPainter(canvas)
-                        x = (100 - scaled_pixmap.width()) // 2
-                        y = (100 - scaled_pixmap.height()) // 2
-                        painter.drawPixmap(x, y, scaled_pixmap)
-
-                        if is_animated:
-                            rect = QRect(55, 84, 45, 16)
-                            painter.fillRect(rect, QColor(0, 0, 0, 160))
-                            painter.setPen(QColor(255, 255, 255))
-                            font = QFont("Sarasa UI SC", 8, QFont.Bold)
-                            painter.setFont(font)
-                            painter.drawText(rect, Qt.AlignCenter, badge_text)
-
-                        painter.end()
-
-                        icon = QIcon(canvas)
-                        from PySide6.QtWidgets import QListWidgetItem
-                        item = QListWidgetItem(icon, "")
-                        item.setData(Qt.UserRole, file_path_str)
-                        item.setData(Qt.UserRole + 1, is_animated)
-                        item.setData(Qt.UserRole + 2, icon)
-                        display_ext = "GIF" if marketface_data is not None else (
-                            "APNG" if badge_text == "APNG" else actual_ext.upper()
-                        )
-                        item.setToolTip(_tf(
-                            "格式: {format}\n路径: {path}",
-                            format=display_ext,
-                            path=os.path.basename(file_path_str)
-                        ))
-                        self.previewListWidget.addItem(item)
-                except Exception:
-                    pass
-
-            if idx % 10 == 0 or idx == len(batch_paths) - 1:
-                QCoreApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
-
-        self.loaded_emoji_count = end_idx
-        self.log(_tf(
-            "✅ 已加载表情预览：{loaded}/{total}",
-            loaded=self.loaded_emoji_count, total=len(self.emoji_file_paths)
-        ))
-        self.is_loading = False
+    @Slot(int,int,int,list)
+    def _preview_ready(self,generation,start,end,records):
+        if self._discovery_closed or generation!=self._preview_generation:return
+        from PySide6.QtWidgets import QListWidgetItem
+        for path,image,animated,badge in records:
+            canvas=QPixmap(100,100);canvas.fill(Qt.transparent)
+            painter=QPainter(canvas)
+            painter.drawImage((100-image.width())//2,(100-image.height())//2,image)
+            if animated:
+                rect=QRect(55,84,45,16);painter.fillRect(rect,QColor(0,0,0,160))
+                painter.setPen(QColor(255,255,255));painter.setFont(QFont('Sarasa UI SC',8,QFont.Bold))
+                painter.drawText(rect,Qt.AlignCenter,badge)
+            painter.end()
+            icon=QIcon(canvas);item=QListWidgetItem(icon,'')
+            item.setData(Qt.UserRole,path);item.setData(Qt.UserRole+1,animated);item.setData(Qt.UserRole+2,icon)
+            item.setToolTip(_tf('格式: {format}\n路径: {path}',format=badge,path=os.path.basename(path)))
+            self.previewListWidget.addItem(item)
+        self.loaded_emoji_count=end;self.is_loading=False;self._preview_worker=None
+        self.log(_tf('✅ 已加载表情预览：{loaded}/{total}',loaded=end,total=len(self.emoji_file_paths)))
 
     def onItemSelectionChanged(self):
         self._sync_result_actions()
@@ -1193,42 +1222,51 @@ class QQScanInterface(QWidget):
         self.detailPreviewLabel.clear()
         self.detailInfoLabel.setText(t("未选中表情"))
 
+        self._cancel_preview()
+        self._scan_context=(userdata_save_path,selected_qq,selected_folder)
         self.previewListWidget.clear()
         self.emoji_file_paths = []
         self.loaded_emoji_count = 0
         self.log(_tf("💬 开始智能扫描分类 [{folder}] 表情合集路径...", folder=selected_folder))
 
-        self.tooltip.show(t("正在扫描表情合集..."), _tf("正在扫描分类 [{folder}]...", folder=selected_folder), cancellable=False)
-        QCoreApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+        self.tooltip.show(t("正在扫描表情…"), _tf("正在扫描分类「{folder}」…", folder=selected_folder))
 
         self._set_busy(True)
         self._scan_worker = QQScanWorker(target_path, selected_folder, self)
+        self._scan_generation+=1;self._scan_worker.generation=self._scan_generation
         self._current_worker = self._scan_worker
         self._scan_worker.finished_scan.connect(self._on_scan_finished)
         self._scan_worker.failed.connect(self._on_scan_failed)
-        self._scan_worker.start()
+        self._start_worker(self._scan_worker)
         return
 
     def _on_scan_failed(self, error):
+        worker=self.sender()
+        if self._discovery_closed or (worker and worker.generation!=self._scan_generation):return
         self._set_busy(False)
         self._current_worker = None
         self.tooltip.fail(t("扫描失败"), str(error))
         self.log(_tf("❌ 扫描失败: {error}", error=error))
 
     def _on_scan_finished(self, paths):
+        worker=self.sender()
+        if self._discovery_closed or (worker and worker.generation!=self._scan_generation):return
         self._set_busy(False)
         self._current_worker = None
+        if worker and worker.was_cancelled:
+            self.tooltip.finish(t('扫描已停止'),t('未应用本次扫描结果。'),outcome='cancelled')
+            return
         self.emoji_file_paths = paths
         self._sync_result_actions()
         total_valid = len(self.emoji_file_paths)
 
         if total_valid == 0:
             self.log(t("❌ 未筛选出任何有效的表情合集表情"))
-            self.tooltip.finish(t("扫描完成"), t("未筛选出任何有效的表情合集表情"))
+            self.tooltip.finish(t("扫描完成"), t("未找到可用的表情文件"))
             return
 
         self.log(_tf("✅ 扫描并筛选完毕，共发现 {count} 个有效表情。", count=total_valid))
-        self.tooltip.finish(t("扫描完成"), _tf("共发现 {count} 个有效表情", count=total_valid))
+        self.tooltip.finish(t("扫描完成"), _tf("找到 {count} 张表情", count=total_valid))
 
         # 扫描成功后自动折叠收起配置卡片，将最大视野留给预览网格
         self.collapse_config()
@@ -1249,14 +1287,14 @@ class QQScanInterface(QWidget):
     def copy_files_with_progress(self, file_paths, dst_dir):
         """导出文件（通过后台异步线程执行，主线程保持响应）"""
         if self._current_worker and self._current_worker.isRunning():
-            notify(self, t("提示"), t("当前有正在进行的操作，请稍候或先中止当前任务！"))
+            notify(self, t("提示"), t("已有任务正在进行，请等待完成或先停止该任务。"))
             return
 
         total_files = len(file_paths)
         self._set_busy(True)
         self.tooltip.show(
-            t("正在导出表情..."),
-            _tf("准备导出 {total} 个表情...", total=total_files), total=total_files
+            t("正在导出表情…"),
+            _tf("准备导出 {total} 张表情…", total=total_files), total=total_files
         )
 
         worker = QQExportWorker(
@@ -1271,7 +1309,7 @@ class QQScanInterface(QWidget):
         worker.log_msg.connect(self.log)
         worker.finished_all.connect(self._on_export_finished)
         worker.failed.connect(self._on_worker_failed)
-        worker.start()
+        self._start_worker(worker)
 
     def _on_export_progress(self, done, total, src_name, dest_name):
         self.log(_tf(
@@ -1281,7 +1319,7 @@ class QQScanInterface(QWidget):
             destination=dest_name
         ))
         percent = int(done * 100 / max(total, 1))
-        self.tooltip.update(_tf("正在处理: {done}/{total} ({percent}%)",
+        self.tooltip.update(_tf("已导出 {done}/{total} 张（{percent}%）",
                                 done=done, total=total, percent=percent), current=done, total=total)
 
     def _on_export_finished(self, copied_count, dst_dir, was_cancelled):
@@ -1290,29 +1328,26 @@ class QQScanInterface(QWidget):
         self._current_worker = None
 
         if was_cancelled:
-            self.log(_tf("⚠️ 导出已被用户中断！已导出 {count} 个表情文件。", count=copied_count))
-            self.tooltip.finish(
-                t("导出已中断"),
-                _tf("已由用户手动中断，已导出 {count} 个表情文件", count=copied_count),outcome='cancelled'
-            )
+            title = t("导出已中断")
+            content = _tf("已停止导出，已导出的 {count} 个文件会保留。", count=copied_count)
+            self.log(f"{title}: {content}")
+            self.tooltip.finish(title, content, outcome='cancelled')
             return
 
-        self.log(_tf("✅ 成功导出 {count} 个表情文件！", count=copied_count))
+        title = t('导出部分完成') if copied_count<total and copied_count else t('导出失败') if copied_count<total else t('导出完成')
+        content = t('已导出 {done} 张表情，失败 {failed} 张').format(done=copied_count,failed=total-copied_count)
+        self.log(f"{title}: {content}")
         self.tooltip.finish(
-            t('导出部分完成') if copied_count<total and copied_count else t('导出失败') if copied_count<total else t('导出完成'),
-            t('已导出 {done} 张表情，失败 {failed} 张').format(done=copied_count,failed=total-copied_count),
+            title, content,
             outcome='partial' if copied_count<total and copied_count else 'error' if copied_count<total else 'success'
         )
-        self.log(t("✅ 完成！正在打开输出文件夹……"))
         try:
             subprocess.Popen(['explorer', os.path.abspath(dst_dir)])
         except Exception as e:
             self.log(_tf("❌ 无法打开资源管理器: {error}", error=e))
 
     def selectAllLoaded(self):
-        for i in range(self.previewListWidget.count()):
-            item = self.previewListWidget.item(i)
-            item.setSelected(True)
+        self.previewListWidget.selectAll()
         self.log(_tf(
             "✅ 已全选当前加载的 {count} 个表情",
             count=self.previewListWidget.count()
@@ -1350,7 +1385,7 @@ class QQScanInterface(QWidget):
             notify(self, t("提示"), t("请先在预览区选中表情后再导出！"))
             return
 
-        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导出选中"), _tf("确定导出当前选中的 {count} 个表情？", count=len(selected_items))) else QMessageBox.No)
+        reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导出选中"), _tf("确定导出当前选中的 {count} 个表情？", count=len(selected_items)), hint=t(NICKNAME_NOTICE)) else QMessageBox.No)
         if reply == QMessageBox.No:
             self.log(t("💬 用户取消了导出操作"))
             return
@@ -1398,7 +1433,7 @@ class QQScanInterface(QWidget):
         reply = (QMessageBox.Yes if dialogs.confirm(self, t("确认导出全部"), _tf(
                 "当前不管界面是否完全加载，将直接导出扫描到的该分类下所有 {count} 个表情？",
                 count=len(self.emoji_file_paths)
-            )) else QMessageBox.No)
+            ), hint=t(NICKNAME_NOTICE)) else QMessageBox.No)
         if reply == QMessageBox.No:
             self.log(t("💬 用户取消了导出操作"))
             return
@@ -1412,7 +1447,7 @@ class QQScanInterface(QWidget):
     def import_files_with_progress(self, file_paths):
         """导入表情到资源库（通过后台异步线程执行，主线程保持响应）"""
         if self._current_worker and self._current_worker.isRunning():
-            notify(self, t("提示"), t("当前有正在进行的操作，请稍候或先中止当前任务！"))
+            notify(self, t("提示"), t("已有任务正在进行，请等待完成或先停止该任务。"))
             return
 
         main_win = self.window()
@@ -1569,11 +1604,11 @@ class QQScanInterface(QWidget):
         help_text = t(
             "使用帮助：\n\n"
             "1. 使用时请确保已登录过QQ并加载过全部表情合集\n"
-            "2. 提取的时候会自动创建以QQ号开头的文件夹\n"
+            "2. 导出文件夹优先以“昵称（QQ 号）”命名；无法获取昵称时使用 QQ 号。\n"
             "3. 选择一个账号后，点击'扫描表情合集预览'获取表情合集，然后选择表情，最后'导出选中'或'导出全部'。\n"
             "4. 导出的表情合集比账号内实际的表情合集要多属正常现象，因为QQ会缓存一些表情合集\n\n"
             "  注意：如果没有找到任何用户，请确保QQ已经在本地登录过。并确保路径正确\n"
             "  可以尝试手动指定聊天数据文件夹的所在位置"
         )
 
-        notify(self, t("使用帮助"), help_text)
+        notify(self, t("使用帮助"), help_text + "\n\n" + t(NICKNAME_NOTICE))

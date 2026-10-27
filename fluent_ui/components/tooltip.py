@@ -6,7 +6,7 @@ plain ``setToolTip``; a single application-level filter supplies one short,
 consistent delay instead of per-button configuration.
 """
 from PySide6.QtCore import QEvent, QObject, QPoint, QTimer, Qt, QRectF
-from PySide6.QtGui import QPainter, QColor, QPen
+from PySide6.QtGui import QPainter, QColor, QPen, QPalette
 from PySide6.QtWidgets import QAbstractItemView, QApplication, QWidget, QLabel, QVBoxLayout, QToolTip
 from fluent_ui.components.keycap_label import KeycapLabel
 
@@ -19,8 +19,25 @@ class TooltipSurface(QWidget):
         self.setAttribute(Qt.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.label=KeycapLabel(self);self.label.setWordWrap(True);self.label.setMaximumWidth(380)
+        self.label.setStyleSheet('background:transparent;border:none;')
         layout=QVBoxLayout(self);layout.setContentsMargins(10,7,10,7);layout.addWidget(self.label)
         self.expiry=QTimer(self);self.expiry.setSingleShot(True);self.expiry.timeout.connect(self.hide)
+        from fluent_ui import visual
+        visual.theme.changed.connect(self.refresh_theme)
+        self.refresh_theme()
+
+    def refresh_theme(self):
+        # QTextDocument uses Text, while QLabel/native tips can use WindowText
+        # or ToolTipText. Update every group together, including Inactive.
+        from fluent_ui import visual
+        c=visual.colors();palette=self.palette()
+        for role in (QPalette.Text,QPalette.WindowText,QPalette.ToolTipText):
+            palette.setColor(role,QColor(c['text']))
+        for role in (QPalette.Base,QPalette.ToolTipBase):
+            palette.setColor(role,QColor(c['surface_overlay']))
+        self.setPalette(palette);self.label.setPalette(palette)
+        self.label.setFont(visual.font('tooltip'))
+        self.update()
 
     def text(self):return self.label.text()
 
@@ -39,7 +56,8 @@ except ImportError:  # pragma: no cover - shiboken always ships with PySide6
         return True
 
 DEFAULT_TOOLTIP_DELAY = 120
-_WATCHED = (QEvent.Enter, QEvent.Leave, QEvent.Hide, QEvent.MouseButtonPress, QEvent.ToolTip)
+_WATCHED = (QEvent.Enter, QEvent.Leave, QEvent.Hide, QEvent.Close,
+            QEvent.WindowDeactivate, QEvent.MouseButtonPress, QEvent.ToolTip)
 
 
 class GlobalToolTipFilter(QObject):
@@ -67,6 +85,12 @@ class GlobalToolTipFilter(QObject):
         # Cheapest possible rejection first: this filter sees every event.
         if kind not in _WATCHED:
             return False
+
+        if kind in (QEvent.Hide,QEvent.Close,QEvent.WindowDeactivate):
+            pending=self._pending
+            if obj is self._owner_window or (pending is not None and _is_alive(pending) and obj is pending.window()):
+                self._hide()
+                return False
 
         if kind == QEvent.ToolTip:
             # Widgets with a tooltip are already served by the fast timer; item
@@ -128,10 +152,7 @@ class GlobalToolTipFilter(QObject):
             self._tooltip = TooltipSurface(window)
             self._owner_window = window
         self._tooltip.label.setText(text)
-        from fluent_ui import visual
-        c=visual.colors()
-        self._tooltip.label.setFont(visual.font('tooltip'))
-        self._tooltip.label.setStyleSheet(f'color:{c["text"]};background:transparent;border:none;')
+        self._tooltip.refresh_theme()
         self._tooltip.adjustSize()
         anchor=position or widget.mapToGlobal(widget.rect().topLeft())
         screen=QApplication.screenAt(anchor) or widget.screen();area=screen.availableGeometry()

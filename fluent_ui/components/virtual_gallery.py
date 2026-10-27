@@ -2,11 +2,12 @@
 from bisect import bisect_left, bisect_right
 from time import perf_counter
 from PySide6.QtCore import QPoint, QRect, Qt, QSignalBlocker, QTimer, QAbstractAnimation
-from PySide6.QtWidgets import QWidget, QLabel
+from PySide6.QtWidgets import QWidget, QLabel, QApplication
 from fluent_ui.components.gallery_model import occurrence_id
 from fluent_ui.components.gallery_thumbnails import GalleryThumbnails
 from fluent_ui.components.emoji_card import EmojiCard
 from services.i18n import t
+from fluent_ui.components.node_card import node_row_height
 
 
 class FlowIndex:
@@ -16,13 +17,17 @@ class FlowIndex:
         self.bottoms = []
         self.height = 36
         self.width = self.size = 0
+        self.node_icon_size = 22
+        self.section_owners = []
+        self.section_breaks = []
 
-    def layout(self, entries, width, size, first=0):
+    def layout(self, entries, width, size, first=0, *, node_icon_size=22):
         """Only numeric geometry. Resume at the row before an affected range."""
         width = max(60, width)
-        if self.width != width or self.size != size:
+        if self.width != width or self.size != size or self.node_icon_size != node_icon_size:
             first = 0
         self.width, self.size = width, size
+        self.node_icon_size = node_icon_size
         first = min(first, len(entries), len(self.rects))
         if first and first < len(self.rects):
             first = bisect_left(self.tops, self.tops[first])
@@ -39,9 +44,10 @@ class FlowIndex:
             indent = min(entry.get('_depth', 0), 6)*14
             available = max(1, width-24-indent)
             if entry['kind'] == 'node':
-                rects.append(QRect(12+indent, y, available, 40))
+                height = node_row_height(node_icon_size)
+                rects.append(QRect(12+indent, y, available, height))
                 index += 1
-                y += 44
+                y += height + 4
                 continue
             capacity = max(1, (available+4)//(size+4))
             left = 12+indent
@@ -70,6 +76,24 @@ class FlowIndex:
             bottom = max(bottom, rect.bottom())
             self.bottoms.append(bottom)
         self.height = max(36, y+4)
+        # Derived from the rendered projection, not a second category model.
+        stack = []
+        self.section_owners = []
+        self.section_breaks = []
+        previous = None
+        for i, entry in enumerate(entries):
+            depth = entry.get('_depth', 0)
+            while stack and entries[stack[-1]].get('_depth', 0) >= depth:
+                stack.pop()
+            if entry['kind'] == 'node':
+                stack.append(i)
+            owner = stack[-1] if stack else None
+            if entry['kind'] == 'resource' and owner is not None and entry.get('_parent') != entries[owner]['id']:
+                owner = None
+            self.section_owners.append(owner)
+            if owner != previous:
+                self.section_breaks.append(self.tops[i])
+                previous = owner
 
     def between(self, top, bottom):
         return range(bisect_left(self.bottoms, top), bisect_right(self.tops, bottom))
@@ -89,15 +113,20 @@ class VirtualGallery:
         self._batch_timer.setSingleShot(True)
         self._batch_timer.setInterval(8)
         self._batch_timer.timeout.connect(self._drain)
+        from fluent_ui.components.sticky_category import StickyCategory
+        self.sticky = StickyCategory(gallery)
 
     def relayout(self, first=0, anchor=None, scroll=None):
         g = self.gallery
         self.updating = True
         try:
             self.index.layout(g._entries, g.scroll_area.viewport().width(),
-                              g.config.get('thumbnail_size', 120), first)
-            g.grid_container.setFixedSize(self.index.width,
-                                         max(self.index.height, g.scroll_area.viewport().height()))
+                              g.config.get('thumbnail_size', 120), first,
+                              node_icon_size=max(14, min(48, int(g.config.get('gallery_node_icon_size', 22)))))
+            # The viewport already owns the empty area. Making the scroll
+            # widget as tall as that moving viewport feeds panel animation
+            # back into the scroll range and can toggle the vertical bar.
+            g.grid_container.setFixedSize(self.index.width, self.index.height)
             if scroll is not None:
                 g.scroll_area.verticalScrollBar().setValue(scroll)
             elif anchor:
@@ -107,6 +136,11 @@ class VirtualGallery:
         self.sync()
 
     def retire(self, card):
+        focus = QApplication.focusWidget()
+        if focus is not None and (focus is card._renderer or card._renderer.isAncestorOf(focus)):
+            # Hiding a focused flow row otherwise traverses other cards and
+            # QScrollArea scrolls to those new focus targets during recycling.
+            self.gallery.scroll_area.viewport().setFocus(Qt.OtherFocusReason)
         if isinstance(card, EmojiCard) and getattr(self.gallery, 'preview_controller', None):
             self.gallery.preview_controller.leave(card)
         card._renderer.hide()
@@ -117,6 +151,7 @@ class VirtualGallery:
         card.content_entry = entry
         if isinstance(card, EmojiCard):
             if card.image_path != entry['path']:
+                card.set_hovered(False)
                 card.clear_resources()
                 card.image_path = entry['path']
                 card._gallery_thumbnail_key = None
@@ -136,8 +171,10 @@ class VirtualGallery:
                 label.setText(label.fontMetrics().elidedText(source, Qt.ElideMiddle, self.index.size))
                 label.setToolTip(source)
         else:
+            if card.node_id!=entry['id']:card.reset_interaction()
             signature = (entry['id'], entry['name'], entry.get('icon'), entry.get('total'),
-                         entry.get('children'), entry['id'] in self.gallery._expanded_nodes)
+                         entry.get('children'), entry['id'] in self.gallery._expanded_nodes,
+                         self.index.node_icon_size)
             if getattr(card, '_node_signature', None) != signature:
                 card.entry = entry
                 card.node_id = entry['id']
@@ -173,26 +210,48 @@ class VirtualGallery:
         self.created += 1
         return card
 
-    def sync(self):
+    def sync(self, *, scroll_only=False):
         if self.updating:
             return
         self._batch_timer.stop()
         g = self.gallery
         top = g.scroll_area.verticalScrollBar().value()
+        self.sticky.sync()
         height = max(100, g.scroll_area.viewport().height())
         rows = self.index.between(max(0, top-height), top+height*2)
         wanted = {occurrence_id(g._entries[i]): i for i in rows}
         for key in list(self.active):
             card = self.active[key]
-            if key not in wanted and not getattr(card, '_is_dragging', False):
-                self.retire(self.active.pop(key))
+            if key not in wanted:
+                if getattr(card, '_is_dragging', False) or getattr(card, '_dragging', False):
+                    # Keep QDrag's source alive and bound until exec returns,
+                    # but don't paint the old projection over the new page.
+                    card._renderer.hide()
+                else:
+                    self.retire(self.active.pop(key))
         ordered = sorted(wanted, key=lambda key: (
             max(top-self.index.rects[wanted[key]].bottom(),
                 self.index.rects[wanted[key]].top()-(top+height), 0), wanted[key]))
         self._wanted = wanted
-        self.loader.wanted.clear()
-        self._pending = list(ordered)
+        if scroll_only:
+            # The short drain budget must go to newly exposed cards. If it
+            # starts with already-bound cards on every wheel event, a rapid
+            # reverse scroll repeatedly prepares the same front of the list
+            # while newly visible cards wait behind it.
+            self.loader.retain_bound_requests(self.active.values())
+            self._pending = [key for key in ordered if not self._scroll_card_bound(key, wanted[key])]
+        else:
+            self.loader.wanted.clear()
+            self._pending = list(ordered)
         self._drain()
+
+    def _scroll_card_bound(self, key, index):
+        card = self.active.get(key)
+        return (card is not None and card.content_entry is self.gallery._entries[index]
+                and card._renderer.isVisible() and card._renderer.geometry() == self.index.rects[index]
+                and (not isinstance(card, EmojiCard) or card.current_size == self.index.size)
+                and getattr(card, 'is_selected', False) ==
+                (self.gallery._entry_key(card.content_entry) in self.gallery.selected_keys))
 
     def _drain(self):
         """Prepare visible cards first, yielding between small GUI-thread batches."""
@@ -231,6 +290,7 @@ class VirtualGallery:
         # Preserve earlier pending decodes without re-keying every active card
         # on every batch. sync() discards obsolete viewport requests above.
         self.loader.request(batch,append=True)
+        g._sync_hover_card()
         if self._pending:
             self._batch_timer.start()
             return
@@ -245,13 +305,15 @@ class VirtualGallery:
                 pool.pop()._renderer.deleteLater()
 
     def anchor(self):
+        return next(self.visible_anchors(), None)
+
+    def visible_anchors(self):
+        """Existing viewport anchors, in reading order, before a data edit."""
         g = self.gallery
         top = g.scroll_area.verticalScrollBar().value()
         candidates = self.index.between(top, top+g.scroll_area.viewport().height())
-        if not candidates:
-            return None
-        i = candidates.start
-        return occurrence_id(g._entries[i]), top-self.index.rects[i].top()
+        for i in candidates:
+            yield occurrence_id(g._entries[i]), top-self.index.rects[i].top()
 
     def restore(self, anchor):
         if anchor:

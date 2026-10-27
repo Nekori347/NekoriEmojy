@@ -82,7 +82,7 @@ class DisclosureButton(QToolButton):
         self._motion.stop()
         self._motion.setStartValue(self._angle)
         self._motion.setEndValue(90.0 if expanded else 0.0)
-        self._motion.start()
+        visual.start_animation(self._motion, visual.MOTION.expand)
 
     def paintEvent(self,event):
         from fluent_ui.icons import Icon
@@ -113,6 +113,8 @@ class SoftframeSlider(QSlider):
         super().__init__(orientation,parent)
         self._handle_hover=False
         self._handle_drag=False
+        from fluent_ui.components.controls import focus_input
+        self._focus_input=focus_input()
         self.setAttribute(Qt.WA_Hover)
         self.setFocusPolicy(Qt.TabFocus)
         self.setMinimumSize(60,28)
@@ -140,17 +142,32 @@ class SoftframeSlider(QSlider):
         if active:
             tint=QColor(c['accent']);tint.setAlpha(24)
             p.setBrush(tint);p.setPen(Qt.NoPen);p.drawRoundedRect(pill,5,5)
-        if self.hasFocus():
+        if self.hasFocus() and self._focus_input.keyboard:
             p.setBrush(Qt.NoBrush);p.setPen(QPen(QColor(c['accent']),1))
             p.drawRoundedRect(pill.adjusted(-2,-2,2,2),5,5)
 
+    def focusInEvent(self,event):
+        if event.reason()==Qt.MouseFocusReason:self._focus_input.keyboard=False
+        super().focusInEvent(event);self.update()
+
+    def _settle_handle(self):
+        from fluent_ui.components.controls import pointer_hits
+        option=QStyleOptionSlider();self.initStyleOption(option)
+        handle=self.style().subControlRect(QStyle.CC_Slider,option,QStyle.SC_SliderHandle,self)
+        self._handle_hover=pointer_hits(self,handle)
+        self.update()
+
     def event(self,event):
+        result=super().event(event)
+        if not hasattr(self,'_handle_drag'):return result
         if event.type() in (QEvent.HoverEnter,QEvent.HoverMove,QEvent.HoverLeave):
-            option=QStyleOptionSlider();self.initStyleOption(option)
-            handle=self.style().subControlRect(QStyle.CC_Slider,option,QStyle.SC_SliderHandle,self)
-            hovered=event.type()!=QEvent.HoverLeave and handle.contains(event.position().toPoint())
-            if hovered!=self._handle_hover:self._handle_hover=hovered;self.update()
-        return super().event(event)
+            self._settle_handle()
+        elif event.type() in (QEvent.Hide,QEvent.EnabledChange,QEvent.UngrabMouse,QEvent.WindowDeactivate):
+            self._handle_drag=False;self.setSliderDown(False)
+            self._settle_handle()
+        elif event.type() in (QEvent.Move,QEvent.Resize,QEvent.Show):
+            self._settle_handle()
+        return result
 
     def mousePressEvent(self,event):
         option=QStyleOptionSlider();self.initStyleOption(option)
@@ -182,8 +199,10 @@ class SoftframeSlider(QSlider):
         if self._handle_drag and event.button()==Qt.LeftButton:
             self._handle_drag=False;self.setSliderDown(False)
             if not self.hasTracking():self.setValue(self.sliderPosition())
+            self._settle_handle()
             event.accept();return
         super().mouseReleaseEvent(event)
+        self._settle_handle()
 
     def wheelEvent(self,event):
         event.ignore()
@@ -194,13 +213,14 @@ class SoftframeProgress(QProgressBar):
     def __init__(self,parent=None):
         super().__init__(parent)
         self._pulse=QTimer(self);self._pulse.setInterval(60);self._pulse.timeout.connect(self.update)
+        visual.theme.motion_changed.connect(self._sync_motion)
         self.setTextVisible(False)
         visual.theme.changed.connect(self.update)
         visual.theme.accent_changed.connect(self.update)
 
     def _sync_motion(self):
         self._pulse.setInterval(60)
-        if self.isVisible() and self.maximum()==self.minimum()==0:self._pulse.start()
+        if self.isVisible() and self.maximum()==self.minimum()==0 and visual.animations_enabled():self._pulse.start()
         else:self._pulse.stop()
 
     def setRange(self,minimum,maximum):
@@ -221,7 +241,8 @@ class SoftframeProgress(QProgressBar):
             p.drawLine(x,int(r.bottom()),x+int(r.height()),int(r.top()))
         p.restore()
         if self.minimum()==self.maximum()==0:
-            width=r.width()*.23;offset=(time.monotonic()%1.8)/1.8*(r.width()+width)-width
+            width=r.width()*.23
+            offset=(time.monotonic()%1.8)/1.8*(r.width()+width)-width if visual.animations_enabled() else (r.width()-width)/2
             p.save();p.setClipRect(r);p.fillRect(QRectF(r.left()+offset,r.top(),width,r.height()),QColor(c['accent']));p.restore()
         else:
             fraction=max(0,min(1,(self.value()-self.minimum())/max(1,self.maximum()-self.minimum())))

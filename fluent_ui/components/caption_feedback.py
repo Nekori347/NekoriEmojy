@@ -1,11 +1,12 @@
 """Presentation of FeedbackHost's existing jobs inside its owner's caption."""
 from collections import deque
+from shiboken6 import isValid
 from PySide6.QtCore import QObject,Qt,QTimer,QPoint,QRect,QRectF,QVariantAnimation,QEasingCurve,QEvent
 from PySide6.QtGui import QPainter,QColor,QPen
-from PySide6.QtWidgets import QAbstractButton,QFrame,QVBoxLayout,QHBoxLayout,QScrollArea,QWidget,QLabel,QGraphicsBlurEffect
+from PySide6.QtWidgets import QAbstractButton,QFrame,QVBoxLayout,QHBoxLayout,QScrollArea,QWidget,QLabel,QApplication
 from fluent_ui import visual
 from fluent_ui.icons import Icon
-from fluent_ui.components.controls import PushButton,TransparentToolButton
+from fluent_ui.components.controls import PushButton,TransparentToolButton,ButtonPaint,focus_input
 from fluent_ui.components.softframe import SoftframeProgress
 from services.i18n import t,i18n_engine,bind_text
 
@@ -22,6 +23,7 @@ def appearance(job):
 
 
 def motion_enabled():
+    if not visual.animations_enabled():return False
     import sys,ctypes
     if sys.platform=='win32':
         allowed=ctypes.c_int(1)
@@ -53,12 +55,32 @@ class TaskMaterial(QWidget):
             p.fillRect(QRect(0,24,self.width(),self.height()-24),fill)
 
 
+class NotificationControlSurface(QWidget):
+    """The two existing actions share one local, thin outline."""
+    def paintEvent(self,event):
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QPen(QColor(visual.colors()['border_soft']),1));p.setBrush(task_material())
+        p.drawRoundedRect(QRectF(self.rect()).adjusted(.5,.5,-.5,-.5),7,7)
+
+
+class NotificationClearButton(TransparentToolButton):
+    def paintEvent(self,event):
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);c=visual.colors()
+        p.setOpacity(1 if self.isEnabled() else .45)
+        r=QRectF(self.rect()).adjusted(1,1,-1,-1)
+        if self._hover or self.isDown():
+            fill=QColor(c['text']);fill.setAlphaF(.12 if self.isDown() else .07*self._hover)
+            p.setPen(Qt.NoPen);p.setBrush(fill);p.drawRoundedRect(r,5,5)
+        if self.keyboard_focus_visible():
+            p.setPen(QPen(QColor(c['accent']),1));p.setBrush(Qt.NoBrush);p.drawRoundedRect(r,5,5)
+        color=c['danger'] if self._hover or self.isDown() else c['text_secondary']
+        Icon.DELETE.render(p,QRectF((self.width()-14)/2,(self.height()-14)/2,14,14),fill=color)
+
+
 class NoticeCover(QFrame):
-    """One local blurred task snapshot, with live task widgets kept underneath."""
+    """A temporary foreground notice above the independently updating task."""
     def __init__(self,view):
         super().__init__(view.window);self.view=view;self.hide()
-        self.background=QLabel(self);self.background.setAttribute(Qt.WA_TransparentForMouseEvents)
-        blur=QGraphicsBlurEffect(self.background);blur.setBlurRadius(6);self.background.setGraphicsEffect(blur)
         self.front=QFrame(self);self.front.setObjectName('CaptionNoticeCover')
         from fluent_ui.components.feedback import FeedbackTitle
         self.icon=QLabel(self.front);self.label=FeedbackTitle(self.front)
@@ -67,45 +89,45 @@ class NoticeCover(QFrame):
         bind_text(self.close,'关闭','setToolTip');self.close.clicked.connect(view.host.dismiss)
         self.detail=TransparentToolButton(Icon.INFO,self.front);self.detail.setFixedSize(20,20)
         bind_text(self.detail,'查看详情','setToolTip');self.detail.clicked.connect(view.show_current_details)
-        self.action=PushButton(self.front);self.action.ghost=True;self.action.setFixedSize(76,22)
+        self.action=PushButton(self.front);self.action.ghost=True;self.action.setFixedSize(76,20)
         self.action.clicked.connect(lambda:view.host._task_action(view.overlay))
+        from fluent_ui.components.notification_timing import CountdownLine
+        self.countdown=CountdownLine(self.front,view.deadline)
         self.key=None
     def present(self,key,job):
         h=self.view.host
         self.key=key
-        text=job['title']+(' · '+job['content'].replace('\n',' ') if job['content'] else '')
+        caption=job.get('caption')
+        text=(t(caption) if hasattr(caption,'source') else caption) or job['title']+(' · '+job['content'].replace('\n',' ') if job['content'] else '')
         trailing=28+(24 if job['details'] else 0)+(82 if job['resume'] else 0)
-        left,right=self.view.bounds()
-        # Notices have their own content width. The progress track is not a
-        # text container and must not impose its much smaller width here.
-        limit=max(80,right-left-24)
-        width=min(limit,self.label.fontMetrics().horizontalAdvance(text)+16+22+trailing)
-        center=(left+right)//2
-        self.setGeometry(center-width//2,h.strip.y(),width,h.strip.height())
-        # Crop at the actual overlay location before blurring, rather than
-        # scaling a full-strip snapshot into a shorter notice.
-        local=self.geometry().translated(-h.strip.x(),-h.strip.y())
-        if self.view.primary:self.background.setPixmap(h.strip.grab(local))
-        else:self.background.clear()
-        self.background.setGeometry(self.rect());self.front.setGeometry(self.rect())
+        area=self.view.notice_area
+        width=min(max(1,area.width()-24),self.label.fontMetrics().horizontalAdvance(text)+16+22+trailing)
+        self.setGeometry(area.center().x()-width//2,area.y(),width,area.height())
+        self.front.setGeometry(self.rect())
+        self.countdown.setGeometry(5,self.height()-2,max(0,self.width()-10),2)
         c=visual.colors();fill=QColor(c['window_base']);r,g,b,_=fill.getRgb()
         self.front.setStyleSheet(f'QFrame#CaptionNoticeCover {{background:rgba({r},{g},{b},214);border:1px solid {c["border_soft"]};border-radius:5px;}} QLabel {{background:transparent;border:none;}}')
         glyph,tone=appearance(job);self.icon.setPixmap(glyph.icon(color=tone).pixmap(16,16))
         self.label.setText(text);self.label.setToolTip(text);self.label.setStyleSheet('color:'+tone)
         self.action.setVisible(bool(job['resume']));self.action.setText(job['action_text'] or t('继续'))
-        self.action.move(self.width()-112,(self.height()-22)//2)
+        self.action.move(self.width()-112,(self.height()-20)//2)
         width=max(1,self.width()-trailing-38)
         x=8
         self.icon.setGeometry(x,(self.height()-16)//2,16,16);self.label.setGeometry(x+22,0,width,self.height())
         self.close.move(self.width()-30,(self.height()-20)//2)
         self.detail.move(self.width()-(138 if job['resume'] else 54),(self.height()-20)//2);self.detail.setVisible(bool(job['details']))
         self.setVisible(self.view.window.isVisible());self.raise_()
+        self.view.deadline.set_presented(self.isVisible())
+
+    def hideEvent(self,event):
+        self.view.deadline.set_presented(False)
+        super().hideEvent(event)
 
 
-class TaskEar(QAbstractButton):
+class TaskEar(ButtonPaint,QAbstractButton):
     def __init__(self,view):
-        super().__init__(view.window);self.view=view;self.setFixedSize(36,14)
-        bind_text(self,'查看任务与通知','setToolTip');bind_text(self,'查看任务与通知','setAccessibleName')
+        super().__init__(view.window);self.view=view;self._init_surface();self.setFixedSize(36,14)
+        self.setFocusPolicy(Qt.StrongFocus)
         self.setCursor(Qt.PointingHandCursor)
         self.motion=QVariantAnimation(self);self.motion.setStartValue(0.0);self.motion.setEndValue(1.0)
         self.motion.setDuration(1800);self.motion.setLoopCount(-1);self.motion.valueChanged.connect(lambda *_:self.update())
@@ -125,14 +147,17 @@ class TaskEar(QAbstractButton):
 
     def paintEvent(self,event):
         p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);c=visual.colors()
-        p.setPen(QPen(QColor(c['border_soft']),1));p.setBrush(task_material())
-        p.drawRoundedRect(QRectF(self.rect()).adjusted(.5,.5,-.5,-.5),7,7)
-        p.setPen(QPen(QColor(c['text_secondary']),1.5,Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin))
+        p.setOpacity(1 if self.isEnabled() else .45)
+        tone=c['accent'] if self._hover or self.isDown() else c['text_secondary']
+        if self.keyboard_focus_visible():
+            p.setPen(QPen(QColor(c['accent']),1));p.setBrush(Qt.NoBrush)
+            p.drawRoundedRect(QRectF(self.rect()).adjusted(2,2,-2,-2),5,5)
+        p.setPen(QPen(QColor(tone),1.5,Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin))
         if self.view.opened and self.view.expansion>.99:
             p.drawLine(14,8,18,4);p.drawLine(18,4,22,8);return
         phase=float(self.motion.currentValue() or 0)*1800
         offsets=self.dot_offsets(phase) if self.motion.state()==QVariantAnimation.Running else [0,0,0]
-        p.setPen(Qt.NoPen);p.setBrush(QColor(c['text_secondary']))
+        p.setPen(Qt.NoPen);p.setBrush(QColor(tone))
         for i,offset in enumerate(offsets):p.drawEllipse(QRectF(9+i*8-1.4,7+offset-1.4,2.8,2.8))
 
 
@@ -145,7 +170,10 @@ class CaptionFeedback(QObject):
         self.fold=QVariantAnimation(self);self.fold.setDuration(220);self.fold.setEasingCurve(QEasingCurve.InOutCubic)
         self.fold.valueChanged.connect(self._fold_step);self.fold.finished.connect(self._fold_finished)
         self.material=TaskMaterial(window)
-        self.overlay_timer=QTimer(self);self.overlay_timer.setSingleShot(True);self.overlay_timer.timeout.connect(self.expire_overlay)
+        self.overlay_timer=QTimer(self)
+        from fluent_ui.components.notification_timing import DisplayDeadline
+        self.deadline=DisplayDeadline(self.overlay_timer,self,motion_enabled)
+        self.deadline.expired.connect(self.expire_overlay)
         self.leave_timer=QTimer(self);self.leave_timer.setSingleShot(True);self.leave_timer.setInterval(180)
         self.leave_timer.timeout.connect(self.collapse_if_outside)
         self.panel=QFrame(window);self.panel.setObjectName('CaptionTaskList')
@@ -158,21 +186,46 @@ class CaptionFeedback(QObject):
         self.scroll.setWidget(self.content);self.scroll.viewport().setAutoFillBackground(False)
         from fluent_ui.presentation.scrollbar import install_scrollbars
         install_scrollbars(self.panel)
-        self.ear=TaskEar(self);self.cover=NoticeCover(self)
+        self.controls=NotificationControlSurface(window);self.controls.hide()
+        self.ear=TaskEar(self);self.ear.setParent(self.controls)
+        self.cover=NoticeCover(self)
+        self.clear_button=NotificationClearButton(Icon.DELETE,self.controls);self.clear_button.setFixedSize(22,22)
+        bind_text(self.clear_button,'清除成功与信息提示','setToolTip')
+        bind_text(self.clear_button,'清除成功与信息提示','setAccessibleName')
+        self.clear_button.clicked.connect(host.clear_completed)
+        self.clear_button.installEventFilter(self)
+        self.controls.installEventFilter(self)
         self.panel.installEventFilter(self);self.ear.installEventFilter(self)
+        self.cover.installEventFilter(self);host.strip.installEventFilter(self)
+        QApplication.instance().focusChanged.connect(self._focus_changed)
         host.strip.layout().setEnabled(False)
+        host.action_button.setFixedHeight(22)
         self.detail=TransparentToolButton(Icon.INFO,host.strip);self.detail.setFixedSize(20,20)
-        bind_text(self.detail,'查看详情','setToolTip');self.detail.clicked.connect(self.show_current_details)
+        bind_text(self.detail,'查看详情','setToolTip');self.detail.clicked.connect(lambda:self.show_current_details(self.primary))
         self.actions=self._action_box(host.strip,self.detail,host.action_button,host.close_button)
+        for widget in (self.detail,host.action_button,host.close_button,self.cover.close,self.cover.detail,self.cover.action):
+            widget.installEventFilter(self)
         window.installEventFilter(self)
+        # Read bounds again when the real caption controls have been laid out,
+        # rather than relying on the window's pre-resize event filter alone.
+        self.caption_widgets=[]
+        self._watch_caption(window)
         i18n_engine.language_changed.connect(self.refresh)
+        visual.theme.motion_changed.connect(self.reposition)
         self.refresh_theme()
 
     def reparent(self,window):
         if self.window is window:return
         self.window.removeEventFilter(self);self.window=window
-        self.panel.setParent(window);self.ear.setParent(window);self.material.setParent(window);self.cover.setParent(window);window.installEventFilter(self)
+        self.panel.setParent(window);self.controls.setParent(window);self.material.setParent(window);self.cover.setParent(window);window.installEventFilter(self)
+        self._watch_caption(window)
         self.refresh()
+
+    def _watch_caption(self,window):
+        for widget in self.caption_widgets:widget.removeEventFilter(self)
+        title=getattr(window,'titleBar',None)
+        self.caption_widgets=[] if title is None else [title]+[getattr(title,n) for n in ('minBtn','titleLabel','iconLabel','themeButton') if hasattr(title,n)]
+        for widget in self.caption_widgets:widget.installEventFilter(self)
 
     def refresh_theme(self):
         self.panel.setStyleSheet('QFrame#CaptionTaskList,QScrollArea,QWidget {background:transparent;border:none;}')
@@ -185,7 +238,7 @@ class CaptionFeedback(QObject):
         self.paint_row(key)
         if job['state'] in ACTIVE:
             self.pending=deque(k for k in self.pending if k!=key)
-            if self.overlay==key:self.overlay=None;self.overlay_timer.stop();self.next_overlay()
+            if self.overlay==key:self.overlay=None;self.deadline.stop();self.next_overlay()
         if job['state'] not in ACTIVE and (previous is None or previous['state']!=job['state']):
             if self.overlay!=key and key not in self.pending:self.pending.append(key)
             self.next_overlay()
@@ -194,7 +247,7 @@ class CaptionFeedback(QObject):
     def reannounce(self,key):
         job=self.host.named_tasks.get(key)
         if not job:return
-        if self.overlay==key:self.overlay_timer.start(5500 if job['state'] in RETAINED else 3500 if job['state']=='success' else 2600)
+        if self.overlay==key:self.deadline.start(5500 if job['state'] in RETAINED else 3500 if job['state']=='success' else 2600,key)
         elif key not in self.pending:self.pending.append(key);self.next_overlay()
         self.refresh()
 
@@ -204,18 +257,18 @@ class CaptionFeedback(QObject):
             key=self.pending.popleft();job=self.host.named_tasks.get(key)
             if job and job['state'] not in ACTIVE:
                 self.overlay=key
-                self.overlay_timer.start(5500 if job['state'] in RETAINED else 3500 if job['state']=='success' else 2600)
+                self.deadline.start(5500 if job['state'] in RETAINED else 3500 if job['state']=='success' else 2600,key)
                 break
 
     def expire_overlay(self):
-        key=self.overlay;self.overlay=None;self.overlay_timer.stop()
+        key=self.overlay;self.overlay=None;self.deadline.stop()
         job=self.host.named_tasks.get(key)
         if job and job['state'] not in RETAINED:self.host.remove_task(key)
         self.next_overlay();self.refresh()
 
     def removed(self,key):
         self.pending=deque(k for k in self.pending if k!=key)
-        if self.overlay==key:self.overlay=None;self.overlay_timer.stop()
+        if self.overlay==key:self.overlay=None;self.deadline.stop()
         if self.primary==key:self.primary=None
         self.next_overlay();self.refresh()
 
@@ -240,16 +293,47 @@ class CaptionFeedback(QObject):
         job=self.host.named_tasks.get(self.primary)
         if job:self.paint_header(self.primary,job)
         else:
+            self._sync_action_role(self.host.action_button,None)
             self.host.strip.hide();self.detail.hide()
             if self.overlay:self.layout_header(False)
-        key=self.overlay or self.primary
-        extra=any(k!=key for k in self.host.named_tasks) or (key is None and bool(self.host.named_tasks))
-        self.ear.setVisible(extra and self.window.isVisible())
-        moving=extra and not self.opened and motion_enabled() and any(j['state']=='running' for j in self.host.named_tasks.values()) and self.window.isVisible()
+        if len(self.host.named_tasks)<2:self.collapse()
+        self.reposition()
+
+    def _has_focus(self):
+        if not isValid(self.window):return False
+        focus=QApplication.focusWidget()
+        return self.window.isActiveWindow() and focus_input().keyboard and focus is not None and any(
+            root.isVisible() and (focus is root or root.isAncestorOf(focus))
+            for root in (self.host.strip,self.cover,self.panel,self.controls,self.ear,self.clear_button))
+
+    def _focus_changed(self,*_):
+        if not isValid(self.window):return
+        if not self._has_focus() and (self.opened or self.ear.isVisible()):self.leave_timer.start()
+        self.reposition()
+
+    def _sync_timeout(self):
+        pause=self.window.isVisible() and (self._has_focus() or any(
+            w in self.hovered for w in (self.cover,self.panel,self.controls,self.ear,self.clear_button)))
+        self.deadline.pause() if pause else self.deadline.resume()
+
+    def _controls(self):
+        eligible=len(self.host.named_tasks)>=2 and self.window.isVisible()
+        show=eligible and (self.opened or bool(self.hovered) or self._has_focus() or self.leave_timer.isActive())
+        self.ear.setVisible(show)
+        focus=QApplication.focusWidget()
+        control_focus=focus_input().keyboard and focus is not None and self.window.isActiveWindow() and any(
+            root.isVisible() and (focus is root or root.isAncestorOf(focus)) for root in (self.controls,self.panel))
+        interacting=bool(self.hovered.intersection((self.controls,self.panel,self.ear,self.clear_button))) or control_focus
+        leaving=self.leave_timer.isActive() and not self.clear_button.isHidden()
+        self.clear_button.setVisible(eligible and self.opened and self.expansion>=.999 and bool(self.host.clearable_tasks()) and (interacting or leaving))
+        self.controls.setVisible(show)
+        source='收起通知' if self.opened else '展开通知'
+        if self.ear.toolTip()!=t(source):bind_text(self.ear,source,'setToolTip')
+        if self.ear.accessibleName()!=t(source):bind_text(self.ear,source,'setAccessibleName')
+        moving=show and not self.opened and motion_enabled() and any(j['state']=='running' for j in self.host.named_tasks.values())
         if moving and self.ear.motion.state()!=QVariantAnimation.Running:self.ear.motion.start()
         elif not moving:self.ear.motion.stop();self.ear.update()
-        if not extra:self.collapse()
-        self.reposition()
+        self._sync_timeout()
 
     def bounds(self):
         title=getattr(self.window,'titleBar',None)
@@ -258,30 +342,38 @@ class CaptionFeedback(QObject):
             for name in ('iconLabel','themeButton','titleLabel'):
                 widget=getattr(title,name,None)
                 if widget is not None and not widget.isHidden():left=max(left,widget.mapTo(self.window,QPoint(widget.width(),0)).x()+12)
-            right=title.minBtn.mapTo(self.window,QPoint()).x()-32
-        return left,max(left+80,right)
+            right=min(right,title.minBtn.mapTo(self.window,QPoint()).x()-12)
+        return min(left,max(8,right-240)),max(88,right)
+
 
     def layout_header(self,is_task):
-        h=self.host;left,right=self.bounds();available=right-left
-        action=max(52,h.action_button.fontMetrics().horizontalAdvance(t('取消'))+16)
-        count=72;detail=20;gap=6;icon=16
-        name=min(112,max(56,(self.window.width()-600)//3))
-        side=max(icon+name+2*gap,count+action+2*detail+4*gap)
-        bar=max(80,min(520,available-2*(side+20)))
-        center=(left+right)//2;bar_left=center-bar//2
-        start=bar_left-gap-name-gap-icon;end=bar_left+bar+gap+count+gap+action+gap+detail+gap+detail
-        h.strip.setGeometry(start,8,max(100,end-start),24)
-        x=0;h.state_icon.setGeometry(x,4,icon,16);x+=icon+gap
-        if is_task:
-            h.title_label.setGeometry(x,0,name,24);x+=name+gap
-            h.progress.setGeometry(x,7,bar,10);x+=bar+gap
-            h.count_label.setGeometry(x,0,count,24);x+=count+gap
+        h=self.host;left,right=self.bounds();available=max(1,right-left)
+        self.header_area=QRect(left,8,available,24)
+        self.notice_area=QRect(self.header_area)
+        # The foreground notice shares this area; it never takes width away
+        # from the live task. Its own close action remains above covered inputs.
+        h.strip.setGeometry(self.header_area)
+        self._layout_row(h.strip,h.state_icon,h.title_label,h.progress,h.count_label,self.actions,is_task)
+
+    def _layout_row(self,row,icon,label,progress,count,operations,active):
+        action=operations.members[1]
+        action.setFixedWidth(max(52,action.fontMetrics().horizontalAdvance(action.text())+16))
+        self._place_actions(operations,row.width()-4,row.height()//2)
+        limit=max(1,operations.x()-6)
+        icon.setGeometry(4,row.height()//2-8,16,16)
+        start=26
+        if active:
+            count_width=min(72,max(0,(limit-start)//3))
+            budget=max(1,limit-start-count_width-12)
+            name=min(112,max(0,(budget-32)//3))
+            label.setGeometry(start,0,name,row.height())
+            progress.setGeometry(start+name+6,row.height()//2-5,max(1,budget-name),10)
+            count.setGeometry(limit-count_width,0,count_width,row.height())
         else:
-            reserve=detail+(action+gap if h.action_button.isVisible() else 0)
-            h.title_label.setGeometry(x,0,max(1,h.strip.width()-x-reserve-gap),24)
-        h.action_button.setFixedWidth(action)
-        self._place_actions(self.actions,h.strip.width(),12)
-        self.columns=(icon+gap,name,bar,count,action,detail,gap)
+            name=min(112,max(0,(limit-start)//3))
+            label.setGeometry(start,0,name,row.height())
+            count.setGeometry(start+name+6,0,max(1,limit-start-name-6),row.height())
+
 
     @staticmethod
     def _action_box(parent,info,primary,close):
@@ -290,7 +382,7 @@ class CaptionFeedback(QObject):
         box.members=(info,primary,close);box.order=()
         for widget in box.members:
             widget.setParent(box)
-            policy=widget.sizePolicy();policy.setRetainSizeWhenHidden(widget is not info);widget.setSizePolicy(policy)
+            policy=widget.sizePolicy();policy.setRetainSizeWhenHidden(False);widget.setSizePolicy(policy)
         return box
 
     @staticmethod
@@ -307,24 +399,20 @@ class CaptionFeedback(QObject):
         layout.activate()
 
     def layout_rows(self):
-        if not hasattr(self,'columns'):return
-        icon_start,name,bar,count,action,detail,gap=self.columns
-        # A single column plan in window coordinates drives both surfaces.
         self.panel.layout().activate();self.rows_layout.activate()
-        for row,icon,label,progress,numeric,button,info,close in self.host._named_widgets.values():
-            x=row.mapFrom(self.window,self.host.strip.pos()).x()
-            cy=row.height()//2
-            icon.setGeometry(x,cy-8,16,16);x+=icon_start
-            label.setGeometry(x,0,name,row.height());x+=name+gap
-            if progress.isHidden():
-                numeric.setGeometry(x,0,bar+gap+count,row.height())
-            else:
-                progress.setGeometry(x+10,cy-5,max(1,bar-20),10)
-                numeric.setGeometry(x+bar+gap,0,count,row.height())
-            x+=bar+gap+count+gap
-            button.setFixedWidth(action)
-            right=row.mapFrom(self.window,self.host.strip.pos()).x()+self.host.strip.width()
-            self._place_actions(row.operations,right,cy)
+        for key,widgets in self.host._named_widgets.items():
+            row,icon,label,progress,count,action,info,close=widgets
+            self._layout_row(row,icon,label,progress,count,row.operations,self.host.named_tasks[key]['state'] in ACTIVE)
+
+
+    @staticmethod
+    def _sync_action_role(button,job):
+        """Only a live job's cancel callback is a destructive task action."""
+        role='danger' if job and job['state'] in ACTIVE and job['cancel'] is not None else ''
+        if button.property('role')!=role:
+            # ButtonPaint reads this dynamic property directly. It is not a QSS
+            # role, so the property change needs an explicit repaint.
+            button.setProperty('role',role);button.update()
 
     def paint_header(self,key,job):
         h=self.host;is_task=job['state'] in ACTIVE;glyph,tone=appearance(job)
@@ -340,6 +428,7 @@ class CaptionFeedback(QObject):
         h._action=callback
         h.action_button.setText(job['action_text'] or t('取消' if job['state']=='waiting' else '停止' if is_task else '继续'))
         h.action_button.setEnabled(True);h.action_button.setVisible(callback is not None)
+        self._sync_action_role(h.action_button,job)
         self.detail.setVisible(bool(job['details']))
         h.close_button.setVisible(not is_task and not job['details'])
         h.strip.setToolTip(h.title_label.toolTip());self.layout_header(is_task)
@@ -359,6 +448,7 @@ class CaptionFeedback(QObject):
             close=TransparentToolButton(Icon.CLOSE,row);close.setFixedSize(20,20);line.addWidget(close)
             row.operations=self._action_box(row,detail,action,close)
             close.clicked.connect(lambda:h.remove_task(key));action.clicked.connect(lambda:h._task_action(key));detail.clicked.connect(lambda:h._task_details(key))
+            for widget in (action,detail,close):widget.installEventFilter(self)
             h._named_widgets[key]=(row,icon,label,progress,count,action,detail,close)
             self.rows_layout.addWidget(row)
         row,icon,label,bar,count,action,detail,close=h._named_widgets[key]
@@ -372,11 +462,12 @@ class CaptionFeedback(QObject):
         bar.setVisible(active);bar.setRange(0,job['total'] or 0);bar.setValue(job['current'])
         action.setVisible(bool(job['cancel'] if active else job['resume']))
         action.setText(job['action_text'] or t('取消' if job['state']=='waiting' else '停止' if active else '继续'))
+        self._sync_action_role(action,job)
         detail.setVisible(bool(job['details']));detail.setToolTip(t('查看详情'));close.setVisible(not active)
         row.setFixedHeight(34 if active else 56)
 
-    def show_current_details(self):
-        key=self.overlay or self.primary
+    def show_current_details(self,key=None):
+        key=key or self.overlay or self.primary
         if key:self.host._task_details(key)
 
     def _fold_step(self,value):
@@ -408,37 +499,67 @@ class CaptionFeedback(QObject):
 
     def collapse_if_outside(self):
         if self.fold.state()==QVariantAnimation.Running:self.leave_timer.start();return
-        if not self.hovered:self.collapse()
+        if not self.hovered and not self._has_focus():self.collapse()
+        self.reposition()
+
 
     def reposition(self):
         h=self.host
-        if self.primary in h.named_tasks:self.layout_header(True)
-        elif self.overlay:self.layout_header(False)
+        self.layout_header(self.primary in h.named_tasks)
         desired=sum(row[0].height()+2 for row in h._named_widgets.values())+10
-        top=h.strip.geometry().bottom()+2
-        height=min(desired,280,max(34,self.window.height()-top-28))
+        top=self.header_area.bottom()+2
+        control_height=max(self.clear_button.height(),self.ear.height())+4
+        gap=4
+        height=min(desired,280,max(0,self.window.height()-top-control_height-2*gap))
         extent=round(height*self.expansion)
-        area=h.strip.geometry().adjusted(-4,0,4,0)
-        if extent:area.adjust(-self.list_left_padding,0,0,0)
-        area.setHeight(area.height()+extent)
-        self.material.setGeometry(area);self.material.setVisible(bool((self.primary and not self.overlay) or extent) and self.window.isVisible())
-        self.panel.setGeometry(h.strip.x()-self.list_left_padding,top,
-                               h.strip.width()+self.list_left_padding,extent)
+        self.panel.setGeometry(self.header_area.x()-self.list_left_padding,top,
+                               self.header_area.width()+self.list_left_padding,extent)
         self.layout_rows()
-        self.ear.move(h.strip.geometry().center().x()-self.ear.width()//2,area.bottom()-3)
-        self.material.raise_();h.strip.raise_();self.panel.raise_();self.ear.raise_()
+        self._controls()
+        # Both controls share a real band after the rows; neither enters the
+        # viewport or cover. The collapsed surface has no reserved empty band.
+        clear_width=self.clear_button.width()+6 if not self.clear_button.isHidden() else 0
+        group_width=clear_width+self.ear.width()+4
+        x=self.header_area.center().x()-group_width//2
+        y=top+extent+gap
+        self.controls.setGeometry(x,y,group_width,control_height)
+        self.clear_button.move(2,(control_height-self.clear_button.height())//2)
+        self.ear.move(2+clear_width,(control_height-self.ear.height())//2)
+        area=self.header_area.adjusted(-4,0,4,0)
+        if extent:
+            area.setLeft(self.panel.x()-4)
+            area.setBottom(y+control_height+gap)
+        self.material.setGeometry(area)
+        self.material.setVisible(bool(self.primary or extent) and self.window.isVisible())
+        self.material.raise_();h.strip.raise_();self.panel.raise_();self.controls.raise_()
         if self.overlay in h.named_tasks:self.cover.present(self.overlay,h.named_tasks[self.overlay])
         else:self.cover.hide();self.cover.key=None
         self.material.update();self.ear.update()
 
+
     def eventFilter(self,obj,event):
+        if not isValid(self.window):return False
         kind=event.type()
-        if obj in (self.ear,self.panel):
+        if kind in (QEvent.FocusIn,QEvent.FocusOut,QEvent.KeyPress):
+            self._focus_changed()
+        if obj in (self.controls,self.ear,self.panel,self.clear_button,self.cover,self.host.strip):
             if kind==QEvent.Enter:
-                self.hovered.add(obj);self.leave_timer.stop()
-                if obj is self.ear:self.expand()
-            elif kind==QEvent.Leave:self.hovered.discard(obj);self.leave_timer.start()
+                self.hovered.add(obj);self.leave_timer.stop();self.reposition()
+            elif kind==QEvent.Leave:
+                if obj in self.hovered:
+                    self.hovered.discard(obj);self.leave_timer.start()
+                self.reposition()
+            elif kind==QEvent.Hide:
+                self.hovered.discard(obj);self._sync_timeout()
         elif obj is self.window:
             if kind in (QEvent.Resize,QEvent.Show):self.refresh()
-            elif kind==QEvent.Hide:self.host.strip.hide();self.panel.hide();self.ear.hide();self.material.hide();self.cover.hide();self.ear.motion.stop()
+            elif kind==QEvent.Hide:
+                self.hovered.clear();self.leave_timer.stop();self._sync_timeout()
+                self.host.strip.hide();self.panel.hide();self.controls.hide();self.ear.hide();self.clear_button.hide();self.material.hide();self.cover.hide();self.ear.motion.stop()
+            elif kind==QEvent.WindowDeactivate:
+                self.hovered.clear()
+                if self.opened or self.ear.isVisible():self.leave_timer.start()
+                self._sync_timeout()
+        elif obj in self.caption_widgets and kind in (QEvent.Move,QEvent.Resize,QEvent.Show):
+            self.reposition()
         return False

@@ -5,7 +5,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QWidget,QLabel,QVBoxLayout,QHBoxLayout,QGridLayout
 from fluent_ui import visual
 from fluent_ui.icons import Icon
-from fluent_ui.components.controls import TransparentToolButton
+from fluent_ui.components.controls import PushButton,TransparentToolButton
 from fluent_ui.components.softframe import paint_setting_surface
 from services.i18n import t,bind_text,i18n_engine
 
@@ -36,6 +36,16 @@ class AboutInformation(QWidget):
             button.setFocusPolicy(Qt.StrongFocus);button.clicked.connect(lambda checked=False,u=url:self.open_link(u))
             self.external_buttons[label]=button;social.addWidget(button)
         social.addStretch();author.addLayout(social);header.addLayout(author);root.addLayout(header)
+        from fluent_ui.components.user_feedback import open_feedback,copy_environment_info
+        actions=QHBoxLayout();actions.setSpacing(8)
+        self.feedback_button=PushButton(Icon.CHAT,'',self)
+        bind_text(self.feedback_button,'反馈与建议','setText')
+        self.feedback_button.clicked.connect(lambda:open_feedback(self))
+        self.copy_environment_button=PushButton(Icon.COPY,'',self)
+        bind_text(self.copy_environment_button,'复制环境信息','setText')
+        self.copy_environment_button.clicked.connect(lambda:copy_environment_info(self))
+        actions.addWidget(self.feedback_button);actions.addWidget(self.copy_environment_button);actions.addStretch()
+        root.addLayout(actions)
         self.links=[]
         for heading,entries in (
             ('项目参考与相关工具',SOURCES),

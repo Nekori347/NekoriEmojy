@@ -1,6 +1,6 @@
 """Shared primary navigation and engineering secondary tabs."""
-from PySide6.QtCore import Qt, QSize, QRectF, Signal, Property, QPropertyAnimation, QEasingCurve, QVariantAnimation, QTimer
-from PySide6.QtGui import QColor, QPainter, QPen, QPainterPath, QFontMetrics, QFont
+from PySide6.QtCore import Qt, QSize, QRect, QRectF, QPoint, QPointF, QEvent, Signal, Property, QPropertyAnimation, QEasingCurve, QVariantAnimation, QTimer
+from PySide6.QtGui import QColor, QPainter, QPen, QPainterPath, QFontMetrics, QFont, QRegion, QCursor
 from PySide6.QtWidgets import QStyledItemDelegate, QStyle, QTabBar, QWidget, QVBoxLayout, QToolButton, QApplication, QLabel, QSizePolicy
 from fluent_ui import visual
 from fluent_ui.components.section_index import SortProjection
@@ -52,12 +52,15 @@ class SortCycleButton(QToolButton):
 
     def refresh(self, *_):
         from fluent_ui.icons import Icon
-        label = {SortProjection.MANUAL: '手动顺序', SortProjection.A_Z: '名称 A→Z', SortProjection.Z_A: '名称 Z→A'}[self.mode]
         self.setText('')
-        self.setIcon({SortProjection.MANUAL: Icon.SORT, SortProjection.A_Z: Icon.SORT_ASC, SortProjection.Z_A: Icon.SORT_DESC}[self.mode].icon())
+        self.setIcon({SortProjection.MANUAL: Icon.MANUAL_ORDER, SortProjection.A_Z: Icon.SORT_ASC, SortProjection.Z_A: Icon.SORT_DESC}[self.mode].icon())
         self.setIconSize(QSize(16,16))
         self.setFixedWidth(visual.COMPACT_CONTROLS.action_extent)
-        self.setToolTip(f'{t(self.title)} · {t(label)}\n{t("临时显示排序，不改动手动顺序")}')
+        source = {
+            '分类显示排序': {SortProjection.MANUAL: '分类排序：手动', SortProjection.A_Z: '分类排序：名称 A→Z', SortProjection.Z_A: '分类排序：名称 Z→A'},
+            '标签显示排序': {SortProjection.MANUAL: '标签排序：手动', SortProjection.A_Z: '标签排序：名称 A→Z', SortProjection.Z_A: '标签排序：名称 Z→A'},
+        }[self.title][self.mode]
+        self.setToolTip(t(source))
         self.setAccessibleName(self.toolTip())
         c = visual.colors()
         self.setStyleSheet(f'QToolButton {{ color: {c["text_primary"]}; border: none; background: transparent; }} '
@@ -73,6 +76,7 @@ class HierarchyLocationHeader(QWidget):
     animation never modify Gallery state or create native child windows.
     """
     navigate_requested = Signal(str)
+    axis_left = 2  # Existing horizontal scrub ticks, shared with the lower rule.
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -138,7 +142,7 @@ class HierarchyLocationHeader(QWidget):
         if old and self.isVisible() and QApplication.platformName() not in ('offscreen','minimal'):
             self.animation.setStartValue(0.0)
             self.animation.setEndValue(1.0)
-            self.animation.start()
+            visual.start_animation(self.animation, visual.HIERARCHY_DURATION_MS)
         self._layout_counts()
 
     def _rows(self, path, return_item=None):
@@ -276,9 +280,9 @@ class HierarchyLocationHeader(QWidget):
             color = QColor(c['border'])
             color.setAlphaF(opacity)
             painter.setPen(QPen(color,1))
-            painter.drawLine(2,int(y),length,int(y))
+            painter.drawLine(self.axis_left,int(y),length,int(y))
         painter.setPen(QPen(QColor(c['border']),1))
-        painter.drawLine(24,self.height()-1,self.width(),self.height()-1)
+        painter.drawLine(self.axis_left,self.height()-1,self.width(),self.height()-1)
 
     def mousePressEvent(self, event):
         if event.button() != Qt.LeftButton or not self.path:
@@ -327,7 +331,7 @@ class HierarchyLocationHeader(QWidget):
             self._old_path=self.path[:]
             self.animation.setStartValue(0.0)
             self.animation.setEndValue(1.0)
-            self.animation.start()
+            visual.start_animation(self.animation, visual.HIERARCHY_DURATION_MS)
         self._layout_counts()
         self.navigate_requested.emit(target)
 
@@ -341,22 +345,145 @@ def sort_named(items, mode):
     return SortProjection.from_display(mode).project(items, name=lambda item: item['name'])
 
 
-class AttachedTabRow(QWidget):
-    """Continue the content boundary under the trailing projection control."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        visual.theme.changed.connect(self.update)
+def workspace_edge_color():
+    """Neutral ink for the gallery sheet and its two open connections."""
+    color=QColor(visual.colors()['text_secondary']);color.setAlpha(160)
+    return color
 
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setPen(QPen(QColor(visual.colors()['border']), 1))
-        painter.drawLine(0, self.height()-1, self.width(), self.height()-1)
+
+def open_ear_path(left,right,top,baseline,right_limit,left_limit=.5):
+    """The same real lower flare and rounded upper corners for both ears."""
+    radius=7
+    path=QPainterPath();path.moveTo(max(left_limit,left-radius),baseline)
+    path.quadTo(left,baseline,left,baseline-radius)
+    path.lineTo(left,top+radius);path.quadTo(left,top,left+radius,top)
+    path.lineTo(right-radius,top);path.quadTo(right,top,right,top+radius)
+    path.lineTo(right,baseline-radius);path.quadTo(right,baseline,min(right_limit,right+radius),baseline)
+    return path
+
+
+class WorkspaceTools(QWidget):
+    """Static layout container; the shared sheet owns its open contour."""
+    pass
+
+
+class WorkspaceSheet(QWidget):
+    """One shaped fill and one final, input-transparent structure owner."""
+    def __init__(self,parent=None):
+        super().__init__(parent)
+        self.row=self.pane=None
+        self.outline=_WorkspaceOutline(self)
+        visual.theme.changed.connect(self.invalidate_structure)
+        visual.theme.accent_changed.connect(self.invalidate_structure)
+
+    def bind_structure(self,row,pane):
+        self.row,self.pane=row,pane
+        row.sheet=self;pane.setProperty('shared_structure',True)
+        for widget in (row,pane):widget.installEventFilter(self)
+        self.outline.setGeometry(self.rect());self.outline.show();self.outline.raise_()
+        self.invalidate_structure()
+
+    def invalidate_structure(self,*_):
+        self.update();self.outline.update()
+
+    def eventFilter(self,obj,event):
+        if event.type() in (QEvent.Move,QEvent.Resize,QEvent.Show,QEvent.Hide,QEvent.LayoutRequest):self.invalidate_structure()
+        return super().eventFilter(obj,event)
+
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        self.outline.setGeometry(self.rect());self.outline.raise_()
+
+    def structure_paths(self):
+        """Fill and stroke read the same current Qt tab and pane geometry."""
+        shape=QPainterPath();clip=QPainterPath();clip.setFillRule(Qt.WindingFill);rules=[]
+        if self.row is None or self.pane is None:return shape,clip,rules
+        half=.5/self.devicePixelRatioF();left=half;right=self.width()-half
+        row=self.row;baseline=self.pane.y()-half;bottom=self.pane.geometry().bottom()+1-half
+        radius=getattr(self.pane,'corner_radius',12)
+        shape.moveTo(left,baseline);shape.lineTo(right,baseline);shape.lineTo(right,bottom-radius)
+        shape.quadTo(right,bottom,right-radius,bottom);shape.lineTo(left+radius,bottom)
+        shape.quadTo(left,bottom,left,bottom-radius);shape.closeSubpath()
+        # The lower flare is allowed outside tab text/arrow clipping. The
+        # actual smooth contour is always a painter path, never a QRegion mask.
+        clip.addRect(QRectF(0,baseline-7-1.4/2,self.width(),self.height()))
+        ears=[];tabs=row.tabs;body=row._selected_body()
+        if body is not None and tabs._tab_viewport().intersects(body):
+            origin=tabs.mapTo(self,QPoint())
+            visible=tabs._tab_viewport().translated(origin)
+            clip.addRegion(visible)
+            ears.append((origin.x()+body.left()+half,origin.x()+body.right()+half,origin.y()+5+half,visible))
+        tools=row.tools
+        if tools is not None and tools.isVisible():
+            r=QRect(tools.mapTo(self,QPoint()),tools.size())
+            clip.addRect(QRectF(r));ears.append((r.left()+half,r.right()+half,r.top()+half,None))
+        for a,b,top,visible in ears:
+            ear=open_ear_path(a,b,top,baseline,right,left);ear.closeSubpath()
+            if visible is not None:
+                view=visible.boundingRect()
+                ear_clip=QPainterPath();ear_clip.setFillRule(Qt.WindingFill);ear_clip.addRegion(visible)
+                ear_clip.addRect(QRectF(view.left()-7,baseline-7,view.width()+14,7+half))
+                ear=ear.intersected(ear_clip)
+            shape=shape.united(ear)
+            rule=QPainterPath();rule.moveTo(a+6-half,baseline);rule.lineTo(b-6-half,baseline)
+            rules.append((rule,visible))
+        return shape,clip,rules
+
+    def paintEvent(self,event):
+        shape,clip,_=self.structure_paths()
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);p.setClipPath(clip)
+        p.fillPath(shape,QColor(visual.colors()['surface']))
+
+
+class _WorkspaceOutline(QWidget):
+    """Pure decoration above children; no independent geometry or state."""
+    def __init__(self,sheet):
+        super().__init__(sheet)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WA_NoSystemBackground)
+        self.setFocusPolicy(Qt.NoFocus)
+
+    def paintEvent(self,event):
+        shape,clip,rules=self.parentWidget().structure_paths()
+        p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);p.setClipPath(clip)
+        p.setBrush(Qt.NoBrush);p.setPen(QPen(workspace_edge_color(),1.4,Qt.SolidLine,Qt.FlatCap,Qt.RoundJoin))
+        p.drawPath(shape)
+        for rule,visible in rules:
+            p.save()
+            if visible is not None:p.setClipRegion(visible,Qt.IntersectClip)
+            p.drawPath(rule);p.restore()
+
+
+class AttachedTabRow(QWidget):
+    """Tab/tool layout and geometry notifications; the sheet owns painting."""
+    def __init__(self,parent=None):
+        super().__init__(parent);self.tabs=None;self.tools=None;self.sheet=None
+
+    def bind_structure(self,tabs,tools):
+        self.tabs,self.tools=tabs,tools
+        tabs.currentChanged.connect(self.invalidate_structure)
+        for widget in (tabs,tools):widget.installEventFilter(self)
+        for button in tabs._scroll_buttons:button.clicked.connect(self.invalidate_structure)
+
+    def invalidate_structure(self,*_):
+        if self.sheet is not None:self.sheet.invalidate_structure()
+
+    def eventFilter(self,obj,event):
+        if event.type() in (QEvent.Move,QEvent.Resize,QEvent.Show,QEvent.Hide,QEvent.LayoutRequest):self.invalidate_structure()
+        return super().eventFilter(obj,event)
+
+    def _selected_body(self):
+        if self.tabs is not None and self.tabs.isVisible() and self.tabs.currentIndex()>=0:
+            return self.tabs.content_tab_rect(self.tabs.currentIndex())
+        return None
+
 
 
 class NavigationItem(QStyledItemDelegate):
-    def __init__(self, view):
+    def __init__(self, view, *, show_focus=True):
         super().__init__(view)
         self.view = view
+        self._show_focus = show_focus
         self._indicator = QRectF()
         self._selection_motion = QVariantAnimation(self)
         self._selection_motion.setDuration(visual.MOTION.select)
@@ -366,6 +493,9 @@ class NavigationItem(QStyledItemDelegate):
         self._selection_timer.timeout.connect(self._selection_changed)
         view.selectionModel().selectionChanged.connect(lambda *_:self._selection_timer.start(0))
         view.verticalScrollBar().valueChanged.connect(self._snap_indicator)
+        if hasattr(view, 'collapsed'):
+            view.collapsed.connect(self._snap_indicator)
+            view.expanded.connect(self._snap_indicator)
         visual.theme.changed.connect(view.viewport().update)
         visual.theme.accent_changed.connect(view.viewport().update)
 
@@ -373,12 +503,31 @@ class NavigationItem(QStyledItemDelegate):
         selected=[i for i in self.view.selectionModel().selectedIndexes() if i.column()==0]
         if len(selected)!=1:
             return QRectF()
-        index=selected[0]
+        return self._indicator_for_index(selected[0])
+
+    def _indicator_for_index(self,index):
         rect=self.view.visualRect(index)
+        if rect.isEmpty():return QRectF()
         depth,parent=0,index.parent()
         while parent.isValid():
             depth+=1;parent=parent.parent()
         return QRectF(10+min(depth*6,24),rect.top()+11,2,max(2,rect.height()-22))
+
+    def _collapsed_selection_rect(self):
+        """Map a hidden selection to its visible collapsed ancestor, not its identity."""
+        if not hasattr(self.view,'isExpanded'):return QRectF()
+        selected=[i for i in self.view.selectionModel().selectedIndexes() if i.column()==0]
+        if len(selected)!=1 or not self.view.visualRect(selected[0]).isEmpty():return QRectF()
+        ancestor=selected[0].parent()
+        target=None
+        # Only the selection's ancestry is inspected. An outer collapsed node
+        # hides inner ones, so the last collapsed ancestor is the visible one.
+        while ancestor.isValid():
+            if not self.view.isExpanded(ancestor):target=ancestor
+            ancestor=ancestor.parent()
+        if target is None:return QRectF()
+        indicator=self._indicator_for_index(target)
+        return self._selection_background(indicator) if not indicator.isEmpty() else QRectF()
 
     def _slide_indicator(self,value):
         self._indicator=value
@@ -392,12 +541,12 @@ class NavigationItem(QStyledItemDelegate):
     def _selection_changed(self,*_):
         target=self._indicator_target()
         self._selection_motion.stop()
-        if target.isEmpty() or self._indicator.isEmpty():
+        if target.isEmpty() or self._indicator.isEmpty() or not visual.animations_enabled():
             self._indicator=target
         else:
             self._selection_motion.setStartValue(self._indicator)
             self._selection_motion.setEndValue(target)
-            self._selection_motion.start()
+            visual.start_animation(self._selection_motion, visual.MOTION.select)
         self.view.viewport().update()
 
     def _paint_indicator(self,painter,rect,selected):
@@ -416,7 +565,16 @@ class NavigationItem(QStyledItemDelegate):
 
     def paint_selection_layer(self,painter):
         """Paint once in viewport coordinates, below item icons and text."""
-        if self._indicator_target().isEmpty():return
+        if self._indicator_target().isEmpty():
+            hint=self._collapsed_selection_rect()
+            if not hint.isEmpty():
+                painter.save();painter.setClipRect(self.view.viewport().rect(),Qt.ReplaceClip)
+                painter.setRenderHint(QPainter.Antialiasing)
+                color=QColor(visual.accent());color.setAlpha(140)
+                painter.setPen(QPen(color,1,Qt.DashLine));painter.setBrush(Qt.NoBrush)
+                painter.drawRoundedRect(hint.adjusted(.5,.5,-.5,-.5),4,4)
+                painter.restore()
+            return
         moving=self._selection_motion.state()==QVariantAnimation.Running or self._selection_timer.isActive()
         indicator=self._indicator if moving else self._indicator_target()
         if indicator.isEmpty():return
@@ -458,7 +616,7 @@ class NavigationItem(QStyledItemDelegate):
                 painter.setBrush(QColor(c['selected'] if selected else c['hover']))
                 painter.drawRoundedRect(rect, 4, 4)
             self._paint_indicator(painter,rect,selected)
-            if option.state & QStyle.State_HasFocus:
+            if self._show_focus and option.state & QStyle.State_HasFocus:
                 painter.setPen(QPen(QColor(c['border']),1,Qt.DotLine))
                 painter.setBrush(Qt.NoBrush)
                 painter.drawRoundedRect(rect,6,6)
@@ -556,9 +714,17 @@ class ContentPane(QWidget):
         radius=getattr(self,'corner_radius',12);w=self.width();h=self.height()
         path=QPainterPath();path.moveTo(0,0);path.lineTo(w,0);path.lineTo(w,h-radius)
         path.quadTo(w,h,w-radius,h);path.lineTo(radius,h);path.quadTo(0,h,0,h-radius);path.closeSubpath()
-        self.setMask(QRegion(path.toFillPolygon().toPolygon()))
+        mask=QRegion(path.toFillPolygon().toPolygon())
+        if self.property('gallery_workspace') and not self.property('shared_structure'):
+            # QRegion is integer/binary; leave the painted contour's AA fringe
+            # intact instead of clipping its partially covered corner pixels.
+            mask=mask.united(mask.translated(-1,0)).united(mask.translated(1,0))
+            mask=mask.united(mask.translated(0,-1)).united(mask.translated(0,1))
+            mask=mask.intersected(QRegion(self.rect()))
+        self.setMask(mask)
 
     def paintEvent(self, event):
+        if self.property('shared_structure'):return
         p=QPainter(self);p.setRenderHint(QPainter.Antialiasing);c=visual.colors()
         r=QRectF(self.rect()).adjusted(.5,0,-.5,-.5)
         radius=getattr(self,'corner_radius',12)
@@ -570,7 +736,7 @@ class ContentPane(QWidget):
         path=QPainterPath();path.moveTo(r.left(),0);path.lineTo(r.left(),r.bottom()-radius)
         path.quadTo(r.left(),r.bottom(),r.left()+radius,r.bottom());path.lineTo(r.right()-radius,r.bottom())
         path.quadTo(r.right(),r.bottom(),r.right(),r.bottom()-radius);path.lineTo(r.right(),0)
-        p.setPen(QPen(QColor(c['border_soft']),1));p.drawPath(path)
+        p.setPen(QPen(workspace_edge_color(),1.4) if self.property('gallery_workspace') else QPen(QColor(c['border_soft']),1));p.drawPath(path)
 
 
 class TabStrip(QTabBar):
@@ -583,53 +749,142 @@ class TabStrip(QTabBar):
         self.setExpanding(False)
         self.setDrawBase(False)
         self.setUsesScrollButtons(True)
+        self._scroll_buttons = tuple(self.findChildren(QToolButton, options=Qt.FindDirectChildrenOnly))
+        for button in self._scroll_buttons:
+            button.setObjectName('NekoriTabScroll')
+            button.installEventFilter(self)
+        self._style_scroll_buttons()
         self.setElideMode(Qt.ElideRight)
         self.setFixedHeight(43)
         self.setCursor(Qt.PointingHandCursor)
         self.setMouseTracking(True)
+        self._wheel_remainder = 0.0
         self._hovered_tab = -1
-        self._line_rect = QRectF()
+        self._pointer_inside = False
+        self._line_state = QPointF(0,1)  # local vertical offset and opacity
+        self._line_target = QRectF()
         self._line_motion = QVariantAnimation(self)
-        self._line_motion.setDuration(visual.MOTION.select)
-        self._line_motion.setEasingCurve(visual.MOTION.easing)
+        self._line_motion.setDuration(250)
+        self._line_motion.setEasingCurve(QEasingCurve.Linear)
+        # A local upward reveal inside y=7..15, not a slide between tabs.
+        # Let the emergence remain visible before the small settling rebound.
+        for time,state in ((0,QPointF(3,0)),(.12,QPointF(2.95,.15)),
+                           (.32,QPointF(2.1,.7)),(.60,QPointF(-.75,1)),
+                           (.80,QPointF(.25,1)),(1,QPointF(0,1))):
+            self._line_motion.setKeyValueAt(time,state)
         self._line_motion.valueChanged.connect(self._move_line)
         self.currentChanged.connect(self._animate_line)
         visual.theme.changed.connect(self.update)
+        visual.theme.changed.connect(self._style_scroll_buttons)
         visual.theme.accent_changed.connect(self.update)
 
-    def _target_line(self):
+    def _style_scroll_buttons(self, *_):
+        c = visual.colors()
+        style = (f'QToolButton#NekoriTabScroll {{ color: {c["text_secondary"]}; background: transparent; '
+                 'border: none; border-radius: 5px; margin: 9px 1px; }} '
+                 f'QToolButton#NekoriTabScroll:hover {{ color: {c["text_primary"]}; background: {c["surface_hover"]}; }} '
+                 f'QToolButton#NekoriTabScroll:pressed {{ color: {c["accent"]}; background: {c["surface_selected"]}; }} '
+                 f'QToolButton#NekoriTabScroll:disabled {{ color: {c["text_muted"]}; background: transparent; }}')
+        for button in self._scroll_buttons:
+            button.setStyleSheet(style)
+            button.setCursor(Qt.PointingHandCursor if button.isEnabled() else Qt.ArrowCursor)
+
+    def eventFilter(self, watched, event):
+        if watched in self._scroll_buttons and event.type() == QEvent.EnabledChange:
+            watched.setCursor(Qt.PointingHandCursor if watched.isEnabled() else Qt.ArrowCursor)
+        return super().eventFilter(watched, event)
+
+    def tabLayoutChange(self):
+        super().tabLayoutChange()
+        if self.location_divider and isinstance(self.parentWidget(),AttachedTabRow):
+            self.parentWidget().invalidate_structure()
+
+    def _tab_viewport(self):
+        # QTabBar owns scroll-button placement, including style/DPI changes.
+        # Its tabRect() coordinates can extend underneath those child buttons.
+        region = QRegion(self.rect())
+        for button in self.findChildren(QToolButton, options=Qt.FindDirectChildrenOnly):
+            if button.isVisible():
+                region -= QRegion(button.geometry())
+        return region
+
+    def wheelEvent(self, event):
+        # Qt's default QTabBar wheel handler changes currentIndex(). Route
+        # both wheel notches and touchpad pixels through Qt's own scroll
+        # buttons, which already own the visible range and its boundaries.
+        pixels = event.pixelDelta()
+        angles = event.angleDelta()
+        delta = (pixels.x() if abs(pixels.x()) > abs(pixels.y()) else -pixels.y()) if not pixels.isNull() else (
+            angles.x() if abs(angles.x()) > abs(angles.y()) else -angles.y())
+        unit = 48 if not pixels.isNull() else 120
+        self._wheel_remainder += delta / unit
+        steps = int(abs(self._wheel_remainder))
+        direction = Qt.RightArrow if self._wheel_remainder > 0 else Qt.LeftArrow
+        self._wheel_remainder -= (1 if self._wheel_remainder > 0 else -1) * steps
+        button = next((child for child in self.findChildren(QToolButton, options=Qt.FindDirectChildrenOnly)
+                       if child.arrowType() == direction and child.isVisible()), None)
+        if button is None or not button.isEnabled():
+            self._wheel_remainder = 0.0
+            event.accept()
+            return
+        for _ in range(steps):
+            if not button.isEnabled():
+                self._wheel_remainder = 0.0
+                break
+            button.click()
+        if event.phase() == Qt.ScrollEnd:
+            self._wheel_remainder = 0.0
+        event.accept()
+
+    def _target_line(self, viewport=None):
         if self.currentIndex()<0:
             return QRectF()
         rect=self.content_tab_rect(self.currentIndex())
-        width=min(38,max(18,rect.width()-32))
-        return QRectF(rect.center().x()-width/2,9,width,3)
+        if not (viewport or self._tab_viewport()).intersects(rect):
+            return QRectF()
+        # Match the actual rounded tab body, excluding the location-divider
+        # gap. The painter already clips partial tabs behind scroll buttons.
+        return QRectF(rect.left()+8,9,max(0,rect.width()-16),3)
 
     def _move_line(self,value):
-        self._line_rect=value
-        self.update()
+        self._line_state=value
+        self.update(QRectF(self._line_target.left(),7,self._line_target.width(),8).toAlignedRect())
 
     def _animate_line(self,*_):
         target=self._target_line()
+        self._line_target=target
         self._line_motion.stop()
-        if self._line_rect.isEmpty() or not self.isVisible():
-            self._line_rect=target
+        if target.isEmpty() or not self.isVisible() or not visual.animations_enabled():
+            # The selected tab owns the static line. A zero-duration keyed
+            # QVariantAnimation need not evaluate its final reveal keyframe.
+            self._line_state=QPointF(0,1)
         else:
-            self._line_motion.setStartValue(self._line_rect)
-            self._line_motion.setEndValue(target)
-            self._line_motion.start()
+            self._line_state=QPointF(3,0)
+            visual.start_animation(self._line_motion, 250)
         self.update()
+        if isinstance(self.parentWidget(),AttachedTabRow):self.parentWidget().invalidate_structure()
 
     def resizeEvent(self,event):
         super().resizeEvent(event)
         self._line_motion.stop()
-        self._line_rect=self._target_line()
+        self._line_target=self._target_line()
+        self._line_state=QPointF(0,1)
 
     def mouseMoveEvent(self, event):
-        self._hovered_tab = self.tabAt(event.position().toPoint())
-        self.update()
+        self._pointer_inside = True
+        hovered = self.tabAt(event.position().toPoint())
+        if hovered != self._hovered_tab:
+            self._hovered_tab = hovered
+            self.update()
         super().mouseMoveEvent(event)
 
+    def enterEvent(self, event):
+        self._pointer_inside = True
+        self.update()
+        super().enterEvent(event)
+
     def leaveEvent(self, event):
+        self._pointer_inside = False
         self._hovered_tab = -1
         self.update()
         super().leaveEvent(event)
@@ -646,12 +901,15 @@ class TabStrip(QTabBar):
 
     def set_tabs(self, labels, current=0):
         if labels == [self.tabText(i) for i in range(self.count())]:
+            if self.currentIndex()==current:
+                return
             self.blockSignals(True)
             self.setCurrentIndex(current)
             self.blockSignals(False)
             self._animate_line()
             return
         self.blockSignals(True)
+        self._wheel_remainder = 0.0
         while self.count():
             self.removeTab(0)
         for label in labels:
@@ -664,20 +922,34 @@ class TabStrip(QTabBar):
         self.update()
 
     def paintEvent(self, event):
+        # Qt owns horizontal geometry. Local reveal state can follow a moved
+        # or resized tab directly; there is no cross-tab rectangle to repair.
+        viewport = self._tab_viewport()
+        target = self._target_line(viewport)
+        self._line_target = target
+        # Qt moves tabs beneath a stationary pointer when its scroll buttons
+        # are used. A cached mouseMove tab index then paints a moving ghost.
+        pointer = self.mapFromGlobal(QCursor.pos())
+        hovered = self.tabAt(pointer) if self._pointer_inside and viewport.contains(pointer) else -1
+        self._hovered_tab = hovered
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+        painter.setClipRegion(viewport)
         c = visual.colors()
         y = self.height()-0.5
         selected = self.content_tab_rect(self.currentIndex()) if self.currentIndex() >= 0 else None
         # Neutral pane boundary, with a separate rounded active contour.
-        painter.setPen(QPen(QColor(c['border']), 1))
-        if selected:
-            painter.drawLine(0, int(y), selected.left(), int(y))
-            painter.drawLine(selected.right(), int(y), self.width(), int(y))
-        else:
-            painter.drawLine(0, int(y), self.width(), int(y))
+        edge=workspace_edge_color() if self.location_divider else QColor(c['border'])
+        painter.setPen(QPen(edge,1.4 if self.location_divider else 1))
+        if not self.location_divider:
+            if selected:
+                painter.drawLine(0, int(y), selected.left(), int(y))
+                painter.drawLine(selected.right(), int(y), self.width(), int(y))
+            else:
+                painter.drawLine(0, int(y), self.width(), int(y))
         boundary = QPainterPath()
-        if selected:
+        external=isinstance(self.parentWidget(),AttachedTabRow) and self.parentWidget().tabs is self
+        if selected and not external:
             left, right = selected.left()+0.5, selected.right()+0.5
             radius, top = 7, 5.5
             boundary.moveTo(max(0, left-radius), y)
@@ -691,7 +963,7 @@ class TabStrip(QTabBar):
             fill = QPainterPath(boundary)
             fill.closeSubpath()
             painter.fillPath(fill, QColor(c['surface']))
-        painter.setPen(QPen(QColor(c['border']), 1))
+        painter.setPen(QPen(edge,1.4 if self.location_divider else 1))
         painter.drawPath(boundary)
         if self.location_divider and self.count() > 1:
             x = self.tabRect(0).right()-visual.TAB_LOCATION_GAP//2
@@ -699,8 +971,10 @@ class TabStrip(QTabBar):
             painter.drawLine(x, 13, x, self.height()-9)
         for i in range(self.count()):
             rect = self.content_tab_rect(i)
+            if not viewport.intersects(rect):
+                continue
             active = i == self.currentIndex()
-            if not active and i == self._hovered_tab:
+            if not active and i == hovered:
                 painter.fillRect(rect.adjusted(3, 8, -3, -4), QColor(c['hover']))
             painter.setPen(QColor(c['text'] if active else c['muted']))
             font = self.font()
@@ -718,5 +992,9 @@ class TabStrip(QTabBar):
             painter.drawText(text_rect,Qt.AlignCenter,painter.fontMetrics().elidedText(self.tabText(i),Qt.ElideRight,max(0,text_rect.width())))
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor(c['accent']))
-        painter.drawRoundedRect(self._line_rect if not self._line_rect.isEmpty() else self._target_line(),1.5,1.5)
+        # Icons start at y=17; this band stays inside the rounded tab contour
+        # and above both icons and text, including the small rebound.
+        painter.setClipRect(QRectF(target.left(),7,target.width(),8),Qt.IntersectClip)
+        painter.setOpacity(self._line_state.y())
+        painter.drawRoundedRect(target.translated(0,self._line_state.x()),1.5,1.5)
         painter.end()

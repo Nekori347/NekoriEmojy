@@ -6,17 +6,17 @@ A local sticker manager for Windows.
 
 Collect, organize, find, and send stickers. Alongside categories, tags, and search, the aim is to make everyday tasks more direct: drag the stickers you see to organize them, and reach common actions without going through several menus.
 
-## Download v0.2.1
+## Download v0.2.2
 
 | Windows download | Which one to choose |
 | --- | --- |
-| **[Windows installer (recommended)](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.1/NekoriEmojy-Setup-0.2.1.exe)** | For most users: download and run the installer. |
-| [Windows portable package](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.1/NekoriEmojy-0.2.1-Windows-Portable.zip) | Download the ZIP and extract it to use the app. User data is not necessarily stored in the program folder. |
+| **[Windows installer (recommended)](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.2/NekoriEmojy-Setup-0.2.2.exe)** | For most users: download and run the installer. |
+| [Windows portable package](https://github.com/Nekori347/NekoriEmojy/releases/download/v0.2.2/NekoriEmojy-0.2.2-Windows-Portable.zip) | Download the ZIP and extract it to use the app. User data is not necessarily stored in the program folder. |
 
 - OCR is optional and can be installed from app settings when needed.
 - Source code and the SHA-256 checksum file are available in the full Release assets.
 
-[View the full Release and all assets](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.1)
+[View the full Release and all assets](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.2)
 
 <!-- Publication production: replace the image below with a real screenshot from the isolated demo library. Temporarily render visible natural-language UI text in Sarkaz glyphs. Do not include the font, conversion code, or demo database in release packages. Show the Endfield subcategory with four leading stickers, the collapsible Chen Qianyu category node, then the remaining directly contained stickers. Do not turn the source folder “表情” into a category. -->
 
@@ -24,7 +24,7 @@ Collect, organize, find, and send stickers. Alongside categories, tags, and sear
   <img src="docs/media/hero.png" alt="NekoriEmojy main panel: categories, subcategories, category nodes interleaved with stickers, and the tag panel" width="100%">
 </p>
 
-[**Download the latest version**](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.1) · [**Report an issue**](https://github.com/Nekori347/NekoriEmojy/issues) · [**Feature overview**](#features)
+[**Download the latest version**](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.2) · [**Report an issue**](https://github.com/Nekori347/NekoriEmojy/issues) · [**Feature overview**](#features)
 
 ---
 
@@ -275,7 +275,7 @@ This compatibility feature is primarily intended to reduce repeated importing an
 <a id="download"></a>
 ## Download and use
 
-Get the latest version from [GitHub Releases](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.1).
+Get the latest version from [GitHub Releases](https://github.com/Nekori347/NekoriEmojy/releases/tag/v0.2.2).
 
 Two options are currently prepared for Windows x64:
 

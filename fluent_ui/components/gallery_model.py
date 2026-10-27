@@ -15,6 +15,22 @@ class GalleryEntryModel:
         self.storage = storage
         self.direct = {}
         self.snapshots = {}
+        self.projected = {}
+
+    def bind_projection(self, entries):
+        """Index occurrences only when the logical projection changes."""
+        self.projected = {}
+        for index,entry in enumerate(entries):
+            key=entry['path'] if entry['kind']=='resource' else entry['id']
+            self.projected.setdefault(key,[]).append((index,entry))
+
+    def selected_entries(self, keys, parents):
+        chosen=[]
+        for key in keys:
+            occurrences=self.projected.get(key,())
+            if occurrences:
+                chosen.append(next((item for item in occurrences if item[1]['_parent']==parents.get(key)),occurrences[0]))
+        return [entry for _,entry in sorted(chosen,key=lambda item:item[0])]
 
     def entries_of(self, parent):
         if parent not in self.direct:
@@ -25,19 +41,17 @@ class GalleryEntryModel:
         self.direct.clear()
         self.snapshots.clear()
 
-    def sync(self, parents=None, paths=()):
+    def sync(self, parents=None, paths=(), *, nodes=None, counts=None):
         """Read ordered identities, fetching resource records only when changed.
 
         Existing records survive insertion/removal/order changes. A Tag edit
         supplies its paths and doesn't query membership at all.
         """
         self.snapshots.clear()
-        changed = {}
-        for path in paths:
-            record = self.storage.resource_of(path)
-            if record:
-                changed[record['id']] = record
-        counts = self.storage.node_counts()
+        changed = {record['id']: record for record in self.storage.index.resource_records(paths)} if paths else {}
+        counts = self.storage.node_counts() if counts is None else counts
+        nodes = self.storage.index.nodes() if nodes is None else nodes
+        node_records = {node['id']: node for node in nodes}
         for parent in list(self.direct):
             old = self.direct[parent]
             records = {entry_id(e): e for e in old}
@@ -48,7 +62,7 @@ class GalleryEntryModel:
                 previous = records.get(entry_id(item))
                 if item['kind'] == 'resource':
                     record = changed.get(item['id'])
-                    if previous is None:
+                    if previous is None and record is None:
                         record = self.storage.index.resource_by_id(item['id'])
                     if record is not None:
                         value = dict(kind='resource', id=record['id'], name=record['display_name'],
@@ -59,7 +73,7 @@ class GalleryEntryModel:
                     else:
                         continue
                 else:
-                    record = self.storage.node(item['id'])
+                    record = node_records.get(item['id'])
                     if record is None:
                         continue
                     stats = counts.get(record['id'], {})
@@ -68,6 +82,7 @@ class GalleryEntryModel:
                                  node=record, position=item['position'])
                 updated.append(value)
             self.direct[parent] = updated
+        return node_records
 
     @staticmethod
     def patch(entries, incoming):

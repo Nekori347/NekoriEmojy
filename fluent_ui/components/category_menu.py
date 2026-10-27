@@ -1,5 +1,7 @@
 """Lazy category targets inside the existing menu, sharing membership operations."""
 from PySide6.QtCore import Qt,QEvent,QTimer
+from PySide6.QtGui import QIcon
+from fluent_ui.components.node_card import render_node_icon
 from qfluentwidgets import Action
 from fluent_ui.components.safe_round_menu import SafeRoundMenu
 from fluent_ui.components.controls import LineEdit
@@ -9,11 +11,12 @@ from services.library_index import ROOT
 
 
 class CategoryTargetMenu(SafeRoundMenu):
-    def __init__(self,title,storage,choose,parent=None,*,node=None,snapshot=None):
+    def __init__(self,title,storage,choose,parent=None,*,node=None,snapshot=None,records=None):
         super().__init__(str(title) if node is not None else t(title),parent)
         self.storage=storage;self.choose=choose;self.node=node;self._prepared=False
-        self.snapshot=snapshot if snapshot is not None else storage.node_choice_rows()
-        self.setIcon(Icon.FOLDER)
+        self.records = records if records is not None else {r['id']: r for r in storage.index.nodes()}
+        self.snapshot=snapshot if snapshot is not None else storage.node_choice_rows(nodes=self.records.values())
+        self.setIcon(self._node_icon(node) if node else Icon.FOLDER)
         self.view.installEventFilter(self)
         self.search=None
         if node is None:
@@ -40,15 +43,15 @@ class CategoryTargetMenu(SafeRoundMenu):
         else:
             parent=self.node or ROOT
             # Snapshot preserves the library's existing sibling order.
-            nodes={r['id']:r for r in self.storage.index.nodes()}
+            nodes=self.records
             rows=[r for r in self.snapshot if nodes.get(r['id'],{}).get('parent_id')==parent]
             if self.node:
                 self._target(t('选择此分类'),self.node)
-        parents={r['parent_id'] for r in self.storage.index.nodes()}
+        parents={r['parent_id'] for r in self.records.values()}
         for row in rows:
             if not query and row['id'] in parents:
                 menu=CategoryTargetMenu(row['name'],self.storage,self.choose,self,
-                                        node=row['id'],snapshot=self.snapshot)
+                                        node=row['id'],snapshot=self.snapshot,records=self.records)
                 self.addMenu(menu)
             else:self._target(row['path'] if query else row['name'],row['id'])
         if not rows and not self.node:
@@ -56,9 +59,15 @@ class CategoryTargetMenu(SafeRoundMenu):
         if self.isVisible():self._show_menu(self.pos())
 
     def _target(self,label,node_id):
-        action=Action(Icon.FOLDER,str(label),self)
+        action=Action(self._node_icon(node_id),str(label),self)
         action.setData(node_id);action.triggered.connect(lambda checked=False,n=node_id:self.choose(n))
         self.addAction(action)
+
+    def _node_icon(self, node_id):
+        record = self.records.get(node_id, {})
+        if not record.get('icon'):
+            return Icon.FOLDER
+        return QIcon(render_node_icon(self.storage, record, 16))
 
     def _show_menu(self,pos,*args,**kwargs):
         self.prepare();super()._show_menu(pos,*args,**kwargs)

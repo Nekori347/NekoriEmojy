@@ -1,0 +1,84 @@
+--- a/fluent_ui/materials.py
++++ b/fluent_ui/materials.py
+@@ -27,7 +27,11 @@
+         window.setProperty('nativeMaterial', 'opaque'); return 'opaque'
+     hwnd = wintypes.HWND(int(window.winId()))
+     dark = visual.colors()['content_base'] == visual.INK
+-    enabled = sys.getwindowsversion().build >= 17763 and _transparency_allowed()
++    build = sys.getwindowsversion().build
++    move = getattr(window, '_material_move', None)
++    moving = (17763 <= build < 22000 and move is not None
++              and move[0] == int(window.internalWinId()) and move[1] == 'active')
++    enabled = build >= 17763 and _transparency_allowed() and not moving
+     key = (int(window.winId()), dark, enabled, overlay)
+     if getattr(window, '_material_key', None) == key: return window.property('nativeMaterial')
+     dwm = ctypes.windll.dwmapi
+@@ -61,12 +65,46 @@
+     setter = ctypes.windll.user32.SetWindowCompositionAttribute
+     setter.argtypes = [wintypes.HWND, ctypes.POINTER(Data)]; setter.restype = wintypes.BOOL
+     accepted = bool(setter(hwnd, ctypes.byref(data)))
++    if not accepted and 17763 <= build < 22000 and window.property('nativeMaterial') is not None:
++        window.setProperty('nativeMaterialAccepted', False)
++        return window.property('nativeMaterial') or 'opaque'
+     kind = 'acrylic' if enabled and accepted else 'opaque'
+     window.setProperty('nativeMaterial', kind)
+     window.setProperty('nativeMaterialAccepted', accepted)
+     window._material_key = key
+     window.update()
+     return kind
++
++
++def finish_material_move(window):
++    """End only this HWND's temporary policy; never create a window handle."""
++    state = getattr(window, '_material_move', None)
++    window._material_move = None
++    if state and state[1] == 'active' and int(window.internalWinId()) == state[0]:
++        native_material(window, overlay=state[2])
++
++
++def material_move_message(window, message, wparam=0):
++    """Win10 candidate: SC_MOVE arms; size loops alone never change material."""
++    if sys.platform != 'win32' or not 17763 <= sys.getwindowsversion().build < 22000:
++        return
++    hwnd = int(window.internalWinId())
++    state = getattr(window, '_material_move', None)
++    if state and state[0] != hwnd:
++        window._material_move = state = None
++    if message == 0x112:
++        command = int(wparam) & 0xfff0
++        if command != 0xf010:
++            finish_material_move(window)
++        elif state is None and hwnd and window.property('nativeMaterial') == 'acrylic':
++            key = getattr(window, '_material_key', ())
++            window._material_move = (hwnd, 'armed', bool(key[-1]) if key else False)
++    elif message == 0x231 and state and state[1] == 'armed':
++        window._material_move = (hwnd, 'active', state[2])
++        if native_material(window, overlay=state[2]) != 'opaque':
++            window._material_move = None  # Native rejection: no pretend downgrade or retry loop.
++    elif message in (0x232, 0x1f):
++        finish_material_move(window)
+ 
+ 
+ def shell_color(window):
+--- a/fluent_ui/window_shell.py
++++ b/fluent_ui/window_shell.py
+@@ -279,6 +279,9 @@
+ 
+     def event(self, event):
+         result = super().event(event)
++        if event.type() in (QEvent.Hide, QEvent.Close, QEvent.WindowStateChange, QEvent.WinIdChange):
++            from fluent_ui.materials import finish_material_move
++            finish_material_move(self)
+         if event.type() == QEvent.WinIdChange:
+             # QWidget.close() destroys the HWND. A later show creates a new one
+             # without rerunning qframelesswindow's constructor-only frame setup.
+@@ -301,6 +304,9 @@
+         if msg.message == win32con.WM_SETCURSOR and (msg.lParam & 0xffff) == win32con.HTCLIENT:
+             win32gui.SetCursor(win32gui.LoadCursor(0, win32con.IDC_ARROW))
+         event_code, hwnd = msg.message, msg.hWnd
++        if event_code in (win32con.WM_SYSCOMMAND, 0x231, 0x232, win32con.WM_CANCELMODE):
++            from fluent_ui.materials import material_move_message
++            material_move_message(self, event_code, msg.wParam)
+         if event_code == win32con.WM_STYLECHANGING and ctypes.c_ssize_t(msg.wParam).value == win32con.GWL_STYLE:
+             # Qt can rebuild GWL_STYLE without recreating the HWND. Preserve the
+             # host contract at that boundary, before Windows commits the style.

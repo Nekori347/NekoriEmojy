@@ -192,7 +192,7 @@ class UpdateDialog(dialogs.NekoriDialog):
         self.notes.setPlainText(release.get('notes',''));self.notes.setVisible(bool(release.get('notes')))
         self.notes.document().setTextWidth(470)
         self.notes.setFixedHeight(max(60,min(200,round(self.notes.document().size().height())+16)))
-        self.action_button.setText(t("立即更新"))
+        self.action_button.setText(t("下载更新"))
         self.action_button.setEnabled(True)
         if release.get('manual_only') or not (self.service.root / MANIFEST).is_file():
             self.action_button.setText(t('获取更新'))

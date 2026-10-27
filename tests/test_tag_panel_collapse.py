@@ -1,8 +1,7 @@
 """Tag panel collapse/expand and its unified three-state sort.
 
-Collapsing is presentation and nothing else: an extent and a visibility flag
-move, the released space goes to the content pane through the splitter, and the
-outer window is never touched. Tag data, sort, search and selection survive it.
+Collapsing is presentation and nothing else: the foreground extent changes,
+while gallery and outer window geometry stay fixed. Tag data, sort, search and selection survive it.
 """
 import json
 import os
@@ -63,10 +62,10 @@ def extent_of(host, panel):
 
 def content_extent(host):
     """The content pane's extent, whichever end of the splitter it sits on."""
-    return host.splitter.sizes()[host.splitter.indexOf(host.content)]
+    return host.content.height() if host.horizontal else host.content.width()
 
 
-def test_collapse_hands_the_extent_to_the_content_and_restores_it(scene):
+def test_collapse_changes_only_overlay_extent_and_restores_it(scene):
     app, window, host, panel, content, config, model = scene
     assert host.expanded and host.horizontal
     outer = window.geometry()
@@ -77,9 +76,9 @@ def test_collapse_hands_the_extent_to_the_content_and_restores_it(scene):
     host.set_expanded(False)
     settle(app)
     assert not host.expanded and panel.collapsed
-    assert not panel.index_body.isVisible()
+    assert not panel.flow_area.isVisible() and panel.header.isVisible()
     assert extent_of(host, panel) == panel.collapsed_extent()
-    assert content_extent(host) - content_before == expanded - extent_of(host, panel) + visual.COMPACT_CONTROLS.splitter_extent - host.splitter.handleWidth()
+    assert content_extent(host) == content_before
     # The user's extent is remembered, not replaced by the collapsed one.
     assert config.get('tag_panel_horizontal_extent') == 154
     assert config.get('tag_panel_expanded') is False
@@ -91,6 +90,33 @@ def test_collapse_hands_the_extent_to_the_content_and_restores_it(scene):
     assert extent_of(host, panel) == 154
     assert content_extent(host) == content_before
     assert window.geometry() == outer
+
+
+def test_bottom_expansion_does_not_jump_to_target_before_animation(scene, monkeypatch):
+    from PySide6.QtTest import QTest
+
+    app, window, host, panel, content, config, model = scene
+    host.set_placement('bottom')
+    host.set_expanded(False)
+    settle(app)
+    start = extent_of(host, panel)
+    observed = []
+    set_sizes = host.splitter.setSizes
+
+    def trace(sizes):
+        set_sizes(sizes)
+        observed.append(extent_of(host, panel))
+
+    monkeypatch.setattr(host.splitter, 'setSizes', trace)
+    monkeypatch.setattr(QApplication, 'platformName', staticmethod(lambda: 'windows'))
+    host.set_expanded(True)
+    # Configuration signals are deliberately blocked now. Check the actual
+    # initial geometry, rather than requiring a redundant setSizes(start).
+    assert extent_of(host,panel)==start
+    QTest.qWait(visual.MOTION.expand + 70)
+    assert observed and observed[0] < config.get('tag_panel_horizontal_extent')
+    assert observed == sorted(observed)
+    assert extent_of(host, panel) == config.get('tag_panel_horizontal_extent')
 
 
 @pytest.mark.parametrize('placement,horizontal', [
@@ -106,7 +132,7 @@ def test_each_placement_collapses_on_its_own_axis(scene, placement, horizontal):
     host.set_expanded(False)
     settle(app)
     assert extent_of(host, panel) == panel.collapsed_extent()
-    assert content_extent(host) - content_before == expanded - extent_of(host, panel) + visual.COMPACT_CONTROLS.splitter_extent - host.splitter.handleWidth()
+    assert content_extent(host) == content_before
     # The other axis keeps its own value untouched.
     assert config.get('tag_panel_horizontal_extent') == 154
     assert config.get('tag_panel_vertical_extent') == 240
@@ -117,34 +143,34 @@ def test_each_placement_collapses_on_its_own_axis(scene, placement, horizontal):
 
 
 @pytest.mark.parametrize('placement', ['top', 'bottom', 'left', 'right'])
-def test_handle_chevron_and_whole_rail_action(scene, placement):
+def test_header_chevron_and_whole_collapsed_rail_action(scene, placement):
     from PySide6.QtTest import QTest
     app, window, host, panel, content, config, model = scene
     host.set_placement(placement)
     settle(app)
     handle = host.splitter.handle(1)
-    points = handle.chevron_points()
+    points = panel.btn_collapse.chevron_points()
     axis = (lambda p: p.y()) if host.horizontal else (lambda p: p.x())
     assert (axis(points[1]) < axis(points[0])) == (placement in ('top', 'left'))
-    QTest.mouseClick(handle, Qt.LeftButton, pos=handle.ear_rect(True).center())
+    QTest.mouseClick(panel.btn_collapse,Qt.LeftButton)
     settle(app)
     assert not host.expanded and panel.chrome.isVisible()
-    assert not panel.header.isVisible() and not panel.index_body.isVisible()
-    assert panel.chrome.geometry() == panel.rect()
+    assert panel.header.isVisible() and not panel.flow_area.isVisible()
+    assert panel.rect().contains(panel.chrome.geometry())
     assert panel.chrome.toolTip() == panel.chrome.accessibleName() == '展开标签'
     # Far end of the rail, nowhere near the painted icon.
     QTest.mouseClick(panel.chrome, Qt.LeftButton, pos=panel.chrome.rect().bottomRight()-QPoint(1, 1))
     settle(app)
     assert host.expanded
-    assert not hasattr(panel, 'btn_collapse')
+    assert panel.btn_collapse.parentWidget() is (panel.header if host.horizontal else panel)
 
 
-def test_collapsed_thickness_uses_theme_chrome_metrics_not_expanded_header(scene, monkeypatch):
-    """The strip must not inherit thickness from its own header content."""
+def test_collapsed_horizontal_header_keeps_fixed_height_not_content_hint(scene, monkeypatch):
+    """The approved fixed title must not stretch with its drawer or sizeHint."""
     from PySide6.QtCore import QSize
     from fluent_ui import visual
     app, window, host, panel, content, config, model = scene
-    token = visual.TAG_COLLAPSED_METRICS.extent
+    token = 30
     assert panel.height() == 154 > token
 
     # A header that would be enormous if it were measured changes nothing.
@@ -198,7 +224,7 @@ def test_compact_chrome_fits_and_index_stays_on_outer_edge(scene, placement):
     assert (panel.index_view.height() if host.horizontal else panel.index_view.width()) == visual.SECTION_INDEX_COMPACT_EXTENT
     host.set_expanded(False)
     settle(app)
-    assert panel.chrome.geometry() == panel.rect()
+    assert panel.rect().contains(panel.chrome.geometry())
     assert not panel.title_label.isVisible() and not panel.count_label.isVisible()
     assert not panel.btn_sort.isVisible() and not panel.btn_new.isVisible()
     assert not host.splitter.handle(1).isEnabled()
@@ -292,7 +318,7 @@ def test_collapsed_state_survives_a_cold_start(scene):
     settle(app)
     try:
         assert not fresh_host.expanded and fresh_panel.collapsed
-        assert not fresh_panel.index_body.isVisible()
+        assert not fresh_panel.flow_area.isVisible() and fresh_panel.header.isVisible()
         assert extent_of(fresh_host, fresh_panel) == collapsed_extent
         fresh_host.set_expanded(True)
         settle(app)
@@ -463,7 +489,7 @@ def test_collapse_rebuilds_no_gallery_card_and_no_window_rect(tmp_path, monkeypa
 
         host.set_expanded(False)
         settle(app)
-        assert content_extent(host) > content_before
+        assert content_extent(host) == content_before
         assert refreshes == [] and collects == []
         assert gallery.renderer.created == created
         assert list(gallery._all_card_widgets) == cards
@@ -480,9 +506,9 @@ def test_collapse_rebuilds_no_gallery_card_and_no_window_rect(tmp_path, monkeypa
         gallery.close()
         settle(app)
 
-    # The host and the panel only ever move the splitter between the two
-    # widgets they already own; no outer-window geometry call exists in them.
+    # Content geometry stays full-size; only the local foreground splitter
+    # changes its allocation. There is no native outer-window move here.
     for cls in (TagPanelHost,):
         source = inspect.getsource(cls)
-        assert '.resize(' not in source and 'setGeometry' not in source
+        assert host.content.geometry()==host.rect()  # foreground geometry is allowed; the gallery stays full-size
         assert 'SetWindowPos' not in source

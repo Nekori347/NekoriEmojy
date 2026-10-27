@@ -24,6 +24,7 @@ class SuzuInstanceDialog(NekoriDialog):
         self.preview.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.add_widget(self.preview)
         self.add_hint(t('保留表情、分类、分类图标、标签 和实际保存的顺序；缺失源文件会报告为跳过。原 Suzu 数据保持原样。'))
+        self.add_hint(t('迁移完成前请不要关闭 Suzu，也不要移动或删除源文件。Nekori 只读取源数据，不会修改它。'))
         self.add_button(t('取消'), on_click=self.reject)
         self.refresh_button = self.add_button(t('刷新实例'), on_click=self.refresh)
         self.import_button = self.add_button(t('导入 Nekori'), role='primary', on_click=self.accept, enabled=False)

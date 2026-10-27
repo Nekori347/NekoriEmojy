@@ -6,7 +6,7 @@ import win32con
 import win32gui
 from services.i18n import t, bind_text
 from PySide6.QtCore import QEvent, Qt, QRectF, QPoint, QPropertyAnimation
-from PySide6.QtGui import QColor, QFont, QGuiApplication, QPalette, QPainter, QPen,QIcon
+from PySide6.QtGui import QColor, QFont, QGuiApplication, QPalette, QPainter, QPainterPath, QPen,QIcon
 from PySide6.QtWidgets import QApplication, QWidget, QStackedWidget, QVBoxLayout
 from qframelesswindow import FramelessWindow, StandardTitleBar
 from qframelesswindow.titlebar.title_bar_buttons import TitleBarButtonState,TitleBarButton
@@ -98,8 +98,13 @@ class CaptionButton(TitleBarButton):
         else:
             p.setPen(QPen(foreground,1.3,Qt.SolidLine,Qt.RoundCap,Qt.RoundJoin));p.setBrush(Qt.NoBrush)
             if self._maximized:
-                p.drawRect(r.adjusted(4,1,-1,-4))
-                p.setBrush(background);p.drawRect(r.adjusted(1,4,-4,-1))
+                back=r.adjusted(4,1,-1,-4);front=r.adjusted(1,4,-4,-1)
+                # Draw only the exposed rear edges; transparent states cannot
+                # use the front rectangle's background to hide rear strokes.
+                outline=QPainterPath();outline.moveTo(back.left(),front.top())
+                outline.lineTo(back.topLeft());outline.lineTo(back.topRight())
+                outline.lineTo(back.bottomRight());outline.lineTo(front.right(),back.bottom())
+                p.drawPath(outline);p.drawRect(front)
             else:p.drawRect(r.adjusted(2,2,-2,-2))
 
     def mouseReleaseEvent(self,event):
@@ -133,6 +138,18 @@ class NekoriTitleBar(StandardTitleBar):
             if button is not None and button.isVisible() and button.geometry().contains(pos):
                 return False
         return super().canDrag(pos)
+
+    def mouseDoubleClickEvent(self, event):
+        if (event.button() == Qt.LeftButton and self._isDoubleClickEnabled
+                and QApplication.platformName() == 'windows'):
+            capture = win32gui.GetCapture()
+            host = int(self.window().internalWinId())
+            if capture and capture != host and win32gui.GetAncestor(capture, win32con.GA_ROOT) == host:
+                # Qt's native caption child still owns the implicit grab here.
+                # The library posts SC_MAXIMIZE before its synthetic release;
+                # Windows ignores that command while this child has capture.
+                win32gui.ReleaseCapture()
+        super().mouseDoubleClickEvent(event)
 
 
 class AccentDecoration(QWidget):
@@ -193,9 +210,13 @@ class NekoriWindow(FramelessWindow):
             from fluent_ui.components.native_state_log import NativeStateLog
             self._native_state_log = NativeStateLog()
         super().__init__(parent)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        # The frameless constructor has already created the native surface.
+        # Enabling Qt alpha here only takes effect after HWND recreation,
+        # switching the backing-store path and freezing maximized content.
         self.setAutoFillBackground(False)
         self._title_bar_buttons = []
+        from fluent_ui.components.native_resize import install_native_child_edges
+        install_native_child_edges()
         self._reveal=QPropertyAnimation(self,b'windowOpacity',self)
         self._reveal.setDuration(visual.MOTION.window)
         self._reveal.setEasingCurve(visual.MOTION.easing)
@@ -277,33 +298,42 @@ class NekoriWindow(FramelessWindow):
         if event.type() == QEvent.ActivationChange and not self.isActiveWindow():
             self.clear_transient_button_states()
 
+    def event(self, event):
+        result = super().event(event)
+        if event.type() == QEvent.WinIdChange:
+            # QWidget.close() destroys the HWND. A later show creates a new one
+            # without rerunning qframelesswindow's constructor-only frame setup.
+            hwnd = int(self.internalWinId())
+            if hwnd and getattr(self, '_isResizeEnabled', True) and not self.isFullScreen():
+                style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
+                frame_style = win32con.WS_CAPTION | win32con.WS_THICKFRAME
+                if style & frame_style != frame_style:
+                    win32gui.SetWindowLong(hwnd, win32con.GWL_STYLE, style | frame_style)
+                    win32gui.SetWindowPos(hwnd, None, 0, 0, 0, 0,
+                        win32con.SWP_NOMOVE | win32con.SWP_NOSIZE | win32con.SWP_NOZORDER |
+                        win32con.SWP_NOACTIVATE | win32con.SWP_FRAMECHANGED)
+        return result
+
     def nativeEvent(self, event_type, message):
         msg = self._native_message
         ctypes.memmove(ctypes.byref(msg), int(message), ctypes.sizeof(msg))
-        # Windows supplies the hit-test in LOWORD(lParam), not wParam (HWND).
-        # Reset a stale edge cursor, then let Qt apply a control's own cursor.
-        # All move/resize hit testing remains in the existing window library.
+        # Qt owns the resolved child cursor. DefWindowProc would replace it
+        # with the native class cursor after Qt's Enter/Leave processing.
         if msg.message == win32con.WM_SETCURSOR and (msg.lParam & 0xffff) == win32con.HTCLIENT:
-            win32gui.SetCursor(win32gui.LoadCursor(0, win32con.IDC_ARROW))
+            return True, 1
         event_code, hwnd = msg.message, msg.hWnd
+        if event_code == win32con.WM_STYLECHANGING and ctypes.c_ssize_t(msg.wParam).value == win32con.GWL_STYLE:
+            # Qt can rebuild GWL_STYLE without recreating the HWND. Preserve the
+            # host contract at that boundary, before Windows commits the style.
+            class StyleStruct(ctypes.Structure):
+                _fields_ = [('old', wintypes.DWORD), ('new', wintypes.DWORD)]
+            style = StyleStruct.from_address(msg.lParam)
+            if getattr(self, '_isResizeEnabled', True) and not self.isFullScreen():
+                style.new |= win32con.WS_CAPTION | win32con.WS_THICKFRAME
         if (event_code == win32con.WM_NCHITTEST and self._isResizeEnabled
                 and not self.isMaximized() and not self.isFullScreen()):
-            # The 5px backend edge falls inside the rounded-away corner.
-            # Give diagonal resize its own reachable square, in native pixels;
-            # straight edges keep the backend's existing narrow hit band.
-            frame = win32gui.GetWindowRect(hwnd)
-            x = ctypes.c_short(msg.lParam & 0xffff).value - frame[0]
-            y = ctypes.c_short((msg.lParam >> 16) & 0xffff).value - frame[1]
-            corner = round(visual.WINDOW_RADIUS * self.devicePixelRatioF())
-            width, height = frame[2]-frame[0], frame[3]-frame[1]
-            left, right = 0 <= x < corner, width-corner <= x < width
-            top, bottom = 0 <= y < corner, height-corner <= y < height
-            hit = (win32con.HTTOPLEFT if left and top else
-                   win32con.HTTOPRIGHT if right and top else
-                   win32con.HTBOTTOMLEFT if left and bottom else
-                   win32con.HTBOTTOMRIGHT if right and bottom else None)
-            if hit is not None:
-                return True, hit
+            from fluent_ui.components.native_resize import resize_hit
+            return True, resize_hit(self, hwnd, msg.lParam)
         result = super().nativeEvent(event_type, message)
         if (event_code == win32con.WM_NCCALCSIZE and msg.wParam
                 and not self.isMaximized() and not self.isFullScreen()

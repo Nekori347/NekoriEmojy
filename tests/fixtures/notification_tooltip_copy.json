@@ -1,0 +1,151 @@
+[
+  {
+    "family": "分类",
+    "mode": "manual",
+    "source": "分类排序：手动",
+    "values": {
+      "zh": "分类排序：手动",
+      "zh_TW": "分類排序：手動",
+      "en": "Category order: Manual",
+      "ja": "カテゴリの並び順：手動"
+    }
+  },
+  {
+    "family": "分类",
+    "mode": "a_z",
+    "source": "分类排序：名称 A→Z",
+    "values": {
+      "zh": "分类排序：名称 A→Z",
+      "zh_TW": "分類排序：名稱 A→Z",
+      "en": "Category order: Name A→Z",
+      "ja": "カテゴリの並び順：名前 A→Z"
+    }
+  },
+  {
+    "family": "分类",
+    "mode": "z_a",
+    "source": "分类排序：名称 Z→A",
+    "values": {
+      "zh": "分类排序：名称 Z→A",
+      "zh_TW": "分類排序：名稱 Z→A",
+      "en": "Category order: Name Z→A",
+      "ja": "カテゴリの並び順：名前 Z→A"
+    }
+  },
+  {
+    "family": "标签",
+    "mode": "manual",
+    "source": "标签排序：手动",
+    "values": {
+      "zh": "标签排序：手动",
+      "zh_TW": "標籤排序：手動",
+      "en": "Tag order: Manual",
+      "ja": "タグの並び順：手動"
+    }
+  },
+  {
+    "family": "标签",
+    "mode": "a_z",
+    "source": "标签排序：名称 A→Z",
+    "values": {
+      "zh": "标签排序：名称 A→Z",
+      "zh_TW": "標籤排序：名稱 A→Z",
+      "en": "Tag order: Name A→Z",
+      "ja": "タグの並び順：名前 A→Z"
+    }
+  },
+  {
+    "family": "标签",
+    "mode": "z_a",
+    "source": "标签排序：名称 Z→A",
+    "values": {
+      "zh": "标签排序：名称 Z→A",
+      "zh_TW": "標籤排序：名稱 Z→A",
+      "en": "Tag order: Name Z→A",
+      "ja": "タグの並び順：名前 Z→A"
+    }
+  },
+  {
+    "family": "表情",
+    "mode": "manual",
+    "source": "表情排序：手动",
+    "values": {
+      "zh": "表情排序：手动",
+      "zh_TW": "表情排序：手動",
+      "en": "Emote order: Manual",
+      "ja": "スタンプの並び順：手動"
+    }
+  },
+  {
+    "family": "表情",
+    "mode": "recent_added",
+    "source": "表情排序：最近添加",
+    "values": {
+      "zh": "表情排序：最近添加",
+      "zh_TW": "表情排序：最近新增",
+      "en": "Emote order: Recently added",
+      "ja": "スタンプの並び順：追加が新しい順"
+    }
+  },
+  {
+    "family": "表情",
+    "mode": "oldest_added",
+    "source": "表情排序：最早添加",
+    "values": {
+      "zh": "表情排序：最早添加",
+      "zh_TW": "表情排序：最早新增",
+      "en": "Emote order: Oldest added",
+      "ja": "スタンプの並び順：追加が古い順"
+    }
+  },
+  {
+    "id": "expand",
+    "source": "展开通知",
+    "values": {
+      "zh": "展开通知",
+      "zh_TW": "展開通知",
+      "en": "Expand notifications",
+      "ja": "通知を展開"
+    }
+  },
+  {
+    "id": "collapse",
+    "source": "收起通知",
+    "values": {
+      "zh": "收起通知",
+      "zh_TW": "收合通知",
+      "en": "Collapse notifications",
+      "ja": "通知を折りたたむ"
+    }
+  },
+  {
+    "id": "clear",
+    "source": "清除成功与信息提示",
+    "values": {
+      "zh": "清除成功与信息提示",
+      "zh_TW": "清除成功與資訊提示",
+      "en": "Clear success and info notifications",
+      "ja": "成功・情報通知を消去"
+    }
+  },
+  {
+    "id": "import-added",
+    "source": "导入完成 · 新增 {added} 张",
+    "values": {
+      "zh": "导入完成 · 新增 {added} 张",
+      "zh_TW": "匯入完成 · 新增 {added} 張",
+      "en": "Import complete · {added} added",
+      "ja": "取り込み完了 · {added} 件追加"
+    }
+  },
+  {
+    "id": "import-skipped",
+    "source": "处理完成 · 跳过 {skipped} 张",
+    "values": {
+      "zh": "处理完成 · 跳过 {skipped} 张",
+      "zh_TW": "處理完成 · 略過 {skipped} 張",
+      "en": "Processing complete · {skipped} skipped",
+      "ja": "処理完了 · {skipped} 件スキップ"
+    }
+  }
+]

@@ -10,7 +10,7 @@ from services.tg_downloader import (
 
 class MissingSourceTest(unittest.TestCase):
     def setUp(self):
-        self.downloader = TGStickerDownloader(bot_token="test-token", retries=1)
+        self.downloader = TGStickerDownloader(bot_token="test-token", cf_proxy="https://proxy.invalid", retries=1)
         self.downloader.session = Mock()
 
     def response(self, code, description="", content=b"image"):

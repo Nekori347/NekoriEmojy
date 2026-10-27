@@ -1,4 +1,4 @@
-"""Manual GitHub release checks and staged downloads. No startup network requests."""
+"""GitHub release checks and staged downloads; callers own scheduling."""
 import json
 import os
 from pathlib import Path
@@ -67,9 +67,10 @@ class UpdateService:
             raise Cancelled()
 
     def check(self):
-        self.last_check_status='current'
+        self.last_check_status='error'
         self._cancelled()
-        if not self.channel_available:return None
+        if not self.channel_available:
+            self.last_check_status='unavailable';return None
         with requests.get(self.api_url, headers={"User-Agent": "NekoriEmojy-Updater", "Accept": "application/vnd.github+json"}, timeout=(8, 15)) as response:
             if getattr(response,'status_code',200)==404:
                 self.last_check_status='unpublished';return None
@@ -82,9 +83,11 @@ class UpdateService:
             raise ValueError("No stable release available")
         latest = release["tag_name"]
         if version_key(latest) <= version_key(current_version(self.root)):
+            self.last_check_status='current'
             return None
         assets = [a for a in release.get("assets", []) if a["name"] == self.asset_name.format(version=latest.lstrip("v")) and a.get("state") == "uploaded"]
         if not assets and self.asset_name.startswith('NekoriEmojy'):
+            self.last_check_status='available'
             return {'version':latest.lstrip('v'),'notes':release.get('body') or '',
                     'date':release.get('published_at',''),'size':0,'manual_only':True}
         if len(assets) != 1:
@@ -98,6 +101,7 @@ class UpdateService:
             raise ValueError("Unexpected release download URL")
         if not 0 < asset["size"] <= MAX_DOWNLOAD:
             raise ValueError("Invalid release size")
+        self.last_check_status='available'
         return {"version": latest.lstrip("v"), "notes": release.get("body") or "", "date": release.get("published_at", ""),
                 "size": asset["size"], "url": url, "sha256": digest[7:]}
 

@@ -211,7 +211,9 @@ def test_projection_headers_orientation_density_no_queries(scene, monkeypatch, t
     for method in ('child_nodes', 'node_counts', 'node'):
         monkeypatch.setattr(storage, method, forbidden)
     monkeypatch.setattr(storage.index, 'content', forbidden)
-    snapshot = list(canvas.items)
+    def structure():
+        return [(node_id,name,depth,group) for node_id,name,icon,depth,group in canvas.items]
+    snapshot = structure()
     heights = []
     for size, labels in ((20, True), (48, True), (20, False)):
         config.set('sidebar_icon_size', size)
@@ -219,11 +221,11 @@ def test_projection_headers_orientation_density_no_queries(scene, monkeypatch, t
         gallery.on_settings_changed('sidebar_icon_size')
         app.processEvents()
         heights.append(canvas.rects[-1].height())
-        assert canvas.items == snapshot
+        assert structure() == snapshot
     assert heights[1] > heights[0] > heights[2]
     wheel = QWheelEvent(QPointF(30, 40), QPointF(30, 40), QPoint(), QPoint(0, 120), Qt.NoButton, Qt.ControlModifier, Qt.NoScrollPhase, False)
     QApplication.sendEvent(sidebar.icons.viewport(), wheel)
-    assert config.get('sidebar_icon_size') == 22 and canvas.items == snapshot
+    assert config.get('sidebar_icon_size') == 22 and structure() == snapshot
     config.set('sidebar_show_labels', True)
     sidebar.apply_presentation()
     app.processEvents()
