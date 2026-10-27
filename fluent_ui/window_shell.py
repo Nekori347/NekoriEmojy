@@ -317,6 +317,10 @@ class NekoriWindow(FramelessWindow):
     def nativeEvent(self, event_type, message):
         msg = self._native_message
         ctypes.memmove(ctypes.byref(msg), int(message), ctypes.sizeof(msg))
+        # Qt owns the resolved child cursor. DefWindowProc would replace it
+        # with the native class cursor after Qt's Enter/Leave processing.
+        if msg.message == win32con.WM_SETCURSOR and (msg.lParam & 0xffff) == win32con.HTCLIENT:
+            return True, 1
         event_code, hwnd = msg.message, msg.hWnd
         if event_code == win32con.WM_STYLECHANGING and ctypes.c_ssize_t(msg.wParam).value == win32con.GWL_STYLE:
             # Qt can rebuild GWL_STYLE without recreating the HWND. Preserve the
