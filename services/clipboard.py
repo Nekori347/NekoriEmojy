@@ -1,10 +1,25 @@
 from PySide6.QtGui import QGuiApplication, QImage, QClipboard
-from PySide6.QtCore import QObject, QMimeData, QUrl
+from PySide6.QtCore import QObject, QMimeData, QUrl, Signal, Slot, QRunnable, QThreadPool, Qt
 import os
 import re
 import html
 import hashlib
+import uuid
 from PIL import Image
+
+
+class _PreparedSignals(QObject):
+    finished=Signal(str,object,str)
+
+
+class _PrepareImage(QRunnable):
+    def __init__(self,identity,prepare):
+        super().__init__();self.identity=identity;self.prepare=prepare;self.signals=_PreparedSignals()
+
+    def run(self):
+        try:result,error=self.prepare(),''
+        except Exception as exception:result,error=None,str(exception)
+        self.signals.finished.emit(self.identity,result,error)
 
 class ClipboardService(QObject):
     def __init__(self, config_service=None):
@@ -12,6 +27,11 @@ class ClipboardService(QObject):
         # 获取系统的剪切板
         self.clipboard = QGuiApplication.clipboard()
         self.config_service = config_service
+        self._revision=0
+        self._delivery_token=''
+        self.clipboard.dataChanged.connect(self._clipboard_changed)
+        self._preparations={}
+        self._prepare_pool=QThreadPool(self);self._prepare_pool.setMaxThreadCount(1)
         
         # 确定缓存目录
         from services.app_paths import app_data_dir
@@ -31,6 +51,54 @@ class ClipboardService(QObject):
         except Exception:
             return None
 
+    def _clipboard_changed(self):self._revision+=1
+
+    def delivery_revision(self):
+        if os.name=='nt' and QGuiApplication.platformName()=='windows':
+            import ctypes
+            return int(ctypes.windll.user32.GetClipboardSequenceNumber()),self._delivery_token
+        return self._revision,self._delivery_token
+
+    def delivery_matches(self,ticket):
+        if self.delivery_revision()==ticket:return True
+        # Delayed OLE rendering may advance the Windows sequence without a
+        # new owner. The immutable per-publication token distinguishes it.
+        return bool(ticket[1] and self.clipboard.ownsClipboard() and
+            bytes(self.clipboard.mimeData().data('application/x-nekori-send-request'))==ticket[1].encode())
+
+    def prepare_image(self,image_path,convert_enabled):
+        """Only file IO, Pillow and reentrant QImage; safe on the worker."""
+        final_path=image_path
+        if convert_enabled and os.path.splitext(image_path)[1].lower()!='.gif':
+            converted=self._convert_static_to_1frame_gif(image_path)
+            if converted and os.path.isfile(converted):final_path=converted
+        return final_path,QImage(final_path)
+
+    def prepare_image_async(self,path,completed):
+        config=self._get_config_service()
+        convert=config.get('convert_static_to_gif',True) if config else True
+        identity=uuid.uuid4().hex
+        task=_PrepareImage(identity,lambda:self.prepare_image(path,convert))
+        task.signals.finished.connect(self._prepared,Qt.QueuedConnection)
+        self._preparations[identity]=(task,completed)
+        self._prepare_pool.start(task)
+
+    @Slot(str,object,str)
+    def _prepared(self,identity,data,error):
+        task,completed=self._preparations.pop(identity)
+        completed(data,error)
+
+    def publish_prepared(self,data):
+        """Clipboard ownership always changes on the GUI thread."""
+        if data is None:return False
+        path,image=data
+        mime=QMimeData();mime.setUrls([QUrl.fromLocalFile(path)])
+        self._delivery_token=uuid.uuid4().hex
+        mime.setData('application/x-nekori-send-request',self._delivery_token.encode())
+        if not image.isNull():mime.setImageData(image)
+        self.clipboard.setMimeData(mime)
+        return True
+
     def _convert_static_to_1frame_gif(self, image_path):
         """
         将静态图片（PNG/JPG/WEBP 等）转换为高质量的 1 帧 GIF 格式并缓存。
@@ -41,6 +109,7 @@ class ClipboardService(QObject):
         :param image_path: 原始图片绝对路径
         :return: 转换后的 GIF 文件路径；如果转换失败则返回 None
         """
+        temporary=None
         try:
             if not os.path.exists(image_path):
                 return None
@@ -74,18 +143,22 @@ class ClipboardService(QObject):
                 p_img.paste(255, mask)
 
                 # 保存为 1 帧 GIF，指定 transparency 索引为 255
+                temporary=cache_path+'.'+uuid.uuid4().hex+'.tmp'
                 p_img.save(
-                    cache_path,
+                    temporary,
                     format="GIF",
                     transparency=255,
                     disposal=2
                 )
 
+            os.replace(temporary,cache_path)
             return cache_path
 
         except Exception as e:
             print(f"[ERROR] 静态图片转 1 帧 GIF 失败 ({image_path}): {e}")
             return None
+        finally:
+            if temporary and os.path.exists(temporary):os.remove(temporary)
 
     @staticmethod
     def decode_mime_data(mime_data):

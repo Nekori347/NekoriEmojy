@@ -1,6 +1,7 @@
 """Settings composition built around a glass navigation and one parameter sheet."""
-from PySide6.QtCore import Qt,QSize
-from PySide6.QtWidgets import QWidget,QHBoxLayout,QVBoxLayout,QLabel,QListWidget,QScrollArea,QFrame,QStackedWidget
+from PySide6.QtCore import Qt,QSize,QEvent
+from PySide6.QtGui import QFontMetrics
+from PySide6.QtWidgets import QWidget,QHBoxLayout,QVBoxLayout,QGridLayout,QLabel,QListWidget,QScrollArea,QFrame,QStackedWidget
 from fluent_ui import visual
 from fluent_ui.icons import Icon
 from fluent_ui.components.controls import TransparentToolButton
@@ -18,6 +19,9 @@ class DecisionBar(QWidget):
 
     def resizeEvent(self,event):
         super().resizeEvent(event)
+        self.relayout()
+
+    def relayout(self):
         if not hasattr(self,'actions'):return
         buttons=[self.actions.layout().itemAt(i).widget() for i in range(3)]
         available=max(1,self.width()-20)
@@ -37,6 +41,52 @@ class DecisionBar(QWidget):
         self.setFixedHeight(64)
 
 
+class SettingsNavigationFooter(QWidget):
+    """Keep status out of the preview row; long translations can use two rows."""
+    def __init__(self, preview, notice, tools, parent):
+        super().__init__(parent)
+        self.preview,self.notice,self.tools=preview,notice,tools
+        self._stacked=None
+        self.grid=QGridLayout(self)
+        self.grid.setContentsMargins(4,0,4,0)
+        self.grid.setHorizontalSpacing(6);self.grid.setVerticalSpacing(6)
+        self.grid.setColumnStretch(0,1)
+        self._arrange()
+
+    def _arrange(self):
+        required=self.preview.sizeHint().width()
+        self.preview.setMinimumWidth(required)
+        stacked=required+self.tools.width()+14>self.width()
+        if stacked==self._stacked:return
+        self._stacked=stacked
+        for widget in (self.preview,self.notice,self.tools):self.grid.removeWidget(widget)
+        self.grid.addWidget(self.notice,0,0,1,1 if stacked else 2)
+        self.grid.addWidget(self.preview,1,0,1,2 if stacked else 1,Qt.AlignLeft)
+        self.grid.addWidget(self.tools,0 if stacked else 1,1,Qt.AlignRight)
+
+    def resizeEvent(self,event):
+        super().resizeEvent(event);self._arrange()
+
+    def event(self,event):
+        result=super().event(event)
+        if event.type()==QEvent.LayoutRequest and hasattr(self,'grid'):self._arrange()
+        return result
+
+
+class SettingsTabStrip(TabStrip):
+    """Reserve the active font and icon together; overflow still uses Qt scroll."""
+    def tabSizeHint(self, index):
+        font = self.font()
+        font.setBold(True)
+        width = QFontMetrics(font).horizontalAdvance(self.tabText(index))+36
+        if not self.tabIcon(index).isNull():
+            width += 24
+        return QSize(max(96, width), 43)
+
+    def minimumTabSizeHint(self, index):
+        return self.tabSizeHint(index)
+
+
 def build_settings(c):
     root=QHBoxLayout(c);root.setContentsMargins(0,2,0,0);root.setSpacing(6)
     nav_surface=Surface('navigation',c,edge=False)
@@ -48,15 +98,14 @@ def build_settings(c):
     c.nav.setItemDelegate(NavigationItem(c.nav,show_focus=False));c.nav.setMouseTracking(True)
     c.nav.currentRowChanged.connect(c._select_page);navigation.addWidget(c.nav,1)
     c.btn_back=TransparentToolButton(Icon.LEFT_ARROW,nav_surface);c.btn_back.clicked.connect(c._go_back);c.btn_back.hide()
-    lower=QHBoxLayout();lower.setContentsMargins(4,0,4,0)
     c.dirty_label=QLabel('',nav_surface);c.dirty_label.setObjectName('SettingsDirty')
-    lower.addWidget(c.dirty_label,1)
+    c.dirty_label.setWordWrap(True)
     c.btn_tools=TransparentToolButton(Icon.MORE,nav_surface)
     bind_text(c.btn_tools,'导入 / 导出设置','setToolTip');c.btn_tools.clicked.connect(c._show_settings_tools)
-    lower.addWidget(c.btn_tools);navigation.addLayout(lower);root.addWidget(nav_surface)
+    root.addWidget(nav_surface)
     foundation=Surface('base',c,radius=12)
     sheet=QVBoxLayout(foundation);sheet.setContentsMargins(6,6,6,6);sheet.setSpacing(0)
-    c.tab_bar=TabStrip(foundation);c.tab_bar.currentChanged.connect(c._show_tab)
+    c.tab_bar=SettingsTabStrip(foundation);c.tab_bar.currentChanged.connect(c._show_tab)
     sheet.addWidget(c.tab_bar)
     c.content_pane=ContentPane(foundation);sheet.addWidget(c.content_pane,1)
     pane=c.content_pane.content_layout
@@ -71,8 +120,8 @@ def build_settings(c):
     c.page_stack=QStackedWidget(c.content_pane);c.page_stack.addWidget(c.scroll);pane.addWidget(c.page_stack,1)
     c.sticky=QLabel('',c.scroll.viewport());c.sticky.setObjectName('SettingsSectionTitle');c.sticky.hide()
     footer=c._build_footer();pane.addWidget(footer)
-    lower.insertWidget(0,footer.preview,0,Qt.AlignVCenter)
     c.btn_tools.setFixedSize(32,32)
+    navigation.addWidget(SettingsNavigationFooter(footer.preview,c.dirty_label,c.btn_tools,nav_surface))
     root.addWidget(foundation,1)
     c.feedback_host=FeedbackHost(c.content_pane,pane,before=c.page_stack)
     c._apply_style();c._set_dirty(False)

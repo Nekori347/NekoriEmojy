@@ -64,14 +64,18 @@ def test_drop_multiple_folders_and_file_as_one_batch(surface, tmp_path, monkeypa
     assert args[1] == '__library__'
 
 
-def test_busy_import_does_not_create_categories(tmp_path):
-    view = make_view()
-    view.import_thread = Mock()
-    view.import_thread.isRunning.return_value = True
-    view._import_dropped_folders([str(tmp_path)], [])
-    view.storage.add_category.assert_not_called()
-    view._start_background_import.assert_not_called()
-    view.show_error.assert_called_once()
+def test_folder_drop_queues_without_creating_categories_in_gui(surface,tmp_path,monkeypatch):
+    # The current importer queues batches instead of rejecting a second drop.
+    # Queue submission must still have no category/file side effects in the UI.
+    view=surface.g;queue=view.imports
+    monkeypatch.setattr(queue,'_next',lambda:None)
+    before=view.storage.index.nodes()
+    view._import_dropped_folders([str(tmp_path)],[])
+    assert len(queue.waiting)==1
+    request=queue.requests[queue.waiting[0]]
+    assert request.sources==[str(tmp_path)] and request.state=='waiting'
+    assert view.storage.index.nodes()==before
+    queue.cancel(request.id)
 
 
 def test_import_thread_routes_duplicate_to_each_target(tmp_path):

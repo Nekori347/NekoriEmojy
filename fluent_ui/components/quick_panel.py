@@ -80,6 +80,8 @@ class QuickPanel(QWidget):
         from fluent_ui.components.import_queue import import_queue
         self.imports=import_queue(self.storage)
         self.imports.files_finished.connect(self._queued_import_finished)
+        from services.backup_service import backup_service
+        backup_service(self.storage).attach(self)
         
         # 悬停预览组件
         self.preview_popup = HoverPreviewPopup(self)
@@ -444,6 +446,7 @@ class QuickPanel(QWidget):
                                       self._on_send_finished, self.config.get('recent_limit', 30))
 
     def _on_send_finished(self, result):
+        self.last_send_outcome=getattr(self.send_target_service,'last_outcome',None)
         from fluent_ui.components.feedback import feedback_for
         local = feedback_for(self.bg_widget)
         self.feedback_host = local
@@ -453,13 +456,14 @@ class QuickPanel(QWidget):
             self._cached_query = self._cached_results = None
         if result == SendResult.SENT:
             local.dismiss()
+            from fluent_ui.components.send_feedback import show_send_feedback
+            primary=getattr(self,'feedback_owner',None)
+            show_send_feedback(primary if primary is not None else local,result,self.last_send_outcome)
             self.hide_panel()
         else:
             self._activation_guard_timer.start(180)
-            if result == SendResult.COPIED_ONLY:
-                local.notice(t('表情已复制'),t('未找到可发送的聊天窗口，可手动粘贴。'))
-            else:
-                local.notice(t('复制失败'), t('无法将表情写入剪贴板'), error=True)
+            from fluent_ui.components.send_feedback import show_send_feedback
+            show_send_feedback(local,result,self.last_send_outcome)
 
     def _on_card_hover_started(self, card, path):
         self.preview_controller.set_delay(self.config.get("preview_delay", 500))
@@ -480,7 +484,7 @@ class QuickPanel(QWidget):
     def _end_activation_guard(self):
         self._activation_guard = False
 
-    def show_at_cursor(self):
+    def show_at_cursor(self, *, search_text=None):
         self.send_target_service.capture_foreground()
         # 每次唤醒时读取最新的宽高配置
         w = self.config.get("quick_panel_width", 360)
@@ -490,7 +494,12 @@ class QuickPanel(QWidget):
             
         self._update_i18n_texts(None)
         self.update_theme()
-        if self.search_box.text():
+        if search_text is not None:
+            from PySide6.QtCore import QSignalBlocker
+            with QSignalBlocker(self.search_box):self.search_box.setText(search_text)
+            self.search_timer.stop()
+            self._perform_search(force=True)
+        elif self.search_box.text():
             self.search_box.clear()
         else:
             self._perform_search()

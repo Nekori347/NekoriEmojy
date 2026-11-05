@@ -1,5 +1,6 @@
 import os
 import json
+from services.acrylic_policy import default_acrylic
 
 class ConfigService:
     def __init__(self, app_dir=None, *, defer_create=False):
@@ -11,6 +12,23 @@ class ConfigService:
         self.load_error=None
         
         self.default_config = {
+            "backup_enabled": False,
+            "backup_interval_hours": 24,
+            "backup_path": "",
+            "backup_keep": 5,
+            "clipboard_search_hotkey": "",
+            "send_sound_enabled": False,
+            "send_sound_path": "",
+            "import_sound_enabled": False,
+            "import_sound_path": "",
+            "delete_sound_enabled": False,
+            "delete_sound_path": "",
+            "reorder_sound_enabled": False,
+            "reorder_sound_path": "",
+            "category_sound_enabled": False,
+            "category_sound_path": "",
+            "sound_volume": 85,
+            "show_new_resource_markers": True,
             "clipboard_import_enabled": True,
             "clipboard_import_hotkey": "ctrl+alt+v",
             "auto_check_updates": True,
@@ -18,7 +36,8 @@ class ConfigService:
             "dark_theme_key": "nekori",
             "appearance_mode": "system",
             "ui_animations_enabled": True,
-            "window_acrylic_enabled": True,
+            "window_acrylic_enabled": default_acrylic(),
+            "win10_acrylic_confirmed": False,
             "accent_color": "#FFF500",
             "language": "zh",
             "always_on_top": True,   # 默认置顶
@@ -79,6 +98,9 @@ class ConfigService:
                 config.update(loaded)
                 if 'tag_panel_horizontal_extent' not in loaded and 'tag_panel_height' in loaded:
                     config['tag_panel_horizontal_extent'] = loaded['tag_panel_height']
+                from services.acrylic_policy import is_windows10
+                if is_windows10() and config.get('win10_acrylic_confirmed') is not True:
+                    config['window_acrylic_enabled']=False
                 return config
         except Exception as e:
             self.load_error=e

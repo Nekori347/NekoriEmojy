@@ -122,6 +122,7 @@ class ImportThread(QThread):
         import threading
         self.cancel_event=threading.Event();self.job_id='';self.duplicate_resolver=None
         self.result_paths=[];self.errors=[];self.cancelled_count=0
+        self.new_resource_count=0
         self.operation=None;self.result=None
         self.duplicate_batch_resolver=None;self.kept_count=0
         self.recovery=None;self.recovery_waiting=''
@@ -213,15 +214,21 @@ class ImportThread(QThread):
                     saved,duplicate=self.storage.save_image(source,target)
                     if not saved:raise RuntimeError('Image could not be saved')
                     self.result_paths.append(saved);skipped_count+=int(duplicate);saved_count+=int(not duplicate)
+                    self.new_resource_count+=int(not duplicate)
                 else:
                     result = self.storage.import_paths([source], target)
                     self.result_paths.extend(result.paths)
                     self.cancelled_count+=result.cancelled
                     saved_count += result.imported;skipped_count += result.duplicates;failed_count += len(result.errors)
+                    self.new_resource_count+=result.imported
                     self.errors.extend(result.errors.values())
                     if unit and result.errors:self.recovery.mark(unit,state='failed')
                     if result.errors:self._handle_failed_import(source)
                     elif self.delete_after and not result.cancelled and len(pending)==pending_before and os.path.isfile(source):os.remove(source)
+                if unit and len(self.result_paths)>paths_before:
+                    # register() committed the receipt; mirror it for this run's
+                    # next sibling slot, including an initially empty category.
+                    unit['state']='done'
             except ImportDeferred:pass
             except ImportSkipped:self.cancelled_count+=1
             except (RecoveryWait,KeyError) as exc:
@@ -281,6 +288,7 @@ class ImportThread(QThread):
                         elif isinstance(candidate.source,QImage):saved,duplicate=self.storage.save_image(candidate.source,destination)
                         else:saved,duplicate=self.storage.save_file(candidate.source,strict=True,target=destination)
                         self.result_paths.append(saved);skipped_count+=int(duplicate);saved_count+=int(not duplicate)
+                        self.new_resource_count+=int(not duplicate)
                         self.kept_count+=int(decision=='keep' and not duplicate)
                         if self.delete_after and isinstance(candidate.source,str) and os.path.isfile(candidate.source):os.remove(candidate.source)
                     except InterruptedError:break
@@ -315,6 +323,7 @@ class ImportThread(QThread):
             accepted=context.accepted;self.result_paths=list(dict.fromkeys(path for path,_ in accepted))
             self.cancelled_count=context.skipped
             saved=len({r['id'] for path in self.result_paths if (r:=self.storage.index.resource(path))}-before)
+            self.new_resource_count=saved
             duplicates=sum(int(duplicate) for _,duplicate in accepted)
             if isinstance(self.result,dict):
                 failed+=self.result.get('skipped',0);self.errors.extend(self.result.get('errors',[]))
@@ -869,6 +878,8 @@ class GalleryInterface(QWidget):
         self.imports.files_finished.connect(self._queued_files_finished)
         self.imports.resources_committed.connect(self._queued_resources_committed)
         self.imports.restore(self)
+        from services.backup_service import backup_service
+        self.backups=backup_service(self.storage,self,self.feedback_host)
         self._schedule_task_refresh()
         visual.theme.changed.connect(self.refresh_theme)
         i18n_engine.language_changed.connect(self.refresh_texts)
@@ -991,6 +1002,8 @@ class GalleryInterface(QWidget):
         self.workspace_layout.addWidget(self.scroll_area, stretch=1)
         from fluent_ui.components.virtual_gallery import VirtualGallery
         self.renderer = VirtualGallery(self)
+        from fluent_ui.components.new_resource_markers import NewResourceMarkers
+        self.new_markers = NewResourceMarkers(self)
         # One indicator for the whole content area, owned here and only ever
         # moved: drawing the drop target never touches the real layout.
         self.drop_feedback = DropFeedback(self.grid_container)
@@ -1728,6 +1741,12 @@ class GalleryInterface(QWidget):
             if getattr(self,'_recent_view',False):self.toggle_recent_view(False)
             self.set_relative_view(self._tab_nodes[index])
 
+    def _enter_category_tab(self,index):
+        if 0<=index<len(self._tab_nodes):
+            node=self._tab_nodes[index]
+            if node!=ROOT and self.storage.node(node) and node!=self.current_node:
+                self.set_node(node)
+
     def refresh_texts(self, *_):
         self.sidebar.tree.refresh(select=self.current_node)
         self._rebuild_context_strip()
@@ -1990,6 +2009,7 @@ class GalleryInterface(QWidget):
             # against one contract, so a node card is a drag source and nothing
             # else -- it no longer decides placements or paints its own hint.
             card.drag_payload_provider = lambda node_id: self._drag_node_payload(node_id)
+            card._drag_cleanup=self._hide_drag_cancel
             card.drag_finished.connect(self._hide_drag_cancel)
         else:
             frame = int(json.loads(entry.get('resource', {}).get('metadata_json') or '{}').get('thumb_frame', 0) or 0)
@@ -2004,6 +2024,7 @@ class GalleryInterface(QWidget):
             card.clicked.connect(lambda key, mods, w=card: self._entry_clicked(w.content_entry, mods))
             card.activated.connect(self.use_resource)
             card.drag_started.connect(self._show_drag_cancel)
+            card._drag_cleanup=self._hide_drag_cancel
             card.drag_finished.connect(self._hide_drag_cancel)
             card.hover_started.connect(lambda path, w=card: self.on_hover_started(w, path))
             card.hover_ended.connect(lambda w=card: self.on_hover_ended(w))
@@ -2242,6 +2263,7 @@ class GalleryInterface(QWidget):
         self._select_key(image_path,modifiers)
 
     def _select_key(self,key,modifiers):
+        self._explicit_selection=bool(modifiers & (Qt.ControlModifier|Qt.ShiftModifier)) or self.mode=='manage'
         if modifiers & Qt.ShiftModifier:
             if self._shift_anchor:
                 self._extend_shift_selection(key)
@@ -2260,14 +2282,13 @@ class GalleryInterface(QWidget):
                                       self._on_send_finished, self.config.get('recent_limit', 30))
 
     def _on_send_finished(self, result):
+        self.last_send_outcome=getattr(self.send_target_service,'last_outcome',None)
         self.last_send_result = result
         self.send_finished.emit(result)
-        if result == SendResult.COPY_FAILED:
-            self.show_error(t("复制失败"), t("无法将表情写入剪贴板"))
-        elif result == SendResult.SENT and self.config.get('hide_main_after_paste', False):
+        from fluent_ui.components.send_feedback import show_send_feedback
+        show_send_feedback(self.feedback_host,result,self.last_send_outcome)
+        if result == SendResult.SENT and self.config.get('hide_main_after_paste', False):
             self.hide_after_paste_requested.emit()
-        elif result == SendResult.COPIED_ONLY:
-            self.feedback_host.notice(t('表情已复制'),t('未找到可发送的聊天窗口，可手动粘贴。'))
 
     def _handle_missing_click(self, image_path):
         if dialogs.confirm(self.window(), t("表情已失效"),
@@ -2308,27 +2329,26 @@ class GalleryInterface(QWidget):
     # ==================================================================
     # Assignment and batch operations
     # ==================================================================
-    def assign_resources(self, paths, node_id, copy=True, position=None, source_node=None):
+    def assign_resources(self, paths, node_id, copy=True, position=None, source_node=None, sources=None):
         groups = {}
         visible_sources = {e['path']: e['_parent'] for e in self._selected_entries() if e['kind'] == 'resource'}
         for path in paths:
-            parent = source_node or visible_sources.get(path, self._selection_parents.get(path, self.content_scope_node()))
+            parent = (sources.get(path) if sources else source_node) or visible_sources.get(path, self._selection_parents.get(path, self.content_scope_node()))
             groups.setdefault(parent, []).append(path)
         added = 0
         completed, errors = set(), []
-        for parent, subset in groups.items():
-            try:
-                with self.storage.lock:
-                    added += self.storage.move_resources_to(subset, node_id, copy=copy,
-                        source_node=None if copy else parent, position=position)
-                    # The existing transaction returns an added-count, including
-                    # zero for already-present memberships. Confirm handled paths
-                    # from one target stream read, never per-resource DB queries.
-                    target_paths = {e['path'] for e in self.storage.entries_of(node_id)
-                                    if e['kind'] == 'resource'}
-                    completed.update(set(subset) & target_paths)
-            except Exception as error:
-                errors.append(str(error))
+        try:
+            with self.storage.lock:
+                origins = {path:parent for parent,subset in groups.items() for path in subset}
+                added = self.storage.move_resources_to(paths, node_id, copy=copy,
+                    sources=origins, position=position)
+                # Confirm handled paths from one stream read, including
+                # memberships already present before this atomic block move.
+                target_paths = {e['path'] for e in self.storage.entries_of(node_id)
+                                if e['kind'] == 'resource'}
+                completed.update(set(paths) & target_paths)
+        except Exception as error:
+            errors.append(str(error))
         self.selected_keys.difference_update(completed)
         self._shift_touched.difference_update(completed)
         if hasattr(self, '_shift_base'):
@@ -3014,6 +3034,14 @@ class GalleryInterface(QWidget):
     def paste_clipboard_to(self, parent, position=None, *, background=False, notify=None):
         """One clipboard command, with an explicit target even while hidden."""
         data_type, data = self.clipboard.get_data_from_clipboard()
+        return self._import_clipboard_payload(parent,data_type,data,position,background=background,notify=notify)
+
+    def paste_mime_to(self,parent,mime,position=None):
+        from services.clipboard import ClipboardService
+        kind,data=ClipboardService.importable_payload(mime,self.storage.SUPPORTED_FORMATS)
+        return self._import_clipboard_payload(parent,kind,data,position)
+
+    def _import_clipboard_payload(self,parent,data_type,data,position=None,*,background=False,notify=None):
         notify = notify or self.feedback_host.toast
         if data_type == 'file':
             data=[p for p in data if p.lower().endswith(self.storage.SUPPORTED_FORMATS) or os.path.isdir(p)]
@@ -3229,15 +3257,11 @@ class GalleryInterface(QWidget):
             entry = self._entries[next_row]
             if entry['kind'] == 'node' and 0 < rect.top()-point.y() <= 4:
                 return entry, next_row, rect, False
-        best, best_index, best_rect, distance, after = None, -1, None, float('inf'), False
-        for index, rect in enumerate(self.renderer.index.rects):
-            d = (max(rect.left()-point.x(), 0, point.x()-rect.right())
-                 + max(rect.top()-point.y(), 0, point.y()-rect.bottom()))
-            if d < distance:
-                best, best_index, best_rect, distance = self._entries[index], index, rect, d
-                after = (point.y() > rect.center().y() if best['kind'] == 'node'
-                         else point.x() > rect.center().x())
-        return best, best_index, best_rect, after
+        index=self.renderer.index.nearest(point)
+        if index is None:return None,-1,None,False
+        best,rect=self._entries[index],self.renderer.index.rects[index]
+        after=(point.y()>rect.center().y() if best['kind']=='node' else point.x()>rect.center().x())
+        return best,index,rect,after
 
     def _nearest_entry(self, pos):
         entry, _index, _rect, after = self._hit_test(pos)
@@ -3249,7 +3273,7 @@ class GalleryInterface(QWidget):
                   if entry['id'] not in moving]
         for index, entry in enumerate(stream):
             if entry['id'] == target_node:
-                return index + (1 if placement == INSERT_AFTER else 0)
+                return index + (1 if placement in (INSERT_AFTER, APPEND) else 0)
         return len(stream)
 
     def _category_insertion_rect(self, index, placement, rect):
@@ -3297,10 +3321,13 @@ class GalleryInterface(QWidget):
             # The empty area under the last row means "at the end of this
             # location", not "next to whichever card happens to be closest".
             last = self.renderer.index.rects[-1] if self.renderer.index.rects else None
+            if (not moving_nodes and self._entries and self._entries[-1]['kind']=='resource'
+                    and self._entries[-1]['_parent']==self.content_scope_node()):
+                return self._resource_slot(len(self._entries)-1, APPEND, effect)
             if any(self.sidebar.tree._is_descendant(self.content_scope_node(), source) for source in moving_nodes):
                 return INVALID_TARGET, None, False
             return (DropTarget(APPEND, effect, None, self.content_scope_node(),
-                               len(self.storage.entries_of(self.content_scope_node()))), last, False)
+                               len(self.entry_model.entries_of(self.content_scope_node()))), last, False)
 
         if entry['kind'] == 'node':
             point = self.grid_container.mapFrom(self, position)
@@ -3324,10 +3351,45 @@ class GalleryInterface(QWidget):
         if outside_row:
             after = point.y() > rect.bottom()
         placement = INSERT_AFTER if after else INSERT_BEFORE
+        if not moving_nodes:
+            return self._resource_slot(_index, placement, effect)
         index = (self._node_insert_index(parent, entry['id'], placement, moving_nodes)
                  if moving_nodes else entry['position']+bool(after))
         return (DropTarget(placement, effect, entry['id'], parent,
                            index), rect, not outside_row)
+
+    def _resource_slot(self, _index, placement, effect):
+        entry = self._entries[_index]
+        parent = entry["_parent"]
+        rect = self.renderer.index.rects[_index]
+        # Equivalent A-after/B-before share B's stable identity, including
+        # a wrapped row. Never merge across a category/depth boundary.
+        entries, rects = self._entries, self.renderer.index.rects
+        if (placement == INSERT_AFTER and _index == len(entries)-1
+                and parent == self.content_scope_node()):
+            placement = APPEND
+        if placement == INSERT_AFTER and _index+1 < len(entries):
+            following = entries[_index+1]
+            if (following['kind']=='resource' and following['_parent']==parent
+                        and following.get('_depth',0)==entry.get('_depth',0)
+                        and following['position']==entry['position']+1):
+                _index += 1
+                entry, rect, placement = following, rects[_index], INSERT_BEFORE
+        target = DropTarget(placement, effect, entry['id'], parent,
+                            entry['position']+(placement in (INSERT_AFTER, APPEND)))
+        previous = entries[_index-1] if _index else None
+        prior_rect = rects[_index-1] if _index else None
+        same_row = (placement==INSERT_BEFORE and previous is not None
+                    and previous['kind']=='resource' and previous['_parent']==parent
+                    and previous.get('_depth',0)==entry.get('_depth',0)
+                    and previous['position']+1==entry['position']
+                    and prior_rect.top()==rect.top())
+        x = ((prior_rect.right()+1+rect.left())/2 if same_row else
+             rect.left()-2 if placement==INSERT_BEFORE else rect.right()+3)
+        size = min(rect.width(), rect.height())
+        height = round(size*.82)
+        target.feedback_rect = QRect(round(x-1), rect.top()+(size-height)//2, 2, height)
+        return target, rect, True
 
     def _track_drop(self, event, position=None):
         position = position if position is not None else event.position().toPoint()
@@ -3344,7 +3406,8 @@ class GalleryInterface(QWidget):
         self.drop_scroller.track(self.scroll_area.viewport().mapFrom(self, position))
         self.preview_controller.cancel()
         self.feedback_host.set_overlays_suppressed(True)
-        self.drop_feedback.show_target(target.placement, rect, vertical=vertical)
+        self.drop_feedback.show_target(target.placement, rect, vertical=vertical,
+                                       geometry=getattr(target,'feedback_rect',None))
         return target
 
     def _begin_drop(self, event, position=None):
@@ -3367,6 +3430,7 @@ class GalleryInterface(QWidget):
         event.acceptProposedAction()
 
     def _show_drag_cancel(self):
+        self.new_markers.cancel()
         self.renderer.sticky.hide()
         self.preview_controller.cancel()
         self.drop_cancel_zone.begin()
@@ -3375,7 +3439,12 @@ class GalleryInterface(QWidget):
         self._clear_tab_drop()
         self.drop_cancel_zone.end()
         self._clear_drop()
+        previous=getattr(self,'_hover_card',None)
+        if previous is not None:previous.set_hovered(False)
+        self._hover_card=None
+        self.preview_controller.cancel()
         self.renderer.sync()
+        QTimer.singleShot(0,self._sync_hover_card)
 
     def dragEnterEvent(self, event):
         self._begin_drop(event)
@@ -3413,18 +3482,18 @@ class GalleryInterface(QWidget):
 
     def _commit_drop_payload(self, target, mime, block, global_pos=None, sources=None):
         if mime.hasFormat(TAG_MIME):
-            self._commit_tag_drop(target, block)
+            return self._commit_tag_drop(target, block)
         elif target.effect == IMPORT:
-            self._import_urls(mime, target)
+            return self._import_urls(mime, target)
         elif mime.hasFormat(NODE_MIME):
-            self._apply_node_drop(block, target)
+            return self._apply_node_drop(block, target)
         elif mime.hasFormat(RESOURCE_MIME):
-            self._reorder_by_drop(block, target, global_pos=global_pos, sources=sources)
+            return self._reorder_by_drop(block, target, global_pos=global_pos, sources=sources)
 
     def _apply_node_drop(self, node_ids, target):
         """Category blocks keep their internal order wherever they land."""
         if not node_ids:
-            return
+            return False
         parent = target.container_id
         # Match the resource commit's stable-anchor rule when concurrent
         # imports changed the numeric slot after the last dragMove event.
@@ -3434,12 +3503,12 @@ class GalleryInterface(QWidget):
 
     def _reorder_by_drop(self, paths, target, global_pos=None, sources=None):
         if not paths:
-            return
+            return False
         parent = target.container_id or self.content_scope_node()
         sources = sources or self._resource_sources(paths)
         if any(source != parent for source in sources.values()):
-            self.request_resource_drop(paths, parent, position=target.index, global_pos=global_pos, sources=sources)
-            return
+            return self.request_resource_drop(paths, parent, position=target.index, global_pos=global_pos, sources=sources,
+                                       anchor=(target.target_id,target.placement) if target.target_id else None)
         with self.storage.lock:
             stream = self.storage.entries_of(parent)
             keys = set(paths)
@@ -3452,32 +3521,36 @@ class GalleryInterface(QWidget):
             # the old numeric slot captured by the viewport.
             anchor = next((i for i, e in enumerate(stream)
                            if e['id'] == target.target_id), None)
-            position = (anchor + (target.placement == INSERT_AFTER)) if anchor is not None else (
+            position = (anchor + (target.placement in (INSERT_AFTER, APPEND))) if anchor is not None else (
                 target.index if target.index is not None else len(stream))
             before = stream[:position]
             position = sum(not(e['kind'] == 'resource' and e['path'] in keys) for e in before)
             remaining = [e for e in stream if not(e['kind'] == 'resource' and e['path'] in keys)]
             from services.manual_order import insert_block
             self.storage.set_content_order(parent, insert_block(remaining, moving, position))
+        if (len(paths)==1 and self.selected_keys==set(paths)
+                and not getattr(self,'_explicit_selection',False)):
+            self._drop_selection_only()
         self.refresh_content_incremental(reason='drop_order', parents={parent})
 
     def _import_urls(self, mime, target):
-        folders, files = [], []
+        folders, files, remote = [], [], []
         library = os.path.normcase(os.path.abspath(self.storage.images_dir))
         for url in mime.urls():
             if not url.isLocalFile():
                 if url.scheme() in ("http", "https"):
-                    from services.resource_import import ImportTarget
-                    self.imports.submit([url.toString()],ImportTarget(target.container_id or self.content_scope_node(),target.index),self)
+                    remote.append(url.toString())
                 continue
             local = url.toLocalFile()
             if os.path.isdir(local):
                 folders.append(local)
-            elif not os.path.normcase(os.path.abspath(local)).startswith(library):
-                files.append(local)
-        if not folders and not files:
-            return
-        self.import_paths_to([*folders, *files], target.container_id or self.content_scope_node(),
+            else:
+                try:managed=os.path.commonpath((library,os.path.normcase(os.path.abspath(local))))==library
+                except ValueError:managed=False
+                if not managed:files.append(local)
+        if not folders and not files and not remote:
+            return False
+        return self.import_paths_to([*folders, *files, *remote], target.container_id or self.content_scope_node(),
                              position=target.index)
 
     # ==================================================================
@@ -3633,6 +3706,9 @@ class GalleryInterface(QWidget):
         self.sidebar.refresh_list(self.current_node)
 
     def on_settings_changed(self, key=""):
+        if key == 'show_new_resource_markers':
+            self.new_markers.cancel()
+            self.new_markers.refresh()
         if key in ('sidebar_icon_size', 'sidebar_show_labels', 'sidebar_mode'):
             self.sidebar.apply_presentation()
         elif key == 'gallery_node_icon_size':
@@ -3839,18 +3915,35 @@ class GalleryInterface(QWidget):
         visible = {e['path']: e['_parent'] for e in self._selected_entries() if e['kind']=='resource'}
         return {path: visible.get(path, self._selection_parents.get(path, self.content_scope_node())) for path in paths}
 
-    def request_resource_drop(self, paths, target, position=None, global_pos=None, sources=None):
+    def request_resource_drop(self, paths, target, position=None, global_pos=None, sources=None, anchor=None):
         """After dropping, ask for the membership action before writing data."""
         sources = sources or self._resource_sources(paths)
+        paths=tuple(paths);sources=dict(sources)
+        from fluent_ui.components.drop_contract import current_drop_operation
+        operation=current_drop_operation()
+        if operation is not None:
+            operation.defer()
+            operation.watch_receiver(self)
         pos = global_pos if global_pos is not None else self.top_bar.mapToGlobal(self.top_bar.rect().center())
+        pos=QPoint(pos)
+        def apply(copy):
+            callback=lambda:self._apply_drop_action(paths,target,copy,sources,position,anchor)
+            if operation is None:callback()
+            elif not operation.complete(callback) and operation.error:
+                self.show_error(t('拖放未完成'),operation.error)
         def show_menu():
+            if operation is not None and operation.state!='awaiting_choice':return
+            node=self.storage.node(target)
+            if target!=ROOT and not node:
+                if operation is not None:operation.cancel('target_removed')
+                return
             menu = RoundMenu(parent=self)
             self._drop_action_menu = menu
-            title = self.storage.node(target)['name'] if target != ROOT else t('全部表情')
+            title = node['name'] if target != ROOT else t('全部表情')
             if target != ROOT:
                 if any(parent != ROOT for parent in sources.values()):
                     move = Action(t('移动到「{name}」').format(name=title), parent=menu)
-                    move.triggered.connect(lambda: self._apply_drop_action(paths, target, False, sources, position))
+                    move.triggered.connect(lambda:apply(False))
                     menu.addAction(move)
                     if any(parent == ROOT for parent in sources.values()):
                         hint = Action(t('从“全部表情”拖入时，只加入目标分类，保留原有分类关系。'), parent=menu)
@@ -3858,7 +3951,7 @@ class GalleryInterface(QWidget):
                         menu.addAction(hint)
                 label = t('加入分类「{name}」').format(name=title)
                 add = Action(label, parent=menu)
-                add.triggered.connect(lambda: self._apply_drop_action(paths, target, True, sources, position))
+                add.triggered.connect(lambda:apply(True))
                 menu.addAction(add)
             else:
                 info = translated(Action, '全部表情已包含这些表情', parent=menu)
@@ -3867,14 +3960,28 @@ class GalleryInterface(QWidget):
             cancel = translated(Action, '取消', parent=menu)
             cancel.triggered.connect(menu.close)
             menu.addAction(cancel)
+            if operation is not None:
+                # SafeRoundMenu.exec shows asynchronously. Its close signal
+                # precedes QAction.triggered, so decide dismissal after that
+                # action dispatch, never immediately after exec returns.
+                def dismissed():
+                    if operation.state=='awaiting_choice':operation.cancel('choice_dismissed')
+                menu.closedSignal.connect(lambda:QTimer.singleShot(0,self,dismissed))
             menu.exec(pos)
-        QTimer.singleShot(0, self, show_menu)
+        from services.drag_activity import drag_activity
+        activity=drag_activity()
+        if operation is not None and activity.operation is operation:
+            def source_finished():
+                activity.idle.disconnect(source_finished)
+                from shiboken6 import isValid
+                if isValid(self):QTimer.singleShot(0,self,show_menu)
+            activity.idle.connect(source_finished)
+        else:QTimer.singleShot(0,self,show_menu)
 
-    def _apply_drop_action(self, paths, target, copy, sources, position):
-        groups = {}
-        for path in paths:
-            groups.setdefault(sources[path], []).append(path)
-        for source, subset in groups.items():
-            self.assign_resources(subset, target, copy=copy, position=position, source_node=source)
+    def _apply_drop_action(self, paths, target, copy, sources, position, anchor=None):
+        with self.storage.lock:
+            if anchor and anchor[1] in (INSERT_BEFORE,INSERT_AFTER,APPEND):
+                position = self._node_insert_index(target,anchor[0],anchor[1],set())
+            self.assign_resources(paths, target, copy=copy, position=position, sources=sources)
         if hasattr(self, '_drop_action_menu'):
             self._drop_action_menu.close()

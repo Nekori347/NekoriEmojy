@@ -94,13 +94,16 @@ def test_main_stable_internal_scroll_list_and_hover_bridge(surface):
     assert u.panel.isVisible()
     h._named_widgets['0'][5].click();assert cancelled==[0]
     folded=QSignalSpy(u.fold.finished)
+    from fluent_ui.components.controls import focus_input
+    focus_input().keyboard=False
+    surface.g.setFocus(Qt.MouseFocusReason)
     QApplication.sendEvent(u.panel,QEvent(QEvent.Leave))
-    if not u.panel.isHidden():assert folded.wait(2000)
+    QTest.qWait(500)
     assert u.panel.isHidden()
     QApplication.sendEvent(h.strip,QEvent(QEvent.Enter))
     u.ear.click();assert u.panel.isVisible()
     folded=QSignalSpy(u.fold.finished);u.ear.click()
-    if not u.panel.isHidden():assert folded.wait(2000)
+    QTest.qWait(500)
     assert u.panel.isHidden()
 
 

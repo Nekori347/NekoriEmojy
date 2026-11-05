@@ -206,6 +206,20 @@ class GroupPreview(dialogs.NekoriDialog):
         super().done(result)
 
 
+def result_pages(groups, limit):
+    """Pack complete groups; an oversized group gets its own scrollable page."""
+    pages, page = [], []
+    for g, group in enumerate(groups):
+        entries = [(g, i) for i in range(len(group))]
+        if page and len(page) + len(entries) > limit:
+            pages.append(page)
+            page = []
+        page.extend(entries)
+    if page:
+        pages.append(page)
+    return pages or [[]]
+
+
 class SimilarityDialog(QDialog):
     PAGE_SIZE = 36
 
@@ -397,7 +411,9 @@ class SimilarityDialog(QDialog):
         section, grid, column = None, None, 0
         layout.setContentsMargins(4,4,4,4);layout.setSpacing(8)
         columns = max(1, (self.scroll.viewport().width() - 8) // 174)
-        page_entries = self.entries[self.page * self.PAGE_SIZE:(self.page + 1) * self.PAGE_SIZE]
+        pages = result_pages(self.groups, self.PAGE_SIZE)
+        self.page = max(0, min(self.page, len(pages)-1))
+        page_entries = pages[self.page]
         for group_index, item_index in page_entries:
             group = self.groups[group_index]
             feature = group[item_index]
@@ -435,10 +451,9 @@ class SimilarityDialog(QDialog):
         if old:
             old.deleteLater()
         self.scroll.setWidget(container)
-        pages = max(1, (len(self.entries) + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
         self.previous.setEnabled(self.page > 0)
-        self.next.setEnabled(self.page + 1 < pages)
-        self.page_label.setText(f'{self.page + 1} / {pages}')
+        self.next.setEnabled(self.page + 1 < len(pages))
+        self.page_label.setText(f'{self.page + 1} / {len(pages)}')
         self.update_selection()
 
     def resizeEvent(self, event):
@@ -450,9 +465,11 @@ class SimilarityDialog(QDialog):
         self.rematch_timer.stop()
         dialog = GroupPreview(group, index, self.categories, self)
         dialog.exec()
-        self.page = dialog.index // self.PAGE_SIZE
+        entry = self.entries[dialog.index]
+        pages = result_pages(self.groups, self.PAGE_SIZE)
+        self.page = next(p for p, items in enumerate(pages) if entry in items)
         self.render_page()
-        self.scroll.ensureWidgetVisible(self.pictures[dialog.index % self.PAGE_SIZE])
+        self.scroll.ensureWidgetVisible(self.pictures[pages[self.page].index(entry)])
         dialog.deleteLater()
 
     def change_page(self, delta):
@@ -539,7 +556,6 @@ class SimilarityDialog(QDialog):
             self.groups = [[f for f in group if f.path in remaining] for group in self.groups]
             self.groups = [group for group in self.groups if len(group) > 1]
             self.entries = [(g, i) for g, group in enumerate(self.groups) for i in range(len(group))]
-            self.page = min(self.page, max(0, (len(self.entries) - 1) // self.PAGE_SIZE))
             self.render_page()
             details = str(error) if error else '\n'.join(result.get('failure_details', {}).values())
             self._set_status('删除失败：', detail=details or str(result.get('failed')))

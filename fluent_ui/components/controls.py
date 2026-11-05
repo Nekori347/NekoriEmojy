@@ -287,9 +287,8 @@ class MetaButton(PushButton):
                 from PySide6.QtGui import QTransform
                 bar=QPainterPath();bar.addRect(QRectF(-2,-10,4,20));path=path.united(QTransform().rotate(angle).map(bar))
         else:
-            path.addEllipse(QRectF(-10,-10,20,20));hole=QPainterPath();hole.addEllipse(QRectF(-6,-6,12,12));path=path.subtracted(hole)
-            from PySide6.QtGui import QTransform
-            cut=QPainterPath();cut.addRect(QRectF(-2,-13,4,26));path=path.subtracted(QTransform().rotate(35).map(cut))
+            from fluent_ui.presentation.action_glyphs import default_reset_path
+            path=default_reset_path()
         p.fillPath(path,QColor(symbol));p.restore()
 
 

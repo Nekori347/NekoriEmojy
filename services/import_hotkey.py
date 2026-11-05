@@ -45,12 +45,13 @@ class WindowsHotkey(QObject, QAbstractNativeEventFilter):
     activated = Signal()
     changed = Signal()
 
-    def __init__(self, app):
+    def __init__(self, app, *, base_id=0x4E4B):
         QObject.__init__(self, app)
         QAbstractNativeEventFilter.__init__(self)
         self.app = app
         self.binding = None
         self.registration = None
+        self.base_id=base_id
         self.error = ''
         self.api = ctypes.WinDLL('user32', use_last_error=True) if sys.platform == 'win32' else None
         app.installNativeEventFilter(self)
@@ -63,7 +64,7 @@ class WindowsHotkey(QObject, QAbstractNativeEventFilter):
                 self.error = ''
                 self.changed.emit()
                 return True
-            registration = 0x4E4B if self.registration != 0x4E4B else 0x4E4C
+            registration = self.base_id if self.registration != self.base_id else self.base_id+1
             if binding is not None:
                 if self.api is None:
                     raise ValueError('全局导入快捷键仅支持 Windows。')

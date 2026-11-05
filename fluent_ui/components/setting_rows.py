@@ -1,9 +1,9 @@
 """Setting rows and collapsible sections in the Nekori visual language.
 
-Every row edits one key. Rows never write the config directly: the Settings
+Rows expose key-bound values and never write the config directly: the Settings
 Center collects pending values so Save / Discard stay meaningful.
 """
-from PySide6.QtCore import Qt, Signal, QTimer, QPropertyAnimation, QSize
+from PySide6.QtCore import Qt, Signal, QTimer, QPropertyAnimation, QSize, QObject
 from PySide6.QtGui import QFont, QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QLineEdit, QSizePolicy, QVBoxLayout, QWidget, QGridLayout, QBoxLayout,
@@ -229,9 +229,22 @@ class AccentRow(SettingRow):
 
 
 class RangeRow(SettingRow):
-    def __init__(self, title, hint, key, value, minimum, maximum, step=1, parent=None, *, count_only=False):
+    def __init__(self, title, hint, key, value, minimum, maximum, step=1, parent=None, *, count_only=False, unit=""):
         super().__init__(title, hint, parent)
         self.key = key
+        self.default_value = None
+        self.control_group = QWidget(self)
+        self.range_controls = QHBoxLayout(self.control_group)
+        self.range_controls.setContentsMargins(0, 0, 0, 0)
+        self.range_controls.setSpacing(8)
+        self.reset_button = TransparentToolButton(FIF.RESTORE, self)
+        self.reset_button.setFixedSize(32, 32)
+        self.reset_button.setIconSize(QSize(24, 24))
+        bind_text(self.reset_button, '恢复默认', 'setToolTip')
+        bind_text(self.reset_button, '恢复默认', 'setAccessibleName')
+        self.reset_button.setEnabled(False)
+        self.reset_button.clicked.connect(self.restore_default)
+        self.range_controls.addWidget(self.reset_button)
         self.spin = CompactNumberBox(self)
         self.spin.setRange(minimum, maximum)
         self.spin.setSingleStep(step)
@@ -241,13 +254,37 @@ class RangeRow(SettingRow):
         self.slider.setMinimumWidth(180)
         self.slider.setMaximumWidth(260)
         self.slider.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.controls.addWidget(self.slider, 1)
+        self.range_controls.addWidget(self.slider, 1)
         self.slider.setVisible(not count_only)
-        self.add_control(self.spin)
+        if unit:
+            number = QWidget(self)
+            number_layout = QHBoxLayout(number)
+            number_layout.setContentsMargins(0, 0, 0, 0)
+            number_layout.setSpacing(4)
+            number_layout.addWidget(self.spin)
+            self.unit_label = translated(QLabel, unit, self)
+            self.unit_label.setFont(visual.font('secondary'))
+            number_layout.addWidget(self.unit_label)
+            self.range_controls.addWidget(number)
+        else:
+            self.range_controls.addWidget(self.spin)
+        self.add_control(self.control_group)
         self.spin.valueChanged.connect(self.slider.setValue)
         self.slider.valueChanged.connect(self.spin.setValue)
         self.spin.valueChanged.connect(lambda _: self.changed.emit())
+        self.spin.valueChanged.connect(self._sync_default)
         self.set_value(value)
+
+    def set_default(self, value):
+        self.default_value = int(value)
+        self._sync_default()
+
+    def _sync_default(self, *_):
+        self.reset_button.setEnabled(self.default_value is not None and self.value() != self.default_value)
+
+    def restore_default(self):
+        if self.default_value is not None:
+            self.spin.setValue(self.default_value)
 
     def value(self):
         return int(self.spin.value())
@@ -259,6 +296,7 @@ class RangeRow(SettingRow):
         self.slider.setValue(int(value))
         self.spin.blockSignals(False)
         self.slider.blockSignals(False)
+        self._sync_default()
 
 
 class ModeRow(SettingRow):
@@ -336,6 +374,18 @@ class HotkeyRow(SettingRow):
         clear = translated(PushButton, "清除", self)
         clear.clicked.connect(lambda: self._set(""))
         self.add_control(clear)
+        self.status_label = KeycapLabel('', self)
+        self.status_label.setProperty('role', 'hint')
+        self.status_label.setWordWrap(True)
+        self.status_label.setFont(visual.font('secondary'))
+        self.layout().itemAt(0).layout().addWidget(self.status_label)
+        self.status_label.hide()
+
+    def set_status(self, text, *, error=False):
+        """Registration feedback must not replace the permanent usage hint."""
+        self.status_label.setText(text)
+        self.status_label.setVisible(bool(text))
+        self.status_label.setStyleSheet('color: '+visual.colors()['danger']+';' if error else '')
 
     def _set(self, value):
         self.editor.setText(value)
@@ -421,6 +471,55 @@ class FullPathRow(SettingRow):
     def resizeEvent(self,event):QWidget.resizeEvent(self,event)
 
 
+class BackupStatusRow(ActionRow):
+    """Existing card/buttons, with actions wrapping inside the same card."""
+    def __init__(self,title,hint,actions,parent=None):
+        super().__init__(title,hint,actions,parent)
+        self.layout().setDirection(QBoxLayout.TopToBottom)
+        self.buttons=[]
+        while self.controls.count():
+            widget=self.controls.takeAt(0).widget()
+            if widget is not None:self.buttons.append(widget)
+        self.action_host=QWidget(self);self.action_grid=QGridLayout(self.action_host)
+        self.action_grid.setContentsMargins(0,0,0,0);self.action_grid.setSpacing(8)
+        self.action_grid.setAlignment(Qt.AlignRight);self.controls.addWidget(self.action_host)
+        self.columns=0;self._arrange()
+        i18n_engine.language_changed.connect(self._arrange)
+    def minimumSizeHint(self):return QSize(260,86)
+    def _arrange(self):
+        widths=[max(b.minimumWidth(),b.sizeHint().width()) for b in self.buttons]
+        available=max(1,self.width()-44)
+        columns=4 if sum(widths)+24<=available else 2 if 2*max(widths)+8<=available else 1
+        if columns!=self.columns:
+            while self.action_grid.count():self.action_grid.takeAt(0)
+            for i,button in enumerate(self.buttons):
+                button.setSizePolicy(QSizePolicy.Fixed,QSizePolicy.Preferred)
+                self.action_grid.addWidget(button,i//columns,i%columns)
+            self.columns=columns
+        self.layout().invalidate();self.updateGeometry()
+    def resizeEvent(self,event):
+        QWidget.resizeEvent(self,event);self._arrange()
+
+
+class BackupPathRow(FullPathRow):
+    """Selectable full path and existing controls; stages one config key."""
+    def __init__(self,title,hint,value,default_path,choose,parent=None):
+        self.stored_path=str(value or '');self.default_path=str(default_path)
+        super().__init__(title,hint,self.stored_path or self.default_path,parent)
+        self.reset_button=TransparentToolButton(FIF.RESTORE,self)
+        self.reset_button.setFixedSize(32,32);self.reset_button.setIconSize(QSize(24,24))
+        bind_text(self.reset_button,'恢复默认','setToolTip')
+        self.reset_button.clicked.connect(self._reset)
+        self.choose_button=translated(PushButton,'选择文件夹…',self);self.choose_button.clicked.connect(choose)
+        self.add_control(self.reset_button);self.add_control(self.choose_button)
+        self.reset_button.setEnabled(bool(self.stored_path))
+    def _reset(self):self.set_value('');self.changed.emit()
+    def set_value(self,value):
+        self.stored_path=str(value or '');super().set_value(self.stored_path or self.default_path)
+        self.reset_button.setEnabled(bool(self.stored_path))
+    def value(self):return self.stored_path
+
+
 class _InfoValueLabel(QLabel):
     """Reserve space using the full value, even when its visible text is elided."""
 
@@ -471,6 +570,154 @@ class InfoRow(SettingRow):
 
     def set_value(self, value):
         self.value_label.set_value(value)
+
+
+class _SoundField(QObject):
+    """Adapt either field of one card to SettingsCenter's existing key contract."""
+    changed = Signal()
+
+    def __init__(self, row, name):
+        super().__init__(row)
+        self.row, self.name, self.pending = row, name, False
+
+    def value(self):
+        return self.row.switch.isChecked() if self.name == 'enabled' else self.row.path
+
+    def set_value(self, value):
+        if self.name == 'enabled':
+            self.row.switch.blockSignals(True)
+            self.row.switch.setChecked(bool(value))
+            self.row.switch.blockSignals(False)
+        else:
+            self.row.path = str(value or '')
+            self.row.refresh_file()
+
+    def set_pending(self, pending):
+        self.pending = bool(pending)
+        self.row.set_pending(self.row.enabled_field.pending or self.row.path_field.pending)
+
+
+class _SoundSourceLabel(_InfoValueLabel):
+    clicked = Signal()
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        if event.button() == Qt.LeftButton and self.clickable:
+            self.clicked.emit()
+
+    def keyPressEvent(self, event):
+        if self.clickable and event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+            self.clicked.emit()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+
+class SoundEventRow(SettingRow):
+    """Two related lines inside the existing Softframe setting surface."""
+
+    def __init__(self, title, hint, enabled, path, choose, preview, restore, parent=None):
+        super().__init__(title, hint, parent)
+        self.path = str(path or '')
+        self.previewing = False
+        self.enabled_field = _SoundField(self, 'enabled')
+        self.path_field = _SoundField(self, 'path')
+        self.switch = SwitchButton(self)
+        self.switch.setOnText(''); self.switch.setOffText('')
+        self.switch.setChecked(bool(enabled))
+        self.switch.checkedChanged.connect(lambda _: self.enabled_field.changed.emit())
+        self.add_control(self.switch)
+
+        outer = self.layout()
+        text = outer.takeAt(0).layout()
+        controls = outer.takeAt(0).layout()
+        outer.setDirection(QBoxLayout.TopToBottom)
+        outer.setSpacing(10)
+        header = QHBoxLayout(); header.setSpacing(14)
+        header.addLayout(text, 1); header.addLayout(controls)
+        outer.addLayout(header)
+        self.source_layout = QBoxLayout(QBoxLayout.LeftToRight)
+        self.source_layout.setSpacing(8)
+        self.file_label = _SoundSourceLabel('', self)
+        self.file_label.setTextFormat(Qt.PlainText)
+        self.file_label.setFont(visual.font('secondary'))
+        self.file_label.setProperty('role', 'hint')
+        self.file_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.file_label.setMaximumWidth(16777215)
+        self.file_label.setMinimumWidth(0)
+        self.file_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.file_label.clicked.connect(self._toggle_path)
+        self.source_layout.addWidget(self.file_label, 1)
+        action_host = QWidget(self)
+        self.actions = QHBoxLayout(action_host)
+        self.actions.setContentsMargins(0, 0, 0, 0)
+        self.actions.setSpacing(8)
+        self.choose_button = translated(PushButton, '选择文件…', self)
+        self.choose_button.setMinimumWidth(100)
+        self.choose_button.clicked.connect(choose)
+        from fluent_ui.components.sound_preview_button import SoundPreviewButton
+        self.preview_button = SoundPreviewButton(self)
+        self.reset_button = TransparentToolButton(FIF.RESTORE, self)
+        self.reset_button.setFixedSize(32,32);self.reset_button.setIconSize(QSize(24,24))
+        self.actions.addWidget(self.reset_button)
+        self.actions.addWidget(self.preview_button)
+        self.actions.addWidget(self.choose_button)
+        self.preview_button.clicked.connect(preview)
+        self.reset_button.clicked.connect(restore)
+        bind_text(self.reset_button, '恢复默认音效', 'setToolTip')
+        bind_text(self.reset_button, '恢复默认音效', 'setAccessibleName')
+        self.source_layout.addWidget(action_host, 0, Qt.AlignRight)
+        outer.addLayout(self.source_layout)
+        self.full_path_label = QLabel(self)
+        self.full_path_label.setTextFormat(Qt.PlainText)
+        self.full_path_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        self.full_path_label.setWordWrap(True)
+        self.full_path_label.setFont(visual.font('data'))
+        self.full_path_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        outer.addWidget(self.full_path_label)
+        self.full_path_label.hide()
+        i18n_engine.language_changed.connect(self.refresh_file)
+        self.set_previewing(False)
+        self.refresh_file()
+
+    def refresh_file(self, *_):
+        import ntpath
+        source = t('自定义：{name}').format(name=ntpath.basename(self.path)) if self.path else t('内置音效')
+        self.file_label.set_value(source)
+        self.file_label.setToolTip(self.path or t('内置音效'))
+        self.file_label.setAccessibleName(source)
+        self.file_label.setAccessibleDescription(t('查看路径') if self.path else '')
+        self.file_label.clickable = bool(self.path)
+        self.file_label.setCursor(Qt.PointingHandCursor if self.path else Qt.ArrowCursor)
+        self.file_label.setFocusPolicy(Qt.StrongFocus if self.path else Qt.NoFocus)
+        self.reset_button.setEnabled(bool(self.path))
+        self.full_path_label.setText(self.path)
+        if not self.path:
+            self.full_path_label.hide()
+        self.updateGeometry()
+
+    def _toggle_path(self):
+        self.full_path_label.setVisible(bool(self.path) and self.full_path_label.isHidden())
+        self.updateGeometry()
+
+    def set_previewing(self, playing):
+        self.previewing = bool(playing)
+        self.preview_button.set_playing(playing)
+        label = '停止试听' if playing else '试听'
+        bind_text(self.preview_button, label, 'setToolTip')
+        bind_text(self.preview_button, label, 'setAccessibleName')
+
+    def resizeEvent(self, event):
+        QWidget.resizeEvent(self, event)
+        margins = self.layout().contentsMargins()
+        available = self.width()-margins.left()-margins.right()
+        # Keep actions together; only stack the source above them when the
+        # translated file button would otherwise leave no useful source text.
+        direction = QBoxLayout.TopToBottom if available < self.actions.minimumSize().width()+100 else QBoxLayout.LeftToRight
+        if self.source_layout.direction() != direction:
+            self.source_layout.setDirection(direction)
+            self.layout().invalidate()
+        self.updateGeometry()
 
 
 class SettingSection(QWidget):

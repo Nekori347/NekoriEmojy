@@ -50,16 +50,7 @@ class ResourceImporter:
                            checkpoint=checkpoint, duplicate=duplicate,
                            kept=getattr(self.storage.import_context,'duplicate_choice','')=='keep' and not duplicate)
             return saved, duplicate
-        existing = index.resource(saved)
-        resource_id = index.register(saved, source_name, library_added_seq=library_added_seq)
-        already_member = existing and any(e['kind'] == 'resource' and e['id'] == resource_id
-                                         for e in index.content(target.parent_node))
-        if already_member:
-            return saved, duplicate
-        if target.parent_node != ROOT:
-            index.add_membership(resource_id, target.parent_node, target.insert_position)
-        elif target.insert_position is not None:
-            index.add_membership(resource_id, ROOT, target.insert_position)
+        index.register(saved, source_name, library_added_seq=library_added_seq, target=target)
         return saved, duplicate
 
     def file(self, source, target=ImportTarget(), strict=False, *, library_added_seq=None):
@@ -169,9 +160,9 @@ class ResourceImporter:
                         self.storage.index.move_node(node, destination.parent_node, destination.insert_position)
                     committed=getattr(self.storage.import_context,'committed',None)
                     if committed:committed([],{destination.parent_node,node})
-                    for child in sorted(path.iterdir(), key=lambda p: p.name.casefold()):
+                    for offset,child in enumerate(sorted(path.iterdir(), key=lambda p: p.name.casefold())):
                         if child.is_dir() or child.suffix.lower() in self.storage.SUPPORTED_FORMATS:
-                            visit(child, ImportTarget(node))
+                            visit(child, ImportTarget(node,offset))
                     return
                 saved, duplicate = self.file(str(path), destination, strict=True)
                 result.paths.append(saved)
@@ -196,7 +187,7 @@ class ResourceImporter:
                 result.errors[str(path)] = str(exc)
 
         for offset, source in enumerate(sources):
-            position = None if target.insert_position is None else target.insert_position + offset
+            position = (0 if target.insert_position is None else target.insert_position) + offset
             try:visit(source, ImportTarget(target.parent_node, position))
             except InterruptedError:break
         return result

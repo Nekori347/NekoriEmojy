@@ -28,6 +28,9 @@ def _storage_locked(method):
 class RecentEvents(QObject):
     changed = Signal()
 
+class UnseenEvents(QObject):
+    changed = Signal()
+
 
 class StorageService:
     SUPPORTED_FORMATS = ('.png', '.apng', '.jpg', '.jpeg', '.gif', '.webp', '.webm', '.tgs', '.bmp', '.tiff')
@@ -38,10 +41,15 @@ class StorageService:
         from services.feature_db import FeatureDB
         self.lock = threading.RLock()
         self.config = config if config is not None else ConfigService()
+        from services.send_sound import install_operation_sounds
+        install_operation_sounds(self.config)
         root = Path(library_path) if library_path is not None else selected_library(self.config)
         if library_path is None and self.config.get('library_path') and not root.is_dir():
             raise FileNotFoundError(f'已选择的资源库无法连接：{root}。请恢复路径或在应用配置中重新指定 library_path。')
         self.index = LibraryIndex(root)
+        self.index.track_new_resources = lambda: self.config.config.get('show_new_resource_markers', True)
+        self._unseen_events = UnseenEvents()
+        self.unseen_changed = self._unseen_events.changed
         from services.resource_availability import ResourceAvailability
         self.availability = ResourceAvailability(self.index)
         self.library_root = str(self.index.root)
@@ -108,7 +116,7 @@ class StorageService:
         referenced.update(p.name for p in Path(self.images_dir).iterdir() if p.is_file() and p.suffix.lower() in self.SUPPORTED_FORMATS)
         # Missing references from source records must also survive adoption.
         for filename in sorted(referenced):
-            self.index.register(Path(self.images_dir) / Path(filename).name)
+            self.index.register(Path(self.images_dir) / Path(filename).name, mark_new=False)
         if order:
             paths = [self._to_abspath(p) for p in order]
             paths += [p for p in self.get_all_images() if p not in paths]
@@ -388,15 +396,48 @@ class StorageService:
         return self.index.delete_node(node_id)
 
     def move_node(self, node_id, parent_id, position=None):
-        self.index.move_node(node_id, parent_id, position)
+        if self._drag_order_active('node'):
+            changed=self.index.move_node(node_id,parent_id,position,report_order=True)
+            self._drag_order_completed(changed,'node')
+        else:self.index.move_node(node_id,parent_id,position)
 
     def move_nodes(self, node_ids, parent_id, position=None):
-        self.index.move_nodes(node_ids, parent_id, position)
+        node_ids=list(node_ids)
+        changed=self.index.move_nodes(node_ids, parent_id, position)
+        self._drag_order_completed(changed,'node')
 
     def set_content_order(self, node_id, entries):
         """entries: [{'kind': 'resource'|'node', 'id': ...}] in the wanted order."""
         with self.lock:
-            self.index.set_order(node_id or ROOT, [(e["kind"], e["id"]) for e in entries])
+            changed=self.index.set_order(node_id or ROOT, [(e["kind"], e["id"]) for e in entries])
+            self._drag_order_completed(changed,'resource')
+
+    def _drag_order_active(self,kind):
+        if not self.config.get('reorder_sound_enabled',False):return False
+        from fluent_ui.components.drop_contract import current_drop_operation,RESOURCE_MIME,NODE_MIME,TAG_MIME,MOVE
+        operation=current_drop_operation()
+        mime={'node':NODE_MIME,'resource':RESOURCE_MIME,'tag':TAG_MIME}[kind]
+        return (operation is not None and operation.kind==mime and
+                operation.target is not None and operation.target.effect==MOVE)
+
+    def _drag_order_completed(self,changed,kind):
+        if not changed or not self._drag_order_active(kind):return
+        from services.send_sound import completed_sound
+        completed_sound(self.config,'reorder')
+
+    def unseen_resource_ids(self):
+        with self.index.connect(search=False) as db:
+            return {row[0] for row in db.execute('SELECT resource_id FROM resource_unseen')}
+
+    def mark_resource_seen(self, resource_id):
+        with self.index.connect(search=False) as db:
+            changed = db.execute('DELETE FROM resource_unseen WHERE resource_id=?', (resource_id,)).rowcount
+        if changed:self.unseen_changed.emit()
+
+    def clear_unseen_resources(self):
+        with self.index.connect(search=False) as db:
+            changed = db.execute('DELETE FROM resource_unseen').rowcount
+        if changed:self.unseen_changed.emit()
 
     def reorder_resources(self, node_id, resource_ids):
         self.index.reorder_resources(node_id or ROOT, resource_ids)
@@ -457,12 +498,18 @@ class StorageService:
         path = resolve_icon_path(self.data_dir, value)
         return str(path) if Path(path).is_file() else None
 
-    def move_resources_to(self, filepaths, target_node, copy=True, source_node=None, position=None):
+    def move_resources_to(self, filepaths, target_node, copy=True, source_node=None, position=None, sources=None):
         """Copy adds the target relation; Move also drops the source relation."""
         with self.lock:
             ids = self.index.resource_ids(filepaths)
-            return self.index.assign_memberships(ids, target_node or ROOT, copy=copy,
-                                                 source=source_node, position=position)
+            source_ids = dict(zip(ids, (sources.get(path) for path in filepaths))) if sources else None
+            added=self.index.assign_memberships(ids, target_node or ROOT, copy=copy,
+                                                   source=source_node, position=position, sources=source_ids)
+        from services.send_sound import completed_sound
+        # This API represents an explicit existing-resource Copy/Move. Import
+        # uses ResourceImporter/index directly and owns its own batch result.
+        completed_sound(self.config,'category',copy and target_node not in (None,ROOT) and added>0)
+        return added
 
     def resource_metadata(self, filepath):
         record = self.index.resource(filepath)
@@ -497,9 +544,8 @@ class StorageService:
         return [str(name) for name in names] if isinstance(names, list) else []
 
     def set_tag_order(self, names):
-        ordered = [str(name) for name in names]
-        self.index.set_meta(self.TAG_ORDER_KEY,
-                            json.dumps(list(dict.fromkeys(ordered)), ensure_ascii=False))
+        changed=self.index.set_tag_order(names)
+        self._drag_order_completed(changed,'tag')
 
     def tag_usage(self, node_id=None, resource_ids=None):
         """Tag → resource count for the effective scope of one location.
@@ -741,6 +787,7 @@ class StorageService:
         expected_ids = set(expected_ids) if expected_ids is not None else None
         result = dict(requested=len(paths), deleted=0, missing_cleaned=0, failed=0,
                       cancelled=0, unprocessed=0, failure_details={})
+        confirmed_deleted=0
         for i, path in enumerate(paths):
             if cancel_check and cancel_check():
                 result['cancelled'] = result['unprocessed'] = len(paths) - i
@@ -753,18 +800,23 @@ class StorageService:
                     if expected_ids is not None and resource['id'] not in expected_ids:
                         raise ValueError('Resource identity changed after deletion confirmation')
                     absolute = self.index.absolute_path(resource)
+                    existed=False
                     if self.availability.exists(resource['id'], revalidate=True):
                         recycle_file(absolute, self.library_root)
+                        existed=True
                         # Retain a Missing record if DB removal fails after recycling.
                         result['deleted'] += 1
                     else:
                         result['missing_cleaned'] += 1
-                    self.forget_resource(resource['id'])
+                    removed=self.forget_resource(resource['id'])
+                    if existed and removed:confirmed_deleted+=1
             except Exception as exc:
                 result['failed'] += 1
                 result['failure_details'][path] = str(exc)
             if progress_callback:
                 progress_callback(i + 1, len(paths))
+        from services.send_sound import completed_sound
+        completed_sound(self.config,'delete',confirmed_deleted>0 and not result['failed'] and not result['cancelled'])
         return result
 
     def delete_image(self, filepath):

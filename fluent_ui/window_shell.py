@@ -133,7 +133,7 @@ class NekoriTitleBar(StandardTitleBar):
         super().setTitle(title)
 
     def canDrag(self, pos):
-        for name in ('settingsButton', 'themeButton'):
+        for name in ('settingsButton', 'themeButton', 'notificationButton'):
             button = getattr(self, name, None)
             if button is not None and button.isVisible() and button.geometry().contains(pos):
                 return False
@@ -317,10 +317,12 @@ class NekoriWindow(FramelessWindow):
     def nativeEvent(self, event_type, message):
         msg = self._native_message
         ctypes.memmove(ctypes.byref(msg), int(message), ctypes.sizeof(msg))
-        # Qt owns the resolved child cursor. DefWindowProc would replace it
-        # with the native class cursor after Qt's Enter/Leave processing.
+        # Resolve Qt's current request; swallowing this message alone leaves
+        # the previous native sizing cursor on screen after resize or OLE.
         if msg.message == win32con.WM_SETCURSOR and (msg.lParam & 0xffff) == win32con.HTCLIENT:
-            return True, 1
+            from fluent_ui.components.native_resize import restore_client_cursor
+            if restore_client_cursor(self):
+                return True, 1
         event_code, hwnd = msg.message, msg.hWnd
         if event_code == win32con.WM_STYLECHANGING and ctypes.c_ssize_t(msg.wParam).value == win32con.GWL_STYLE:
             # Qt can rebuild GWL_STYLE without recreating the HWND. Preserve the
@@ -334,7 +336,35 @@ class NekoriWindow(FramelessWindow):
                 and not self.isMaximized() and not self.isFullScreen()):
             from fluent_ui.components.native_resize import resize_hit
             return True, resize_hit(self, hwnd, msg.lParam)
+        if event_code in (0x031E, win32con.WM_SETTINGCHANGE):
+            from fluent_ui.materials import native_material, sync_native_clip
+            self._material_key = None
+            native_material(self)
+            sync_native_clip(self)
+        proposed = None
+        ncc_rect = None
+        if event_code == win32con.WM_NCCALCSIZE and msg.wParam and ctypes.windll.user32.IsZoomed(hwnd):
+            ncc_rect = ctypes.cast(msg.lParam, ctypes.POINTER(wintypes.RECT)).contents
+            proposed = (ncc_rect.left, ncc_rect.top, ncc_rect.right, ncc_rect.bottom)
         result = super().nativeEvent(event_type, message)
+        if proposed is not None and not self.isFullScreen() and result[0]:
+            # Qt can maximize to the work area itself rather than the usual
+            # oversized native frame. Blindly subtracting resize borders then
+            # leaves an unpainted strip above the Qt client. Clip the proposed
+            # frame to the work area, preserving auto-hide taskbar access.
+            import win32api
+            from qframelesswindow.utils.win32_utils import Taskbar
+            area = win32api.GetMonitorInfo(win32api.MonitorFromWindow(hwnd, 2))['Work']
+            rect = ncc_rect
+            rect.left, rect.top = max(proposed[0], area[0]), max(proposed[1], area[1])
+            rect.right, rect.bottom = min(proposed[2], area[2]), min(proposed[3], area[3])
+            if Taskbar.isAutoHide():
+                edge = Taskbar.getPosition(hwnd)
+                if edge == Taskbar.LEFT:rect.left += Taskbar.AUTO_HIDE_THICKNESS
+                elif edge == Taskbar.TOP:rect.top += Taskbar.AUTO_HIDE_THICKNESS
+                elif edge == Taskbar.RIGHT:rect.right -= Taskbar.AUTO_HIDE_THICKNESS
+                elif edge == Taskbar.BOTTOM:rect.bottom -= Taskbar.AUTO_HIDE_THICKNESS
+            result = (True, 0)
         if (event_code == win32con.WM_NCCALCSIZE and msg.wParam
                 and not self.isMaximized() and not self.isFullScreen()
                 and result[0] and result[1] == win32con.WVR_REDRAW):

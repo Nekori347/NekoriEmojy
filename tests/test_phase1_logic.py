@@ -201,7 +201,7 @@ def test_availability_guards_refresh_cards_and_block_descendant_removal(gallery,
     app.processEvents()
     card = next(c for c in gallery._all_card_widgets if getattr(c, 'image_path', None) == direct)
     more = lambda: {a.text(): a for a in gallery._build_selection_more_menu().actions()}
-    assert card.property('state') == 'normal' and more()['移出当前分类'].isEnabled()
+    assert card.property('state') == 'normal' and more()['从当前分类移除'].isEnabled()
     Path(direct).unlink()
     context = gallery._action_context([direct], revalidate=True)
     assert card.property('state') == 'missing'
@@ -211,8 +211,8 @@ def test_availability_guards_refresh_cards_and_block_descendant_removal(gallery,
     assert ActionPolicy.enabled('tag_edit', context) and ActionPolicy.enabled('copy_path', context)
     menu = gallery._build_resource_menu(card)
     actions = {a.text(): a for a in menu.actions()}
-    assert not actions['在资源管理器中显示'].isEnabled()
-    assert not actions['导出选中项到文件夹…'].isEnabled()
+    assert not actions['在文件资源管理器中显示'].isEnabled()
+    assert not actions['导出所选表情'].isEnabled()
     assert actions['移除失效记录'].isEnabled()
     picker, explorer = Mock(), Mock()
     monkeypatch.setattr(dialogs, 'FramePickerDialog', picker)
@@ -230,7 +230,7 @@ def test_availability_guards_refresh_cards_and_block_descendant_removal(gallery,
     gallery.refresh_content()
     gallery.selected_keys = {direct, descendant}
     gallery._sync_command_bar()
-    assert not more()['移出当前分类'].isEnabled()
+    assert not more()['从当前分类移除'].isEnabled()
     before = storage.index.memberships()
     confirm = Mock(return_value=True)
     monkeypatch.setattr(dialogs, 'confirm', confirm)
@@ -371,7 +371,7 @@ def test_main_and_quick_share_send_and_only_sent_hides(gallery, storage, tmp_pat
     assert recent.call_count == (0 if outcome == SendResult.COPY_FAILED else 2)
     assert quick.feedback_host is not gallery.feedback_host
     if outcome == SendResult.COPIED_ONLY:
-        assert quick.feedback_host.title_label.text() == '已复制，但未找到可发送窗口'
+        assert quick.feedback_host.title_label.text() == '表情已复制'
     elif outcome == SendResult.COPY_FAILED:
         assert quick.feedback_host.notices[-1][2]
 

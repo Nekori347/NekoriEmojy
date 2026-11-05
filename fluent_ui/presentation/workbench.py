@@ -80,6 +80,7 @@ def build_workbench(g):
     tab_layout=QHBoxLayout(g.tab_row);tab_layout.setContentsMargins(0,0,0,0);tab_layout.setSpacing(0)
     g.category_tabs=TabStrip(g.tab_row,location_divider=True)
     g.category_tabs.currentChanged.connect(g._on_category_tab)
+    g.category_tabs.tabBarDoubleClicked.connect(g._enter_category_tab)
     tab_layout.addWidget(g.category_tabs,1)
     g.tab_row.setFixedHeight(g.category_tabs.height())
     sheet.addWidget(g.tab_row)

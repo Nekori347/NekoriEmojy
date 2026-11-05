@@ -133,3 +133,13 @@ os._exit(23)
         if logs and b'File ' in logs[0].read_bytes():break
         time.sleep(.02)
     assert logs and b'File ' in logs[0].read_bytes()
+def test_frozen_native_sink_uses_actual_process_image(tmp_path,monkeypatch):
+    import sys
+    from services import crash_evidence as evidence
+    calls=[];actual=tmp_path/'bin/NekoriEmojy.exe'
+    monkeypatch.setattr(sys,'frozen',True,raising=False)
+    monkeypatch.setattr(sys,'executable',str(actual.with_name('python.exe')))
+    monkeypatch.setattr('services.autostart._process_executable',lambda:actual)
+    monkeypatch.setattr(evidence.subprocess,'Popen',lambda args,**kwargs:calls.append(args))
+    sink,_=evidence._native_sink(tmp_path/'native.log');sink.close()
+    assert calls[0][:2]==[str(actual),'--diagnostic-writer']

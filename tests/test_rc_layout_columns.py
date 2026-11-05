@@ -1,6 +1,6 @@
 """Only the three approved RC layout areas; disposable library and Qt input."""
 import pytest
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, QRect, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QBoxLayout
 from test_phase2_interaction import surface, settle
@@ -50,3 +50,19 @@ def test_suzu_export_copy_group_and_original_routes(settings, monkeypatch, width
     monkeypatch.setattr(c, '_legacy_share', calls.append)
     for b in buttons: QTest.mouseClick(b, Qt.LeftButton)
     assert calls == ['all', 'categories']
+
+@pytest.mark.parametrize('width', [700, 920])
+@pytest.mark.parametrize('language', ['zh','zh_TW','en','ja'])
+def test_dirty_notice_does_not_shrink_preview_control(settings, width, language):
+    from services.i18n import i18n_engine
+    c=settings;i18n_engine.load_language(language);c.resize(width,740);c.show();settle(QApplication.instance())
+    c._set_dirty(True);settle(QApplication.instance())
+    assert c.preview_switch.width()>=c.preview_switch.sizeHint().width()
+    preview=c.preview_switch.mapTo(c,QPoint())
+    notice=c.dirty_label.mapTo(c,QPoint())
+    tools=c.btn_tools.mapTo(c,QPoint())
+    assert notice.y()+c.dirty_label.height()<=preview.y()
+    assert not QRect(preview,c.preview_switch.size()).intersects(QRect(tools,c.btn_tools.size()))
+    assert not QRect(notice,c.dirty_label.size()).intersects(QRect(tools,c.btn_tools.size()))
+    c._set_dirty(False);settle(QApplication.instance())
+    assert c.dirty_label.isHidden()

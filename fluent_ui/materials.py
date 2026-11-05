@@ -9,6 +9,8 @@ from fluent_ui import visual
 
 
 def _transparency_allowed():
+    from services.acrylic_policy import allowed
+    if getattr(visual.theme,'config',None) is not None and not allowed(visual.theme.config):return False
     if os.environ.get('NEKORI_OPAQUE_MATERIAL') == '1': return False
     import winreg
     try:

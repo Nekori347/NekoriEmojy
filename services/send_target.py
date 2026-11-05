@@ -3,6 +3,9 @@ import ctypes
 import os
 from ctypes import wintypes
 from enum import Enum
+from dataclasses import dataclass
+from collections import deque
+import uuid, time, logging
 from PySide6.QtCore import QObject, QTimer
 
 
@@ -70,6 +73,7 @@ class WindowsTargetAPI:
 class PasteInjector:
     def __init__(self, api):
         self.api = api
+        self.last_error=0
 
     def paste(self):
         sequence = ((0x11, 0), (0x56, 0), (0x56, 2), (0x11, 2))
@@ -77,7 +81,9 @@ class PasteInjector:
         for index, (key, flags) in enumerate(sequence):
             inputs[index].type = 1  # INPUT_KEYBOARD
             inputs[index].data.ki = KEYBDINPUT(key, 0, flags, 0, None)
+        ctypes.set_last_error(0)
         sent = self.api.native.SendInput(len(inputs), inputs, ctypes.sizeof(INPUT))
+        self.last_error=ctypes.get_last_error() if sent!=len(inputs) else 0
         if 0 < sent < len(inputs):
             # Release modifiers if Windows accepted only part of the sequence.
             releases = (INPUT * 2)()
@@ -86,6 +92,35 @@ class PasteInjector:
                 releases[index].data.ki = KEYBDINPUT(key, 0, 2, 0, None)
             self.api.native.SendInput(2, releases, ctypes.sizeof(INPUT))
         return sent == len(inputs)
+
+
+@dataclass(frozen=True)
+class SendOutcome:
+    request_id: str
+    result: SendResult
+    reason: str
+    hwnd: int | None
+    pid: int | None
+    elapsed_ms: float
+    details: str = ''
+
+
+@dataclass
+class _SendRequest:
+    identity: str
+    path: str
+    clipboard: object
+    storage: object
+    completed: object
+    recent_limit: int
+    hwnd: int | None
+    pid: int | None
+    started: float
+    done: bool = False
+    clipboard_ticket: object = None
+    preparation_ticket: object = None
+    observed_hwnd: int | None = None
+    prepared_async: bool = False
 
 
 class SendTargetService(QObject):
@@ -99,55 +134,152 @@ class SendTargetService(QObject):
         self.schedule = schedule or (lambda callback: QTimer.singleShot(10, self, callback))
         self.last_external_hwnd = None
         self._target_pid = None
-        self._generation = 0
+        self.last_outcome = None
+        self._queue=deque();self._active=None;self._closed=False
+        from services.drag_activity import drag_activity
+        self._drag_activity=drag_activity()
+        self._drag_activity.idle.connect(self._start_next)
+        self.destroyed.connect(self.cancel_requests)
+        from PySide6.QtCore import QCoreApplication
+        application=QCoreApplication.instance()
+        if application is not None:application.aboutToQuit.connect(self.cancel_requests)
 
     def valid(self, hwnd, expected_pid=None):
-        if not hwnd or not self.api.is_window(hwnd):
-            return False
-        pid = self.api.process_id(hwnd)
-        class_name = self.api.class_name(hwnd)
-        return bool(pid and pid != os.getpid() and (expected_pid is None or pid == expected_pid)
-                    and class_name and class_name not in self.SHELL_CLASSES)
+        if not hwnd or not self.api.is_window(hwnd):return False
+        pid=self.api.process_id(hwnd);name=self.api.class_name(hwnd)
+        return bool(pid and pid!=os.getpid() and (expected_pid is None or pid==expected_pid)
+                    and name and name not in self.SHELL_CLASSES)
 
     def remember(self, hwnd):
         if self.valid(hwnd):
-            self.last_external_hwnd = int(hwnd)
-            self._target_pid = self.api.process_id(hwnd)
+            self.last_external_hwnd=int(hwnd);self._target_pid=self.api.process_id(hwnd)
             return True
         return False
 
-    def capture_foreground(self):
-        return self.remember(self.api.foreground())
+    def capture_foreground(self):return self.remember(self.api.foreground())
 
-    def send(self, path, clipboard, storage, completed, recent_limit=30):
-        """Deliver exactly one final SendResult through completed, possibly later."""
-        self._generation += 1
-        generation = self._generation
-        if not storage.availability.exists(path, revalidate=True) or not clipboard.copy_image_to_clipboard(path):
-            completed(SendResult.COPY_FAILED)
-            return
-        storage.add_recent_image(path, recent_limit)
-        self.capture_foreground()
-        hwnd, pid = self.last_external_hwnd, self._target_pid
-        if not self.valid(hwnd, pid):
-            self.last_external_hwnd = self._target_pid = None
-            completed(SendResult.COPIED_ONLY)
-            return
-        self.api.acquire_foreground(hwnd)
+    def send(self,path,clipboard,storage,completed,recent_limit=30):
+        # Freeze the intended external window before file conversion can yield.
+        observed=None
+        try:observed=self.api.foreground();self.remember(observed)
+        except (OSError,RuntimeError):pass
+        request=_SendRequest(uuid.uuid4().hex,path,clipboard,storage,completed,recent_limit,
+            self.last_external_hwnd,self._target_pid,time.perf_counter())
+        request.observed_hwnd=observed
+        from services.backup_activity import activity_for
+        library_root=getattr(storage,'library_root',None)
+        if isinstance(library_root,(str,os.PathLike)) and library_root:
+            request.backup_pressure=activity_for(library_root)
+            request.backup_pressure.operation(request.identity,'正在发送表情',True)
+        self._queue.append(request)
+        if self._active is None:self._start_next()
+        return request.identity
 
-        def attempt(remaining=10):
-            if generation != self._generation or not self.valid(hwnd, pid):
-                completed(SendResult.COPIED_ONLY)
-                return
-            if self.api.foreground() == hwnd:
-                # Check identity and foreground again immediately before input.
-                if self.valid(hwnd, pid) and self.api.foreground() == hwnd and self.injector.paste():
-                    completed(SendResult.SENT)
-                else:
-                    completed(SendResult.COPIED_ONLY)
-            elif remaining:
-                self.schedule(lambda: attempt(remaining - 1))
+    def _start_next(self):
+        if self._closed or self._active is not None or not self._queue:return
+        if self._drag_activity.operation is not None:return
+        request=self._active=self._queue.popleft()
+        try:
+            if not request.storage.availability.exists(request.path,revalidate=True):
+                self._finish(request,SendResult.COPY_FAILED,'resource_missing');return
+            prepare=getattr(type(request.clipboard),'prepare_image_async',None)
+            if callable(prepare):
+                request.prepared_async=True
+                getter=getattr(type(request.clipboard),'delivery_revision',None)
+                if callable(getter):request.preparation_ticket=request.clipboard.delivery_revision()
+                request.clipboard.prepare_image_async(request.path,
+                    lambda data,error:self._prepared(request,data,error))
             else:
-                completed(SendResult.COPIED_ONLY)
+                if not request.clipboard.copy_image_to_clipboard(request.path):
+                    self._finish(request,SendResult.COPY_FAILED,'clipboard_failed');return
+                self._copied(request)
+        except (OSError,RuntimeError,ValueError,TypeError) as error:
+            self._finish(request,SendResult.COPY_FAILED,'clipboard_failed',str(error))
 
-        attempt()
+    def _prepared(self,request,data,error):
+        from shiboken6 import isValid
+        if not isValid(self) or self._closed or request.done:return
+        try:
+            if request.preparation_ticket is not None:
+                matches=getattr(type(request.clipboard),'delivery_matches',None)
+                same=request.clipboard.delivery_matches(request.preparation_ticket) if callable(matches) else request.clipboard.delivery_revision()==request.preparation_ticket
+                if not same:
+                    self._finish(request,SendResult.COPIED_ONLY,'clipboard_changed');return
+            if error or not request.clipboard.publish_prepared(data):
+                self._finish(request,SendResult.COPY_FAILED,'clipboard_failed',error);return
+            self._copied(request)
+        except (OSError,RuntimeError,ValueError,TypeError) as exception:
+            self._finish(request,SendResult.COPY_FAILED,'clipboard_failed',str(exception))
+
+    def _copied(self,request):
+        getter=getattr(type(request.clipboard),'delivery_revision',None)
+        if callable(getter):request.clipboard_ticket=request.clipboard.delivery_revision()
+        try:request.storage.add_recent_image(request.path,request.recent_limit)
+        except (OSError,RuntimeError):
+            logging.getLogger('nekori.send').exception('request=%s recent update failed',request.identity)
+        try:
+            if not self.valid(request.hwnd,request.pid):
+                if self.last_external_hwnd==request.hwnd:self.last_external_hwnd=self._target_pid=None
+                self._finish(request,SendResult.COPIED_ONLY,'no_target');return
+            if request.prepared_async and self.api.foreground() not in (request.observed_hwnd,request.hwnd):
+                self._finish(request,SendResult.COPIED_ONLY,'foreground_changed');return
+            self.api.acquire_foreground(request.hwnd)
+        except (OSError,RuntimeError) as error:
+            self._finish(request,SendResult.COPIED_ONLY,'activation_failed',str(error));return
+        self._attempt(request)
+
+    def _attempt(self,request,remaining=10):
+        if request.done or self._closed:return
+        try:
+            if not self.valid(request.hwnd,request.pid):
+                self._finish(request,SendResult.COPIED_ONLY,'target_changed');return
+            if self.api.foreground()==request.hwnd:
+                if not self.valid(request.hwnd,request.pid) or self.api.foreground()!=request.hwnd:
+                    self._finish(request,SendResult.COPIED_ONLY,'foreground_changed');return
+                ticket=request.clipboard_ticket
+                if ticket is not None:
+                    matches=getattr(type(request.clipboard),'delivery_matches',None)
+                    same=request.clipboard.delivery_matches(ticket) if callable(matches) else request.clipboard.delivery_revision()==ticket
+                    if not same:
+                        self._finish(request,SendResult.COPIED_ONLY,'clipboard_changed');return
+                if self.injector.paste():
+                    from services.send_sound import completed_sound
+                    config=getattr(request.storage,'config',None)
+                    if config is not None:completed_sound(config,'send')
+                    self._finish(request,SendResult.SENT,'input_submitted')
+                else:
+                    self._finish(request,SendResult.COPIED_ONLY,'input_failed',str(getattr(self.injector,'last_error','')))
+            elif remaining:
+                self.schedule(lambda:self._attempt(request,remaining-1))
+            else:self._finish(request,SendResult.COPIED_ONLY,'activation_timeout')
+        except (OSError,RuntimeError,ValueError) as error:
+            self._finish(request,SendResult.COPIED_ONLY,'input_failed',str(error))
+
+    def _finish(self,request,result,reason,details=''):
+        if request.done:return
+        request.done=True
+        pressure=getattr(request,'backup_pressure',None)
+        if pressure is not None:pressure.operation(request.identity,'正在发送表情',False)
+        outcome=SendOutcome(request.identity,result,reason,request.hwnd,request.pid,
+            (time.perf_counter()-request.started)*1000,details)
+        self.last_outcome=outcome
+        from services import crash_evidence as evidence
+        evidence.breadcrumb('send_result',request=outcome.request_id,result=result.value,reason=reason,hwnd=outcome.hwnd,pid=outcome.pid,elapsed_ms=round(outcome.elapsed_ms,2))
+        logging.getLogger('nekori.crash_evidence').info('send_result %s',outcome)
+        log=logging.getLogger('nekori.send')
+        log.log(logging.INFO if result==SendResult.SENT else logging.WARNING,
+            'request=%s result=%s reason=%s hwnd=%s pid=%s elapsed_ms=%.2f details=%s',
+            outcome.request_id,result.value,reason,outcome.hwnd,outcome.pid,outcome.elapsed_ms,details)
+        try:request.completed(result)
+        except Exception:log.exception('request=%s completion receiver failed',request.identity)
+        finally:
+            if self._active is request:self._active=None
+            if self._queue and not self._closed:QTimer.singleShot(0,self,self._start_next)
+
+    def cancel_requests(self,*_):
+        self._closed=True
+        for request in ([self._active] if self._active else [])+list(self._queue):
+            request.done=True
+            pressure=getattr(request,'backup_pressure',None)
+            if pressure is not None:pressure.operation(request.identity,'正在发送表情',False)
+        self._queue.clear();self._active=None

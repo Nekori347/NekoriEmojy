@@ -23,6 +23,12 @@ never inserted into a layout and never created per drag, so pointing at
 something can never move it.
 """
 import json
+import uuid
+import weakref
+import logging
+import time
+from contextvars import ContextVar
+from dataclasses import dataclass
 
 from PySide6.QtCore import QPoint, QRect, QRectF, Qt, QTimer, QEvent, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
@@ -35,6 +41,9 @@ NODE_MIME = "application/x-emojy-node"
 RESOURCE_MIME = "application/x-emojy-resources"
 RESOURCE_SOURCES_MIME = "application/x-emojy-resource-sources"
 TAG_MIME = "application/x-emojy-tags"
+DRAG_SESSION_MIME = 'application/x-nekori-drag-session'
+_operations = weakref.WeakValueDictionary()
+_committing = ContextVar('nekori_drop_operation', default=None)
 
 # -- placement --------------------------------------------------------------
 INSERT_BEFORE = 'insert_before'
@@ -67,7 +76,7 @@ class DropTarget:
     surface can resolve one.
     """
 
-    __slots__ = ('placement', 'effect', 'target_id', 'container_id', 'index')
+    __slots__ = ('placement', 'effect', 'target_id', 'container_id', 'index', 'feedback_rect')
 
     def __init__(self, placement=INVALID, effect=None, target_id=None,
                  container_id=None, index=None):
@@ -76,6 +85,7 @@ class DropTarget:
         self.target_id = target_id
         self.container_id = container_id
         self.index = index
+        self.feedback_rect = None
 
     @property
     def valid(self):
@@ -84,6 +94,142 @@ class DropTarget:
     def __repr__(self):
         return (f"DropTarget({self.placement}, {self.effect}, target={self.target_id!r}, "
                 f"container={self.container_id!r}, index={self.index!r})")
+
+    def freeze(self):
+        return FrozenDropTarget(self.placement,self.effect,self.target_id,self.container_id,self.index)
+
+
+@dataclass(frozen=True)
+class FrozenDropTarget:
+    placement: str
+    effect: str | None
+    target_id: str | None
+    container_id: str | None
+    index: int | None
+
+    @property
+    def valid(self):return self.placement != INVALID
+
+    def freeze(self):return self
+
+
+class DragOperation:
+    """Identity/claim shared by receiver entries; source lifetime is separate."""
+    def __init__(self, identity):
+        self.id=identity;self.state='dragging';self.target=None;self.error=''
+        self.deferred=False;self.source=None;self.destroyed_slot=None
+        self.cleanup=None
+        self.result_sound=None
+        self.kind=None
+        self._receivers=[]
+        self.started=time.perf_counter()
+
+    def record(self,event,**extra):
+        from services import crash_evidence as evidence
+        fields={'session':self.id,'state':self.state,'elapsed_ms':round((time.perf_counter()-self.started)*1000,2)}
+        fields.update(extra)
+        if self.target is not None:fields.update(container=self.target.container_id,anchor=self.target.target_id,placement=self.target.placement)
+        evidence.breadcrumb(event,**fields)
+        logging.getLogger('nekori.crash_evidence').info('%s %s',event,fields)
+
+    def cancel(self, reason='cancelled'):
+        if self.state in ('dragging','committing','awaiting_choice'):
+            self.state='cancelled'
+            self.result_sound=None
+            self.record('drag_cancelled',reason=reason)
+            logging.getLogger('nekori.drag').info('session=%s cancelled=%s',self.id,reason)
+            self._release_receivers()
+
+    def watch_receiver(self,receiver):
+        slot=lambda *_:self.cancel('receiver_destroyed')
+        receiver.destroyed.connect(slot)
+        self._receivers.append((weakref.ref(receiver),slot))
+
+    def _release_receivers(self):
+        from shiboken6 import isValid
+        receivers,self._receivers=self._receivers,[]
+        for reference,slot in receivers:
+            receiver=reference()
+            if receiver is not None and isValid(receiver):
+                receiver.destroyed.disconnect(slot)
+
+    def defer(self):
+        if self.state=='committing':self.deferred=True
+
+    def complete(self, callback):
+        if self.state not in ('dragging','awaiting_choice'):return False
+        self.state='committing'
+        self.deferred=False
+        token=_committing.set(self)
+        try:
+            result=callback()
+            if self.state!='committing':return False
+            self.state='rejected' if result is False else ('awaiting_choice' if self.deferred else 'committed')
+            self.record('drop_'+self.state)
+            if self.state=='committed':
+                from services.send_sound import flush_operation_sound
+                flush_operation_sound(self)
+            return result is not False
+        except Exception as error:
+            self.state='failed';self.error=str(error)
+            self.record('drop_failed')
+            logging.getLogger('nekori.drag').exception('session=%s target=%r',self.id,self.target)
+            return False
+        finally:
+            _committing.reset(token)
+            if self.state not in ('dragging','committing','awaiting_choice'):
+                self.result_sound=None
+                self._release_receivers()
+
+
+def current_drop_operation():return _committing.get()
+
+
+def prepare_drag(mime, source=None):
+    operation=getattr(mime,'_nekori_drag_operation',None)
+    if operation is None:
+        identity=payload_text(mime.data(DRAG_SESSION_MIME)) if mime.hasFormat(DRAG_SESSION_MIME) else ''
+        operation=_operations.get(identity)
+        if operation is None:
+            operation=DragOperation(identity or uuid.uuid4().hex)
+            _operations[operation.id]=operation
+        mime._nekori_drag_operation=operation
+    if source is not None:
+        mime.setData(DRAG_SESSION_MIME,operation.id.encode())
+    return operation
+
+
+def begin_drag(source, mime):
+    from services.drag_activity import drag_activity
+    operation=prepare_drag(mime,source)
+    if operation.state!='dragging' or not drag_activity().begin(operation):
+        operation.cancel('source_reentry');return False
+    operation.record('drag_started')
+    operation.source=weakref.ref(source)
+    operation.cleanup=getattr(source,'_drag_cleanup',None)
+    operation.destroyed_slot=lambda *_:operation.cancel('source_destroyed')
+    source.destroyed.connect(operation.destroyed_slot)
+    return True
+
+
+def finish_drag(mime):
+    from services.drag_activity import drag_activity
+    operation=prepare_drag(mime)
+    if operation.state=='dragging':operation.cancel('no_accepted_drop')
+    operation.record('drag_source_finished')
+    try:
+        if operation.source is not None:
+            from shiboken6 import isValid
+            source=operation.source()
+            if (source is None or not isValid(source)) and operation.cleanup is not None:
+                owner=getattr(operation.cleanup,'__self__',None)
+                if owner is None or isValid(owner):operation.cleanup()
+            if source is not None and isValid(source) and operation.destroyed_slot is not None:
+                source.destroyed.disconnect(operation.destroyed_slot)
+    finally:
+        operation.source=operation.destroyed_slot=None
+        operation.cleanup=None
+        drag_activity().end(operation)
 
 
 INVALID_TARGET = DropTarget()
@@ -106,8 +252,11 @@ class DragSession:
     """One receiver entry, one commit, no cached state shared with the next drag."""
 
     def __init__(self, mime, parents=None):
+        self.operation=prepare_drag(mime)
+        self.id=self.operation.id
         self.kind = next((kind for kind in (TAG_MIME, NODE_MIME, RESOURCE_MIME)
                           if mime.hasFormat(kind)), 'urls' if mime.hasUrls() else None)
+        self.operation.kind=self.kind
         parser = parse_node_payload if self.kind == NODE_MIME else parse_list_payload
         self.payload = tuple(parser(mime.data(self.kind))) if self.kind not in (None, 'urls') else ()
         self.parents = dict(parents or {})
@@ -124,7 +273,9 @@ class DragSession:
                 pass
         self.streams = {}
         self.target = INVALID_TARGET
-        self.committed = False
+
+    @property
+    def committed(self):return self.operation.state in ('committed','awaiting_choice')
 
     @property
     def supported(self):
@@ -132,26 +283,30 @@ class DragSession:
 
     def commit(self, target, callback):
         """The shared DropCommit boundary; adapters only perform domain writes."""
-        self.target = target
-        if self.committed or not self.supported or not target.valid:
+        if self.operation.state!='dragging' or not self.supported or not target.valid:
             return False
-        self.committed = True
-        callback(target, list(self.payload))
-        return True
+        self.target=target.freeze()
+        self.operation.target=self.target
+        if target.placement==CANCEL:
+            self.operation.cancel('cancel_zone');return True
+        return self.operation.complete(lambda:callback(self.target,list(self.payload)))
 
 
 def execute_drag(source, mime, pixmap, cleanup, hotspot=None):
     """Our commit already moves data/items; never invoke Qt's source-row removal."""
     from PySide6.QtGui import QDrag
-    drag = QDrag(source)
-    drag.setMimeData(mime)
-    drag.setPixmap(pixmap)
-    if hotspot is not None:
-        drag.setHotSpot(hotspot)
+    if not begin_drag(source,mime):return Qt.IgnoreAction
+    drag = None
     try:
+        drag=QDrag(source);drag.setMimeData(mime);drag.setPixmap(pixmap)
+        if hotspot is not None:drag.setHotSpot(hotspot)
         return drag.exec(Qt.MoveAction, Qt.MoveAction)
     finally:
-        cleanup()
+        try:cleanup()
+        finally:
+            finish_drag(mime)
+            from shiboken6 import isValid
+            if drag is not None and isValid(drag):drag.deleteLater()
 
 
 # -- resolution helpers -----------------------------------------------------
@@ -258,12 +413,14 @@ class DropFeedback(QWidget):
         self.hide()
         self._mode = None
 
-    def show_target(self, placement, rect, vertical=False):
+    def show_target(self, placement, rect, vertical=False, geometry=None):
         """Show the shared feedback for a placement, or nothing when invalid."""
         if placement == INVALID or rect is None or rect.isNull():
             self.clear()
             return
-        if placement == INTO:
+        if geometry is not None:
+            geometry, self._mode = QRect(geometry), 'slot'
+        elif placement == INTO:
             geometry, self._mode = QRect(rect), 'outline'
         else:
             geometry, self._mode = indicator_rect(placement, rect, vertical), 'line'
@@ -291,6 +448,10 @@ class DropFeedback(QWidget):
             painter.setBrush(Qt.NoBrush)
             painter.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1),
                                     visual.CONTROL_RADIUS, visual.CONTROL_RADIUS)
+        elif self._mode == 'slot':
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(signal)
+            painter.drawRoundedRect(QRectF(self.rect()), self.width()/2, self.width()/2)
         else:
             painter.fillRect(self.rect(), signal)
         painter.end()

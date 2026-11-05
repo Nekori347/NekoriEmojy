@@ -23,13 +23,13 @@ from fluent_ui.components.navigation import NavigationItem, TabStrip, ContentPan
 from fluent_ui.components import dialogs
 from fluent_ui.components.setting_rows import (
     SettingRow, ActionRow, SuzuExportRow, AccentRow, ChoiceRow, InfoRow, HotkeyRow, RangeRow, SettingSection, SwitchRow,
-    apply_row_theme, ModeRow, SpatialRow, FullPathRow,
+    apply_row_theme, ModeRow, SpatialRow, FullPathRow, SoundEventRow, BackupPathRow, BackupStatusRow,
 )
 from fluent_ui.theme import THEMES
 from services.autostart import AutostartService
 from services.i18n import SUPPORTED_LANGUAGES, i18n_engine, t, bind_text, translated
 
-PREVIEW_KEYS = {"appearance_mode", "light_theme_key", "dark_theme_key",
+PREVIEW_KEYS = {"show_new_resource_markers", "appearance_mode", "light_theme_key", "dark_theme_key",
                 "thumbnail_size", "sidebar_icon_size", "gallery_node_icon_size", "accent_color", "sidebar_mode", "sidebar_show_labels",
                 "quick_panel_thumbnail_size", "tag_panel_placement"}
 APPEARANCE_KEYS = ("appearance_mode", "accent_color")
@@ -88,6 +88,7 @@ class SettingsCenter(QWidget):
         self.btn_import=translated(PushButton,'导入设置',footer);self.btn_import.clicked.connect(self._import_settings);self.btn_import.hide()
         self.btn_export=translated(PushButton,'导出设置',footer);self.btn_export.clicked.connect(self._export_settings);self.btn_export.hide()
         footer.preview=preview;footer.actions=actions
+        self._decision_bar=footer
         return footer
 
     def _apply_style(self):
@@ -109,7 +110,7 @@ class SettingsCenter(QWidget):
         return [
             ('常规', [('启动与窗口', self._page_startup), ('托盘', self._page_tray), ('语言', self._page_language), ('配置管理', self._page_settings_file)]),
             ('外观', [('主题', self._page_theme), ('表情库布局', self._page_gallery_display), ('快速面板', self._page_quick_panel), ('软件图标', self._page_app_icon)]),
-            ('交互', [('快捷键', self._page_hotkeys), ('发送', self._page_send), ('悬停预览', self._page_hover_preview)]),
+            ('交互', [('快捷键', self._page_hotkeys), ('发送', self._page_send), ('音效', self._page_sounds), ('悬停预览', self._page_hover_preview)]),
             ('表情与数据', [('表情库管理', self._page_library), ('文字识别', self._page_ocr), ('表情合集', self._page_packages), ('Suzu 迁移', self._page_migration)]),
             ('关于', [('软件信息', self._page_about)]),
         ]
@@ -148,6 +149,8 @@ class SettingsCenter(QWidget):
     def _show_tab(self, index):
         index = max(0, min(index, len(self._tabs)-1))
         title, builder = self._tabs[index]
+        if builder.__name__ != '_page_sounds' and hasattr(self, '_sound_player'):
+            self._sound_player.stop_preview()
         key = builder.__name__
         if key not in self._page_widgets:
             if self._page_widgets:
@@ -187,6 +190,10 @@ class SettingsCenter(QWidget):
             self.nav.item(index).setText(t(name))
         self.nav.blockSignals(False)
         self._set_tab_labels(self._tabs,self._current_tab)
+        # Translated button text changes after this signal handler too. Size
+        # the existing footer once all bindings have refreshed, even if the
+        # window itself has not resized.
+        QTimer.singleShot(0,self._decision_bar.relayout)
         self._set_dirty(bool(self.pending))
         self._update_sticky_header()
 
@@ -215,6 +222,8 @@ class SettingsCenter(QWidget):
         return section
 
     def _track(self, row, key, default, handler=None):
+        if isinstance(row, RangeRow):
+            row.set_default(self.config.default_config.get(key, default))
         self._rows[key] = (row, default)
         self._all_rows[key] = (row, default)
         row.set_pending(key in self.pending)
@@ -239,8 +248,6 @@ class SettingsCenter(QWidget):
         section = self._section("WINDOW")
         for title, hint, key, default in (
             ("主窗口始终置顶", "让 Nekori 始终显示在其他窗口之上。", "always_on_top", True),
-            ("发送后自动隐藏主面板", "表情发送成功后隐藏主面板，仍可使用快捷键重新呼出。",
-             "hide_main_after_paste", False),
             ("在任务栏显示应用图标", "关闭后不再占用任务栏入口，仍驻留托盘；下次显示主窗口或重启后生效。",
              "show_taskbar_icon", True),
         ):
@@ -313,6 +320,86 @@ class SettingsCenter(QWidget):
         section.add_row(ActionRow(
             "在文件管理器中打开", "直接查看表情库中的真实表情文件。",
             [("打开表情库目录", self._open_library, False)], self))
+        self._build_backup_settings()
+
+    def _build_backup_settings(self):
+        if self.storage is None:return
+        from services.backup_service import backup_service
+        from services.library_backup import output_directory
+        self._backup_service=backup_service(self.storage,self)
+        section=self._section('自动备份')
+        section.add_row(self._track(SwitchRow('自动备份','开启并保存后，按间隔在空闲时备份；首次不会立即运行。',
+            'backup_enabled',self.config.get('backup_enabled',False),self),'backup_enabled',False))
+        section.add_row(self._track(RangeRow('备份间隔','前台繁忙时暂缓，空闲后继续。','backup_interval_hours',
+            self.config.get('backup_interval_hours',24),1,720,1,self,count_only=True,unit='小时'),'backup_interval_hours',24))
+        self.backup_path_row=BackupPathRow('备份保存位置','默认放在当前表情库旁的独立目录，也可选择其他磁盘。',
+            self.config.get('backup_path',''),output_directory(self.storage.library_root),self._choose_backup_path,self)
+        section.add_row(self._track(self.backup_path_row,'backup_path',''))
+        section.add_row(self._track(RangeRow('保留备份数量','新备份校验成功后，才清理此表情库超出数量的旧备份。',
+            'backup_keep',self.config.get('backup_keep',5),1,100,1,self,count_only=True,unit='份'),'backup_keep',5))
+        self.backup_status_row=BackupStatusRow('备份与恢复','',[
+            ('立即备份',self._backup_now,False),('取消备份',self._backup_service.cancel,False),
+            ('打开备份位置',self._open_backup_location,False),('从备份恢复…',self._restore_backup,False)],self)
+        section.add_row(self.backup_status_row)
+        self._backup_service.changed.connect(self._refresh_backup_status)
+        i18n_engine.language_changed.connect(self._refresh_backup_status)
+        self.settings_changed.connect(self._backup_settings_saved)
+        self._refresh_backup_status()
+
+    def _backup_settings_saved(self,key):
+        if key.startswith('backup_'):self._backup_service.configure()
+
+    def _choose_backup_path(self):
+        from services.library_backup import output_directory
+        directory=QFileDialog.getExistingDirectory(self,t('选择备份保存位置'),self.backup_path_row.value() or str(output_directory(self.storage.library_root)))
+        if not directory:return
+        try:output_directory(self.storage.library_root,directory)
+        except Exception as exc:self.show_error(t('无法使用此位置'),t(str(exc)));return
+        self.backup_path_row.set_value(directory);self._stage('backup_path',directory)
+
+    def _refresh_backup_status(self):
+        from services.backup_service import STATUS_TEXT,PHASE_TEXT
+        from datetime import datetime
+        service=self._backup_service;state=service.state;success=state.get('last_success_at','')
+        try:success=datetime.fromisoformat(success).astimezone().strftime('%Y-%m-%d %H:%M:%S') if success else t('尚未备份')
+        except ValueError:pass
+        status=STATUS_TEXT[state['state']]
+        if service.active and service.job.get('mode')=='restore':
+            status={'running':'正在恢复','paused':'恢复因前台繁忙暂缓','waiting':'等待开始恢复'}.get(state['state'],status)
+        lines=[t('当前状态：{state}').format(state=t(status)),t('上次成功备份：{time}').format(time=success)]
+        if service.detail:lines.append(t(service.detail))
+        if service.active and service.phase:lines.append(t(PHASE_TEXT.get(service.phase,service.phase)))
+        if service.active and service.progress[1]>0:lines.append(t('进度：{value}%').format(value=int(service.progress[0]*100/service.progress[1])))
+        if state.get('last_error'):lines.append(t('最近失败原因：{reason}').format(reason=t(state['last_error'])))
+        if service.operation_error:lines.append(t(service.operation_error))
+        self.backup_status_row.set_hint('\n'.join(lines))
+        for button,enabled in zip(self.backup_status_row.findChildren(PushButton),
+                (not service.pending,service.pending,bool(state.get('last_valid_location')),not service.pending)):
+            button.setEnabled(enabled)
+
+    def _backup_pending(self):
+        if any(k.startswith('backup_') for k in self.pending):
+            self.show_error(t('请先保存设置'),t('请先保存或放弃备份设置，再开始操作。'));return True
+        return False
+
+    def _backup_now(self):
+        if self._backup_pending():return
+        try:self._backup_service.request_backup()
+        except Exception as exc:self.show_error(t('无法开始备份'),t(str(exc)))
+
+    def _restore_backup(self):
+        if self._backup_pending():return
+        archive,_=QFileDialog.getOpenFileName(self,t('选择表情库备份'),str(self._backup_service.destination),t('表情库备份 (*.nekori-backup.zip)'))
+        if not archive:return
+        target=QFileDialog.getExistingDirectory(self,t('选择新的空目录'),str(self.storage.index.root.parent))
+        if target:self._backup_service.request_restore(archive,target)
+
+    def _open_backup_location(self):
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+        from pathlib import Path
+        location=self._backup_service.state.get('last_valid_location','')
+        if location:QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(location).parent)))
 
     def _choose_library(self,mode=None):
         if mode not in ('create','connect'):
@@ -366,14 +453,23 @@ class SettingsCenter(QWidget):
         section.add_row(self._track(SwitchRow(
             '窗口毛玻璃', '控制窗口背景的毛玻璃效果；关闭后使用不透明背景。',
             'window_acrylic_enabled', self.config.get('window_acrylic_enabled', True), self),
-            'window_acrylic_enabled', True))
+            'window_acrylic_enabled', self.config.default_config['window_acrylic_enabled']))
 
     def _page_gallery_display(self):
-        section = self._section("表情显示")
+        section = self._section("图库显示")
+        section.add_row(self._track(SwitchRow(
+            '新表情标记', '新添加的表情显示星标，悬停查看后消除。\n关闭并保存将清除现有星标。',
+            'show_new_resource_markers', self.config.get('show_new_resource_markers', True), self),
+            'show_new_resource_markers', True))
         section.add_row(self._track(
             RangeRow("缩略图大小", "调整主面板中表情的显示大小。\n也可在主面板中直接调整，或按住 Ctrl 滚动滚轮。\n两处调整会同步生效。",
                      "thumbnail_size", self.config.get("thumbnail_size", 120), 60, 300, 10, self),
             "thumbnail_size", 120))
+
+        section.add_row(self._track(
+            RangeRow("图库分类图标大小", "调整图库中分类的图标大小。",
+                     "gallery_node_icon_size", self.config.get("gallery_node_icon_size", 22), 14, 48, 1, self),
+            "gallery_node_icon_size", 22))
 
         section = self._section("SIDEBAR")
         mode = self._track(ModeRow(
@@ -388,13 +484,9 @@ class SettingsCenter(QWidget):
         mode.changed.connect(lambda: self.icon_options.setEnabled(mode.value() == 'categorized_icons'))
         self.icon_options.setEnabled(mode.value() == 'categorized_icons')
         section.add_row(self._track(
-            RangeRow("分类树图标大小", "调整分类树中的图标尺寸。",
+            RangeRow("分类栏图标大小", "调整分类栏中的图标大小。",
                      "sidebar_icon_size", self.config.get("sidebar_icon_size", 20), 14, 48, 1, self),
             "sidebar_icon_size", 20))
-        section.add_row(self._track(
-            RangeRow("图库分类图标大小", "调整右侧图库中分类节点的图标大小，不影响左侧分类树。",
-                     "gallery_node_icon_size", self.config.get("gallery_node_icon_size", 22), 14, 48, 1, self),
-            "gallery_node_icon_size", 22))
         section = self._section('标签面板')
         section.add_row(self._track(SpatialRow(
             "标签面板位置", "选择标签面板在表情库中的停靠位置。\n点击示意窗口的对应边缘进行调整。", 'tag_panel_placement',
@@ -406,11 +498,11 @@ class SettingsCenter(QWidget):
         section.add_row(self._track(RangeRow('快速面板缩略图大小', '', 'quick_panel_thumbnail_size',
             self.config.get('quick_panel_thumbnail_size', 72), 40, 200, 6, self), 'quick_panel_thumbnail_size', 72))
         section.add_row(self._track(
-            RangeRow("面板宽度", "快速调用面板的宽度。", "quick_panel_width",
+            RangeRow("面板宽度", "快速面板的宽度。", "quick_panel_width",
                      self.config.get("quick_panel_width", 360), 250, 800, 10, self),
             "quick_panel_width", 360))
         section.add_row(self._track(
-            RangeRow("面板高度", "快速调用面板的高度。", "quick_panel_height",
+            RangeRow("面板高度", "快速面板的高度。", "quick_panel_height",
                      self.config.get("quick_panel_height", 480), 150, 1000, 10, self),
             "quick_panel_height", 480))
 
@@ -498,23 +590,22 @@ class SettingsCenter(QWidget):
         self.show_success(t("已恢复默认图标"), quiet=True)
 
     def _page_hotkeys(self):
-        section = self._section("GLOBAL HOTKEYS")
-        section.add_row(self._track(
-            SwitchRow('全局快捷键导入表情', '在其它应用中复制后，直接导入根层资源。',
-                      'clipboard_import_enabled', self.config.get('clipboard_import_enabled', True), self),
+        section = self._section('面板快捷键')
+        for title, hint, key, default in (
+            ('主面板快捷键', '显示或隐藏主面板。', 'global_hotkey', 'ctrl+shift+e'),
+            ('快速面板快捷键', '显示或隐藏快速面板。', 'quick_panel_hotkey', 'alt+2'),
+            ('剪贴板搜索快捷键', '读取剪贴板文字，在快速面板中搜索；留空禁用。', 'clipboard_search_hotkey', ''),
+        ):
+            section.add_row(self._track(HotkeyRow(title, hint, key,
+                self.config.get(key, default), self), key, default))
+        section = self._section('快捷导入')
+        section.add_row(self._track(SwitchRow('启用快捷键导入',
+            '复制表情后，使用快捷键添加到表情库，不归入分类。',
+            'clipboard_import_enabled', self.config.get('clipboard_import_enabled', True), self),
             'clipboard_import_enabled', True))
-        section.add_row(self._track(
-            HotkeyRow('导入快捷键', '', 'clipboard_import_hotkey',
-                      self.config.get('clipboard_import_hotkey', 'ctrl+alt+v'), self),
+        section.add_row(self._track(HotkeyRow('导入表情快捷键', '将剪贴板中的表情添加到表情库。',
+            'clipboard_import_hotkey', self.config.get('clipboard_import_hotkey', 'ctrl+alt+v'), self),
             'clipboard_import_hotkey', 'ctrl+alt+v'))
-        section.add_row(self._track(
-            HotkeyRow("主面板快捷键", "通过全局快捷键显示或隐藏主面板。", "global_hotkey",
-                      self.config.get("global_hotkey", "ctrl+shift+e"), self),
-            "global_hotkey", "ctrl+shift+e"))
-        section.add_row(self._track(
-            HotkeyRow("快速面板快捷键", "全局呼出快速表情面板。", "quick_panel_hotkey",
-                      self.config.get("quick_panel_hotkey", "alt+2"), self),
-            "quick_panel_hotkey", "alt+2"))
         section = self._section('Esc 隐藏面板')
         for key, title in (('esc_hide_main', '主面板'), ('esc_hide_quick', '快速面板')):
             row = SwitchRow(title, '没有其他需要优先取消的操作时，按 Esc 隐藏主面板。' if key == 'esc_hide_main' else '按 Esc 隐藏快速面板。',
@@ -522,16 +613,86 @@ class SettingsCenter(QWidget):
             section.add_row(self._track(row, key, False))
 
     def _page_send(self):
-        section = self._section("SENDING")
+        section = self._section('发送行为')
         section.add_row(self._track(ModeRow('主面板单击表情',
-            '单击选中：单击表情后，按 Enter 发送。\n单击发送：单击表情后立即发送。\n两种模式均支持拖动表情至聊天窗口。\n快速面板始终使用单击发送。',
+            '选择单击表情后的操作；快速面板始终单击发送。',
             'gallery_click_action', self.config.get('gallery_click_action', 'select'),
             [('select', '单击选中'), ('send', '单击发送')], self), 'gallery_click_action', 'select'))
-        section.add_row(self._track(
-            SwitchRow("发送时将静态图转为 GIF",
-                      "复制静态图时转为单帧 GIF，避免在聊天软件中显示为超大原图。",
-                      "convert_static_to_gif", self.config.get("convert_static_to_gif", True), self),
-            "convert_static_to_gif", True))
+        section.add_row(self._track(SwitchRow('发送时将静态图转为 GIF',
+            '复制静态图时转为单帧 GIF，避免在聊天软件中显示为超大原图。',
+            'convert_static_to_gif', self.config.get('convert_static_to_gif', True), self),
+            'convert_static_to_gif', True))
+        section.add_row(self._track(SwitchRow('发送后自动隐藏主面板',
+            '表情发送成功后隐藏主面板，仍可使用快捷键重新呼出。',
+            'hide_main_after_paste', self.config.get('hide_main_after_paste', False), self),
+            'hide_main_after_paste', False))
+
+    def _page_sounds(self):
+        section = self._section('音量')
+        section.add_row(self._track(RangeRow('音效音量', '所有操作音效共用音量，试听也使用此音量。',
+            'sound_volume', self.config.get('sound_volume', 85), 0, 100, 1, self, unit='%'), 'sound_volume', 85))
+        section = self._section('操作音效')
+        self._sound_rows = {}
+        for event, title, hint in (
+            ('send', '发送提示音', '表情成功发送后播放，复制时不播放。'),
+            ('import', '添加提示音', '新表情添加成功后播放，每批提示一次。'),
+            ('delete', '删除提示音', '表情删除成功后播放，每批提示一次。'),
+            ('reorder', '排序提示音', '拖动排序并改变顺序后播放。'),
+            ('category', '添加到分类提示音', '已有表情加入新分类后播放，移动时不播放。'),
+        ):
+            enabled_key, path_key = event+'_sound_enabled', event+'_sound_path'
+            row = SoundEventRow(title, hint, self.config.get(enabled_key, False),
+                self.config.get(path_key, ''), lambda checked=False, e=event: self._pick_sound(e),
+                lambda checked=False, e=event: self._preview_sound(e),
+                lambda checked=False, e=event: self._set_sound(e, ''), self)
+            self._track(row.enabled_field, enabled_key, False)
+            self._track(row.path_field, path_key, '')
+            section.add_row(row)
+            self._sound_rows[event] = row
+        from services.send_sound import sound_for
+        self._sound_player = sound_for(self.config)
+        self._sound_player.preview_changed.connect(self._sound_preview_changed)
+        self._sound_player.preview_failed.connect(self._sound_preview_failed)
+        self._sound_preview_changed(self._sound_player.preview_event)
+
+    def _sound_preview_changed(self, event):
+        for name, row in self._sound_rows.items():
+            row.set_previewing(name == event)
+
+    def _sound_preview_failed(self, event, message):
+        self.show_error(t('试听失败'), t(message))
+
+    def _set_send_sound(self,path):
+        self._set_sound('send',path)
+
+    def _set_sound(self,event,path):
+        player=getattr(self,'_sound_player',None)
+        if player is not None and player.preview_event == event:
+            player.stop_preview()
+        key=event+'_sound_path'
+        self._stage(key,path)
+        self._all_rows[key][0].set_value(path)
+
+    def _pick_send_sound(self):
+        self._pick_sound('send')
+
+    def _pick_sound(self,event):
+        path,_=QFileDialog.getOpenFileName(self,t('选择音效文件'),'',t('WAV 音效 (*.wav)'))
+        if path:self._set_sound(event,path)
+
+    def _preview_send_sound(self):
+        self._preview_sound('send')
+
+    def _preview_sound(self,event):
+        from services.send_sound import sound_for
+        player=sound_for(self.config)
+        if player.preview_event == event:
+            player.stop_preview()
+            return
+        key=event+'_sound_path'
+        player.play(self.config,event=event,preview=True,
+            path=self.pending.get(key,self.config.get(key,'')),
+            volume=self.pending.get('sound_volume',self.config.get('sound_volume',85)))
 
     def _page_packages(self):
         section = self._section("NEKORI PACKAGE")
@@ -713,11 +874,27 @@ class SettingsCenter(QWidget):
         try:
             run_exchange_task(self.window(),t('导出诊断资料'),
                               lambda progress,cancel:export_diagnostics(path,progress,cancel),cancellable=True)
-            self.show_success(t('诊断导出完成'),path)
+            self._show_diagnostic_result(os.path.abspath(path))
         except ExportCancelled:
             feedback_for(self).notice(t('诊断导出已取消'))
         except Exception as exc:
             self.show_error(t('诊断导出失败'),str(exc))
+
+    def _show_diagnostic_result(self, path):
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtWidgets import QApplication
+        dialog = dialogs.NekoriDialog(self.window(), t('诊断导出完成'))
+        label = QLabel(path, dialog)
+        label.setWordWrap(True)
+        label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        dialog.add_widget(label)
+        dialog.add_button(t('打开所在文件夹'), on_click=lambda:
+                          QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(path))))
+        dialog.add_button(t('复制路径'), on_click=lambda: QApplication.clipboard().setText(path))
+        dialog.add_button(t('关闭'), role='primary', on_click=dialog.accept)
+        dialog.resize(620, dialog.sizeHint().height())
+        dialog.exec()
 
     def _sync_update_status(self):
         if not hasattr(self,'update_badge'):return
@@ -735,6 +912,15 @@ class SettingsCenter(QWidget):
     # Save / discard / defaults / settings file
     # ==================================================================
     def _stage(self, key, value):
+        if key=='win10_acrylic_confirmed':return
+        if key=='window_acrylic_enabled' and value:
+            from services.acrylic_policy import is_windows10
+            if is_windows10() and not (self.config.get('win10_acrylic_confirmed',False) or getattr(self,'_win10_consent',False)):
+                if not dialogs.confirm(self.window(),t('毛玻璃兼容性提示'),t('Windows 10 环境下启用毛玻璃可能导致窗口拖动延迟、卡顿或显示异常。建议保持关闭。仍要开启吗？'),ok_text=t('仍然开启')):
+                    row=self._all_rows.get(key,(None,))[0]
+                    if row:row.set_value(False)
+                    return
+                self._win10_consent=True
         saved = self._autostart_enabled() if key == 'autostart' else self.config.config.get(key, self.config.default_config.get(key))
         if key == 'accent_color':
             from PySide6.QtGui import QColor
@@ -795,6 +981,7 @@ class SettingsCenter(QWidget):
         self._dirty = bool(dirty)
         for key,(row,_) in self._all_rows.items():row.set_pending(key in self.pending)
         self.dirty_label.setText(t("未保存的修改") if dirty else "")
+        self.dirty_label.setVisible(bool(dirty))
         valid = self._hotkeys_valid(self.pending)
         self.btn_save.setEnabled(dirty and valid)
         self.btn_discard.setEnabled(dirty)
@@ -815,6 +1002,15 @@ class SettingsCenter(QWidget):
             return True
         if not self._hotkeys_valid(keys):
             return False
+        if any(key.startswith('backup_') for key in keys):
+            from services.library_backup import output_directory
+            values={**self.config.config,**keys}
+            try:
+                if not 1<=values['backup_interval_hours']<=720 or not 1<=values['backup_keep']<=100:
+                    raise ValueError('备份设置中的数值超出允许范围')
+                output_directory(self._library_path(),values.get('backup_path',''))
+            except Exception as exc:self.show_error(t('保存失败'),t(str(exc)));return False
+        if keys.get('window_acrylic_enabled') and getattr(self,'_win10_consent',False):keys['win10_acrylic_confirmed']=True
         original = dict(self.config.config)
         original.update(self._preview_backup)
         autostart_before = self._autostart_enabled()
@@ -823,6 +1019,12 @@ class SettingsCenter(QWidget):
         hotkey_changed = bool({'clipboard_import_enabled', 'clipboard_import_hotkey'} & keys.keys())
         if command and hotkey_changed and not command.configure(keys):
             self.show_error(t('保存失败'), t(command.hotkey.error))
+            return False
+        search_command=getattr(self.config,'clipboard_search_command',None)
+        search_changed='clipboard_search_hotkey' in keys
+        if search_command and search_changed and not search_command.configure(keys):
+            if command and hotkey_changed:command.configure(original)
+            self.show_error(t('保存失败'),t(search_command.hotkey.error))
             return False
         try:
             from contextlib import nullcontext
@@ -833,12 +1035,23 @@ class SettingsCenter(QWidget):
                     self.autostart.set_enabled(keys['autostart'])
                     autostart_applied = True
                 self.config.config.update({k: v for k, v in keys.items() if k != 'autostart'})
-                self.config._save_config(self.config.config)
+                if keys.get('show_new_resource_markers') is False and self.storage is not None:
+                    import sqlite3
+                    try:
+                        with self.storage.lock, self.storage.index.connect(search=False) as db:
+                            db.execute('DELETE FROM resource_unseen')
+                            self.config._save_config(self.config.config)
+                    except sqlite3.Error as error:
+                        self.config._save_config(original)
+                        raise RuntimeError(str(error)) from error
+                else:
+                    self.config._save_config(self.config.config)
         except Exception as error:
             if 'library_path' not in keys and not isinstance(error,(OSError,RuntimeError)):raise
             self.config.config.clear()
             self.config.config.update(original)
             if command and hotkey_changed:command.configure(original)
+            if search_command and search_changed:search_command.configure(original)
             failure = str(error)
             if 'library_path' in keys:
                 from services.library_setup import LibraryLocationError
@@ -854,6 +1067,8 @@ class SettingsCenter(QWidget):
             self._set_dirty(bool(self.pending))
             self.show_error(t('保存失败'), failure)
             return False
+        if keys.get('show_new_resource_markers') is False and self.storage is not None:
+            self.storage.unseen_changed.emit()
         self.pending.clear()
         self.config.preview_values.clear()
         self._preview_backup.clear()
@@ -866,12 +1081,35 @@ class SettingsCenter(QWidget):
             self.settings_changed.emit(key)
         self._set_dirty(False)
         if 'window_acrylic_enabled' in keys:
-            self.feedback_host.notice(t('需要重启'), t('窗口毛玻璃设置将在重启后生效。'))
+            visual.theme.apply_material_preference()
+            self.show_success(t('设置已保存'),quiet=True)
         else:
             self.show_success(t('设置已保存'), quiet=True)
         return True
 
     def _hotkeys_valid(self, keys):
+        from services.import_hotkey import hotkey_parts
+        bindings={};errors={}
+        for key in ('global_hotkey','quick_panel_hotkey','clipboard_search_hotkey','clipboard_import_hotkey'):
+            if key=='clipboard_import_hotkey' and not keys.get('clipboard_import_enabled',self.config.get('clipboard_import_enabled',True)):continue
+            text=keys.get(key,self.config.get(key,''))
+            if not text:continue
+            try:
+                binding=hotkey_parts(text)
+                if binding in bindings:
+                    errors[key]=errors[bindings[binding]]='快捷键不能与其它功能相同。'
+                bindings[binding]=key
+            except ValueError as exc:errors[key]=str(exc)
+        for key in ('global_hotkey','quick_panel_hotkey','clipboard_search_hotkey','clipboard_import_hotkey'):
+            row=self._all_rows.get(key,(None,))[0]
+            if row is not None:
+                row.set_status(t(errors.get(key,'')), error=key in errors)
+        if errors:return False
+        search_row=self._all_rows.get('clipboard_search_hotkey',(None,))[0]
+        search_command=getattr(self.config,'clipboard_search_command',None)
+        if search_row is not None and search_command is not None:
+            error=search_command.hotkey.error
+            search_row.set_status(t(error or ('快捷键已生效' if search_command.hotkey.binding else '快捷键未启用')), error=bool(error))
         main = keys.get("global_hotkey", self.config.get("global_hotkey", ""))
         quick = keys.get("quick_panel_hotkey", self.config.get("quick_panel_hotkey", ""))
         normalize = lambda text: '+'.join(sorted(part.strip().lower() for part in text.split('+')))
@@ -879,8 +1117,7 @@ class SettingsCenter(QWidget):
         for key in ('global_hotkey', 'quick_panel_hotkey'):
             row = self._all_rows.get(key, (None,))[0]
             if row is not None:
-                row.set_hint(t('主面板快捷键与快速面板快捷键不能相同') if conflict else '')
-                row.hint_label.setStyleSheet(f'color: {visual.colors()["danger"]};' if conflict else '')
+                row.set_status(t('主面板快捷键与快速面板快捷键不能相同') if conflict else '', error=conflict)
         row = self._all_rows.get('clipboard_import_hotkey', (None,))[0]
         enabled = keys.get('clipboard_import_enabled', self.config.get('clipboard_import_enabled', True))
         text = keys.get('clipboard_import_hotkey', self.config.get('clipboard_import_hotkey', 'ctrl+alt+v'))
@@ -899,12 +1136,14 @@ class SettingsCenter(QWidget):
             status = command.hotkey.error if command else ''
             if not status:
                 status = '快捷键已生效' if command and command.hotkey.binding else '快捷键未启用'
-            row.set_hint(t(error or status))
-            row.hint_label.setStyleSheet(f'color: {visual.colors()["danger"]};' if error or (command and command.hotkey.error) else '')
+            row.set_status(t(error or status), error=bool(error or (command and command.hotkey.error)))
         conflict = conflict or bool(error)
         return not conflict
 
     def discard(self):
+        self._win10_consent=False
+        if hasattr(self,'_sound_player'):
+            self._sound_player.stop_preview()
         self._accent_commit_timer.stop()
         for key, value in self._preview_backup.items():
             self.config.preview_values.pop(key, None)
@@ -980,7 +1219,7 @@ class SettingsCenter(QWidget):
         # Window position is machine state, not a preference: exporting it
         # would move the window of whoever imports these settings.
         payload = {k: v for k, v in snapshot.items()
-                   if k not in ("window_geometry", "window_screen")}
+                   if k not in ("window_geometry", "window_screen", "win10_acrylic_confirmed")}
         try:
             with open(path, "w", encoding="utf-8") as handle:
                 json.dump(payload, handle, indent=4, ensure_ascii=False)
@@ -1005,7 +1244,7 @@ class SettingsCenter(QWidget):
             self.show_error(t("导入失败"), t("设置文件格式不正确"))
             return
         defaults = self._default_config()
-        values = {k: v for k, v in payload.items() if k in defaults and type(v) is type(defaults[k])}
+        values = {k: v for k, v in payload.items() if k in defaults and k!='win10_acrylic_confirmed' and type(v) is type(defaults[k])}
         if values.get('appearance_mode', 'system') not in ('system', 'light', 'dark') or any(values.get(k, 'nekori') not in THEMES for k in ('light_theme_key', 'dark_theme_key')):
             self.show_error(t('导入失败'), t('主题设置值不受支持'))
             return
@@ -1013,7 +1252,7 @@ class SettingsCenter(QWidget):
         if 'accent_color' in values and not QColor(values['accent_color']).isValid():
             self.show_error(t('导入失败'), t('主题色无效'))
             return
-        ranges = {'thumbnail_size': (60, 300), 'quick_panel_thumbnail_size': (40, 200), 'sidebar_icon_size': (14, 48), 'quick_panel_width': (250, 800), 'quick_panel_height': (150, 1000), 'recent_limit': (1, 999), 'preview_size': (100, 800), 'preview_delay': (100, 3000)}
+        ranges = {'backup_interval_hours':(1,720),'backup_keep':(1,100),'thumbnail_size': (60, 300), 'quick_panel_thumbnail_size': (40, 200), 'sidebar_icon_size': (14, 48), 'gallery_node_icon_size': (14, 48), 'sound_volume': (0, 100), 'quick_panel_width': (250, 800), 'quick_panel_height': (150, 1000), 'recent_limit': (1, 999), 'preview_size': (100, 800), 'preview_delay': (100, 3000)}
         if any(k in values and not low <= values[k] <= high for k, (low, high) in ranges.items()):
             self.show_error(t('导入失败'), t('设置文件中的数值超出界面允许范围'))
             return
@@ -1021,7 +1260,7 @@ class SettingsCenter(QWidget):
             self._stage(key, value)
         for key, (row, _) in self._all_rows.items():
             if key in values:
-                row.set_value(values[key])
+                row.set_value(self.pending.get(key,self.config.get(key)))
         self.show_success(t('设置已载入'), t('{value_0} 项待保存，可放弃修改').format(value_0=len(values)), quiet=True)
 
     # ==================================================================
@@ -1080,6 +1319,11 @@ class SettingsCenter(QWidget):
         self._sync_autostart()
         QTimer.singleShot(0, self._update_sticky_header)
 
+    def hideEvent(self, event):
+        if hasattr(self, '_sound_player'):
+            self._sound_player.stop_preview()
+        super().hideEvent(event)
+
     def _sync_autostart(self):
         row = self._all_rows.get("autostart", (None, None))[0]
         if row is not None and "autostart" not in self.pending:
@@ -1109,7 +1353,7 @@ class SettingsCenter(QWidget):
                 "preview_size", 320))
             section.add_row(self._track(
                 RangeRow("预览延迟", "鼠标停留多久后弹出预览。", "preview_delay",
-                         self.config.get("preview_delay", 500), 100, 3000, 50, self),
+                         self.config.get("preview_delay", 500), 100, 3000, 50, self, unit="毫秒"),
                 "preview_delay", 500))
             section.add_row(self._track(
                 ModeRow("表情预览位置", "固定：停靠在表情区右下角，被遮挡时移到左下；浮动：跟随鼠标。",

@@ -102,6 +102,7 @@ class ImportQueue(QObject):
         request.state='cancelled';self.changed.emit(rid)
 
     def submit(self,sources,target,owner,*,delete_after=False,operation=None,kind='import',background=False):
+        if target.insert_position is None:target=ImportTarget(target.parent_node,0)
         request=ImportRequest(list(sources),target,owner,delete_after);request.total=len(request.sources)
         request.operation=operation
         request.kind=kind
@@ -129,7 +130,7 @@ class ImportQueue(QObject):
             if request.state=='cancelled':continue
             from fluent_ui.views.gallery_view import ImportThread
             request.state='running';self.current=request.id
-            position=None
+            position=request.target.insert_position
             if request.before is not None:
                 position=next((i for i,e in enumerate(self.storage.index.content(request.target.parent_node))
                                if (e['kind'],e['id'])==request.before),None)
@@ -188,6 +189,9 @@ class ImportQueue(QObject):
         request.state='finalizing';self.changed.emit(request.id)
         self.files_finished.emit(request)
         request.state=terminal
+        if terminal=='completed' and worker.new_resource_count>0 and failed==0:
+            from services.send_sound import completed_sound
+            completed_sound(self.storage.config,'import')
         if request.paths and self.ocr.available and self.storage.config.get('ocr_auto',False) and terminal=='completed':
             request.state='recognizing'
             ids=[r['id'] for path in request.paths if (r:=self.storage.index.resource(path))]

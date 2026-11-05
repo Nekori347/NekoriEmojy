@@ -247,6 +247,8 @@ class NodeCard(QLabel):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        if self._dragging:
+            event.accept();return
         if not (event.buttons() & Qt.LeftButton) or self._drag_start is None:
             return super().mouseMoveEvent(event)
         if (event.pos() - self._drag_start).manhattanLength() < QApplication.startDragDistance():
@@ -266,13 +268,21 @@ class NodeCard(QLabel):
         drag.setPixmap(pixmap)
         width=round(pixmap.width()/pixmap.devicePixelRatio())-8
         drag.setHotSpot(QPoint(min(self._drag_start.x(),width-12)+4,self._drag_start.y()+4))
+        from fluent_ui.components.drop_contract import begin_drag,finish_drag
+        if not begin_drag(self,mime):
+            self._drag_start=None;self._dragging=False
+            return
         self._dragging=True;self.update()
         try:
             drag.exec(Qt.MoveAction)
         finally:
             self._drag_start=None;self._dragging=False;self._pressed=False
-            self.sync_pointer_state();self.update()
-            self.drag_finished.emit()
+            finish_drag(mime)
+            from shiboken6 import isValid
+            if isValid(self):
+                self.sync_pointer_state();self.update()
+                self.drag_finished.emit()
+            if hasattr(drag,'deleteLater') and isValid(drag):drag.deleteLater()
 
     def mouseReleaseEvent(self, event):
         self._pressed=False;self.update()

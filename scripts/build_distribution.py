@@ -23,7 +23,17 @@ def build(stage,compiler,iscc,output):
     with zipfile.ZipFile(archive,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as package:
         for name in names:package.write(stage/name,name)
     source=output/f'NekoriEmojy-{version}-Source.zip'
-    subprocess.run(['git','-C',str(ROOT),'archive','--format=zip','--output='+str(source),'HEAD'],check=True)
+    snapshot=ROOT/'rc-source-manifest.json'
+    if snapshot.is_file():
+        records=json.loads(snapshot.read_text('utf-8'))['files']
+        with zipfile.ZipFile(source,'x',zipfile.ZIP_DEFLATED) as package:
+            for name,digest in sorted(records.items()):
+                path=ROOT/name
+                if not path.is_relative_to(ROOT) or sha256(path)!=digest:raise ValueError('RC source snapshot changed: '+name)
+                package.write(path,name)
+            package.write(snapshot,snapshot.name)
+    else:
+        subprocess.run(['git','-C',str(ROOT),'archive','--format=zip','--output='+str(source),'HEAD'],check=True)
     def quoted(path):return str(path).replace('"','""')
     files=[]
     for name in names:
@@ -53,6 +63,7 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
+CloseApplicationsFilter=*.exe,*.dll
 RestartApplications=no
 LanguageDetectionMethod=uilanguage
 ShowLanguageDialog=auto
