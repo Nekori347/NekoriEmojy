@@ -74,6 +74,17 @@ class UpdateDialogTests(unittest.TestCase):
         self.assertTrue(self.dialog.check_button.isEnabled())
         self.assertTrue(self.dialog.page_button.isEnabled())
 
+    def test_long_release_has_room_to_read_and_keeps_full_release_link(self):
+        notes = '# Changes\n\n' + '\n'.join('- Update '+str(i) for i in range(120))
+        self.dialog._checked({'version':'0.2.3','notes':notes,'manual_only':True})
+        self.dialog.show()
+        QApplication.processEvents()
+        self.assertTrue(self.dialog.page_button.isVisible())
+        self.assertGreater(self.dialog.notes.height(),200)
+        self.assertGreater(self.dialog.notes.maximumHeight(),200)
+        self.assertIn('Update 119',self.dialog.notes.toPlainText())
+        self.assertGreater(self.dialog.notes.verticalScrollBar().maximum(),0)
+
     def test_active_import_prevents_restart(self):
         self.dialog._prepared({"version": "1.14.0"})
         with patch("fluent_ui.components.update_dialog.active_tasks", return_value=[object()]), \

@@ -4,10 +4,44 @@ from ctypes import wintypes
 
 import win32con
 import win32gui
-from PySide6.QtCore import QAbstractNativeEventFilter
+from PySide6.QtCore import QAbstractNativeEventFilter, Qt
+from PySide6.QtGui import QCursor
 from PySide6.QtWidgets import QApplication, QWidget
 
 from fluent_ui import visual
+
+
+def restore_client_cursor(window):
+    """Resolve the current Qt request after leaving a native sizing/OLE cursor.
+
+    Handling WM_SETCURSOR without setting anything preserves Windows' previous
+    non-client cursor. Respect overrides, inherited widget cursors and text
+    controls rather than substituting an unconditional arrow.
+    """
+    widget = QApplication.widgetAt(QCursor.pos())
+    if widget is None or widget.window() is not window:
+        return False
+    cursor = QApplication.overrideCursor() or widget.cursor()
+    shapes = {
+        Qt.ArrowCursor:32512, Qt.IBeamCursor:32513, Qt.WaitCursor:32514,
+        Qt.CrossCursor:32515, Qt.UpArrowCursor:32516, Qt.SizeFDiagCursor:32642,
+        Qt.SizeBDiagCursor:32643, Qt.SizeHorCursor:32644, Qt.SizeVerCursor:32645,
+        Qt.SizeAllCursor:32646, Qt.ForbiddenCursor:32648, Qt.PointingHandCursor:32649,
+        Qt.BusyCursor:32650, Qt.WhatsThisCursor:32651,
+        Qt.SplitVCursor:32645, Qt.SplitHCursor:32644,
+    }
+    user = ctypes.windll.user32
+    user.LoadCursorW.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    user.LoadCursorW.restype = ctypes.c_void_p
+    user.SetCursor.argtypes = [ctypes.c_void_p]
+    if cursor.shape() == Qt.BlankCursor:
+        user.SetCursor(None)
+        return True
+    identifier = shapes.get(cursor.shape())
+    if identifier is None:
+        return False  # Qt owns custom/pixmap cursors.
+    user.SetCursor(user.LoadCursorW(None, identifier))
+    return True
 
 
 def resize_hit(window, hwnd, position):

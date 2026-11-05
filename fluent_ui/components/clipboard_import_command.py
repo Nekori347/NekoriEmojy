@@ -31,7 +31,7 @@ class ClipboardImportCommand(QObject):
         if enabled:
             try:
                 parts = hotkey_parts(text)
-                for key in ('global_hotkey', 'quick_panel_hotkey'):
+                for key in ('global_hotkey', 'quick_panel_hotkey','clipboard_search_hotkey'):
                     try: same = parts == hotkey_parts(get(key, ''))
                     except ValueError: same = False
                     if same:raise ValueError('导入快捷键不能与唤醒或快速面板快捷键相同。')

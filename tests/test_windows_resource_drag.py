@@ -188,3 +188,34 @@ def test_only_completed_recycle_of_delivered_copies_is_delete_intent(tmp_path, m
     monkeypatch.setattr(native.ResourceDropSource, 'left_pressed', staticmethod(lambda: False))
     assert native.execute(drag) == (outcome == 'recycle')
     assert path.read_bytes() == b'fixture'
+
+@pytest.mark.parametrize('bridge', [False, True])
+def test_native_drop_releases_qt_implicit_mouse_target(tmp_path, monkeypatch, bridge):
+    """OLE consumes release; subsequent moves must reach the hovered card."""
+    from PySide6.QtCore import Qt, QPoint
+    from PySide6.QtGui import QDrag
+    from PySide6.QtWidgets import QApplication, QWidget, QLabel, QHBoxLayout
+    from PySide6.QtTest import QTest
+    from services.external_drag import ResourceDragMimeData
+    from services import windows_resource_drag as native
+    app=QApplication.instance() or QApplication([])
+    monkeypatch.setenv('NEKORI_APP_DATA',str(tmp_path/'app'));moves=[]
+    if not bridge:monkeypatch.setattr(native,'_post_mouse_release',lambda drag:None)
+    class Card(QLabel):
+        def mouseMoveEvent(self,event):moves.append(self.objectName())
+    window=QWidget();layout=QHBoxLayout(window);first=Card('first');second=Card('second')
+    first.setObjectName('first');second.setObjectName('second');first.setMouseTracking(True);second.setMouseTracking(True)
+    layout.addWidget(first);layout.addWidget(second);window.resize(420,180);window.show();QTest.qWait(60)
+    file=tmp_path/'fixture.png';file.write_bytes(b'fixture');drag=QDrag(first);drag.setMimeData(ResourceDragMimeData([str(file)]))
+    def ole(data,source,effects):source.QueryContinueDrag(False,0);return 0
+    monkeypatch.setattr(native.pythoncom,'DoDragDrop',ole);monkeypatch.setattr(native.ResourceDropSource,'left_pressed',staticmethod(lambda:False))
+    try:
+        handle=window.windowHandle();QTest.mousePress(handle,Qt.LeftButton,Qt.NoModifier,first.mapTo(window,QPoint(10,10)))
+        native.execute(drag);app.processEvents();moves.clear()
+        from PySide6.QtCore import QEvent,QPointF
+        from PySide6.QtGui import QMouseEvent
+        point=second.mapTo(window,QPoint(10,10))
+        app.sendEvent(handle,QMouseEvent(QEvent.MouseMove,QPointF(point),QPointF(window.mapToGlobal(point)),Qt.NoButton,Qt.NoButton,Qt.NoModifier));app.processEvents()
+        assert moves and moves[-1]==('second' if bridge else 'first'),moves
+    finally:
+        QTest.mouseRelease(window.windowHandle(),Qt.LeftButton);window.close();window.deleteLater();app.processEvents()

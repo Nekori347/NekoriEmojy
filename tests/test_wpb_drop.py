@@ -47,6 +47,8 @@ def test_gallery_drop_forwards_actual_global_position(gallery, monkeypatch):
     view, storage, parent, children, paths = gallery
     # Dropping in the category centre requests a membership menu at the drop.
     i = next(i for i,e in enumerate(view._entries) if e['id']==children[0])
+    view.scroll_area.verticalScrollBar().setValue(view.renderer.index.rects[i].top())
+    QTest.qWait(30)
     point = view.grid_container.mapTo(view, view.renderer.index.rects[i].center())
     mime = resource_mime(paths[:1]); calls=[]
     monkeypatch.setattr(view, 'request_resource_drop', lambda *a,**kw:calls.append((a,kw)))

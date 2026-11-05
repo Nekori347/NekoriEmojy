@@ -52,10 +52,29 @@ def test_settings_view_export_cancel_and_failure(settings,monkeypatch,tmp_path):
     c._open_logs();opened.assert_called_once_with(QUrl.fromLocalFile(str(tmp_path)))
     path=tmp_path/'ui-diagnostics.zip'
     monkeypatch.setattr('fluent_ui.views.settings_center.QFileDialog.getSaveFileName',lambda *a:(str(path),'ZIP'))
-    success=Mock();failure=Mock();monkeypatch.setattr(c,'show_success',success);monkeypatch.setattr(c,'show_error',failure)
+    success=Mock();failure=Mock();monkeypatch.setattr(c,'_show_diagnostic_result',success);monkeypatch.setattr(c,'show_error',failure)
     c._export_diagnostics();assert path.is_file();success.assert_called_once();failure.assert_not_called()
     monkeypatch.setattr('fluent_ui.views.settings_center.QFileDialog.getSaveFileName',lambda *a:('',''))
     c._export_diagnostics();assert success.call_count==1
     monkeypatch.setattr('fluent_ui.views.settings_center.QFileDialog.getSaveFileName',lambda *a:(str(path),'ZIP'))
     monkeypatch.setattr('services.diagnostic_export.export_diagnostics',Mock(side_effect=OSError('offline disk')))
     c._export_diagnostics();failure.assert_called_once()
+
+
+def test_export_result_preserves_full_path_and_offers_location_actions(settings,monkeypatch,tmp_path):
+    from fluent_ui.components.dialogs import NekoriDialog
+    from PySide6.QtWidgets import QLabel, QPushButton
+    from PySide6.QtCore import QUrl
+    path = str(tmp_path/'中文 diagnostics.zip')
+    opened=Mock(return_value=True)
+    monkeypatch.setattr('PySide6.QtGui.QDesktopServices.openUrl',opened)
+    def inspect(dialog):
+        assert path in [label.text() for label in dialog.findChildren(QLabel)]
+        buttons = {button.text():button for button in dialog.findChildren(QPushButton)}
+        buttons['打开所在文件夹'].click()
+        opened.assert_called_once_with(QUrl.fromLocalFile(str(tmp_path)))
+        assert '复制路径' in buttons
+        assert '关闭' in buttons
+        return 0
+    monkeypatch.setattr(NekoriDialog,'exec',inspect)
+    settings._show_diagnostic_result(path)

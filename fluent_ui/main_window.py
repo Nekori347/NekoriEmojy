@@ -88,6 +88,8 @@ class MainWindow(NekoriWindow):
 
         self._init_window()
         self._init_ui()
+        from fluent_ui.components.window_import import install_window_import
+        install_window_import(self,self.gallery_interface)
         self._init_global_hotkey()
         self._init_paste_shortcut()
         self._update_background()
@@ -349,6 +351,7 @@ class MainWindow(NekoriWindow):
         from fluent_ui.components.quick_panel import QuickPanel
         self.quick_panel = QuickPanel(self.storage, self.clipboard, self.config,
                                      send_target_service=self.send_target_service)
+        self.quick_panel.feedback_owner=self.gallery_interface.feedback_host
         # The shared desktop import queue refreshes the affected gallery entries.
         
     def refresh_library(self):
@@ -428,6 +431,8 @@ class MainWindow(NekoriWindow):
         self.hotkey_signal.quick_activated.connect(self._request_toggle_quick_panel)
         self.hotkey_listener = None
         self.bind_global_hotkey()
+        from fluent_ui.components.clipboard_search_command import ClipboardSearchCommand
+        self.clipboard_search_command=ClipboardSearchCommand(self,self.config)
 
     def _parse_pynput_hotkey(self, hotkey_str):
         """将 'ctrl+shift+e' 转换为 pynput 格式 '<ctrl>+<shift>+e'"""
@@ -435,8 +440,10 @@ class MainWindow(NekoriWindow):
         pynput_parts = []
         for part in parts:
             part = part.strip()
-            if part in ('ctrl', 'shift', 'alt', 'win'):
-                pynput_parts.append(f"<{part}>")
+            if len(part)>1:
+                name={'win':'cmd','meta':'cmd','pageup':'page_up','pagedown':'page_down',
+                      'return':'enter','del':'delete','ins':'insert'}.get(part,part)
+                pynput_parts.append(f"<{name}>")
             else:
                 pynput_parts.append(part)
         return "+".join(pynput_parts)
@@ -914,3 +921,8 @@ class MainWindow(NekoriWindow):
         except Exception:
             pass
         return super().nativeEvent(eventType, message)
+
+    def search_clipboard_text(self):
+        mime=QApplication.clipboard().mimeData()
+        text=mime.text().strip() if mime is not None and mime.hasText() else ''
+        if text:self.quick_panel.show_at_cursor(search_text=text)

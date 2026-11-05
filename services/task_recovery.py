@@ -35,6 +35,7 @@ class ImportCheckpoint:
 
     def create(self, sources, target, before, delete_after):
         value = dict(sources=[str(Path(s).absolute()) for s in sources], parent=target.parent_node, before=before,
+                     position=0 if target.insert_position is None else target.insert_position,
                      delete_after=delete_after, planned=False)
         with self.index.connect(search=False) as db:
             db.execute('INSERT INTO task_checkpoints VALUES (?,?,?,?)',
@@ -87,9 +88,11 @@ class ImportCheckpoint:
         if not parent or parent not in self.nodes:
             raise RecoveryWait('目标分类已改变，无法安全继续')
         before = self.header.get('before') if unit['parent'] is None else None
-        position = None
+        position = (self.header.get('position',0) if unit['parent'] is None else 0) + sum(
+            u['state']=='done' for u in self.units.values() if u['parent']==unit['parent'] and u is not unit)
         if before:
-            position = next((i for i,e in enumerate(self.index.content(parent)) if [e['kind'],e['id']]==list(before)), None)
+            entries=self.index.content(parent)
+            position = next((i for i,e in enumerate(entries) if [e['kind'],e['id']]==list(before)), len(entries))
         return ImportTarget(parent, position)
 
     def validate(self, unit):

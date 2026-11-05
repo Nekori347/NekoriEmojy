@@ -3,6 +3,10 @@ import os
 import glob
 import warnings
 
+if __name__ == '__main__' and len(sys.argv)==3 and sys.argv[1]=='--backup-worker':
+    from services.backup_worker import main as backup_worker_main
+    raise SystemExit(backup_worker_main(sys.argv[2]))
+
 if __name__ == '__main__' and len(sys.argv)==4 and sys.argv[1]=='--diagnostic-writer':
     from services.crash_evidence import collect_native
     collect_native(sys.argv[2],sys.argv[3])
@@ -99,6 +103,8 @@ def main():
     from services.i18n import i18n_engine, t
     
     app.setQuitOnLastWindowClosed(False)
+    from services.upgrade_shutdown import install_upgrade_shutdown
+    install_upgrade_shutdown(app)
     
     from PySide6.QtWidgets import QProgressDialog
     from services.migration_manager import MigrationManager

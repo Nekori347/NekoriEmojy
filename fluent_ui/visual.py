@@ -211,10 +211,21 @@ class UiTheme(QObject):
         self.config = config
         # Startup only: reuse the native material's existing process-local
         # opaque path, before shells create HWNDs. Save does not switch Alpha.
-        if not config.get('window_acrylic_enabled', True):
+        from services.acrylic_policy import allowed
+        if not allowed(config):
             import os
             os.environ['NEKORI_OPAQUE_MATERIAL'] = '1'
         load_fonts()
+
+    def apply_material_preference(self):
+        from PySide6.QtWidgets import QApplication
+        import os
+        from services.acrylic_policy import allowed
+        if allowed(self.config):os.environ.pop('NEKORI_OPAQUE_MATERIAL',None)
+        else:os.environ['NEKORI_OPAQUE_MATERIAL']='1'
+        for window in QApplication.topLevelWidgets():
+            if hasattr(window,'_material_key'):
+                self.material(window);window.update()
 
     def refresh(self):
         with self.transition():

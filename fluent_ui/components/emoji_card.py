@@ -580,6 +580,11 @@ class EmojiCard(QLabel):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
+        # Native OLE pumps Qt events. Further moves still carry LeftButton,
+        # but belong to the drag already in progress, not another press.
+        if self._is_dragging:
+            event.accept()
+            return
         if not (event.buttons() & Qt.LeftButton) or self._drag_start_pos is None:
             return super().mouseMoveEvent(event)
 
@@ -612,6 +617,11 @@ class EmojiCard(QLabel):
         drag.setPixmap(pixmap.scaled(60, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         drag.setHotSpot(QPoint(30, 30))
 
+        from fluent_ui.components.drop_contract import begin_drag,finish_drag
+        if not begin_drag(self,mime_data):
+            self._is_dragging=False;self._drag_start_pos=None;drag.deleteLater()
+            return
+
         self.setCursor(QCursor(Qt.ClosedHandCursor))
         recycled = False
         try:
@@ -624,12 +634,16 @@ class EmojiCard(QLabel):
                 drag.exec(Qt.CopyAction | Qt.MoveAction, Qt.CopyAction)
         finally:
             self._is_dragging = False
-            self.setCursor(QCursor(Qt.PointingHandCursor))
             self._drag_start_pos = None
-            self.drag_finished.emit()
-        if recycled:
+            finish_drag(mime_data)
+            from shiboken6 import isValid
+            if isValid(self):
+                self.setCursor(QCursor(Qt.PointingHandCursor))
+                self.drag_finished.emit()
+            if isValid(drag):drag.deleteLater()
+        if recycled and isValid(self):
             self.recycle_requested.emit(snapshot)
-        if mime_data.error:
+        if mime_data.error and isValid(self):
             from fluent_ui.components import dialogs
             from services.i18n import t
             dialogs.message(self.window(), t('无法拖出表情'),

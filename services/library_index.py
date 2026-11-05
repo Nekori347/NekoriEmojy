@@ -23,6 +23,8 @@ class LibraryIndex:
         self._search_projections = {}
         self._search_snapshot = None
         self.root = Path(root).expanduser().resolve()
+        from services.backup_activity import activity_for
+        self._backup_activity=activity_for(self.root)
         self.root.mkdir(parents=True, exist_ok=True)
         self.path = self.root / "index.sqlite3"
         with self.connect() as db:
@@ -59,6 +61,9 @@ class LibraryIndex:
                     used_at INTEGER NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS library_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS resource_unseen (
+                    resource_id TEXT PRIMARY KEY REFERENCES resources(id) ON DELETE CASCADE
+                );
                 CREATE TABLE IF NOT EXISTS task_checkpoints (
                     task_id TEXT NOT NULL, unit_id TEXT NOT NULL, kind TEXT NOT NULL,
                     payload TEXT NOT NULL, PRIMARY KEY(task_id,unit_id)
@@ -85,9 +90,17 @@ class LibraryIndex:
 
     @contextmanager
     def connect(self, *, search=True):
+        activity=self._backup_activity
         db = sqlite3.connect(self.path, timeout=30)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys=ON")
+        writing=False
+        if activity.tracking:
+            def trace(sql):
+                nonlocal writing
+                if not writing and sql.lstrip().split(None,1)[0].upper() in {'INSERT','UPDATE','DELETE','REPLACE','CREATE','ALTER','DROP'}:
+                    writing=True;activity.writer(True)
+            db.set_trace_callback(trace)
         try:
             with db:
                 yield db
@@ -95,6 +108,7 @@ class LibraryIndex:
                 self.search_revision = next(self._changes) + 1
         finally:
             db.close()
+            if writing:activity.writer(False)
 
     def relative_path(self, path):
         # Resolve junctions as well as '..'; the library never owns outside files.
@@ -263,7 +277,7 @@ class LibraryIndex:
                    (parent, item if kind == 'resource' else None,
                     item if kind == 'node' else None, slot))
 
-    def register(self, path, display_name=None, *, library_added_seq=None, target=None, checkpoint=None, duplicate=False, kept=False):
+    def register(self, path, display_name=None, *, library_added_seq=None, target=None, checkpoint=None, duplicate=False, kept=False, mark_new=True):
         relative = self.relative_path(path)
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -286,11 +300,14 @@ class LibraryIndex:
                 raise ValueError('library_added_seq must be a positive integer')
             db.execute("INSERT INTO resources(id,filename,relative_path,display_name,library_added_seq) VALUES (?,?,?,?,?)",
                        (resource_id, filename, relative, display_name or Path(path).name, seq))
+            if mark_new and getattr(self, 'track_new_resources', lambda: True)():
+                db.execute('INSERT INTO resource_unseen VALUES (?)', (resource_id,))
             db.execute("UPDATE library_meta SET value=? WHERE key='next_resource_seq'", (str(max(next_seq, seq + 1)),))
             self._insert(db, ROOT, "resource", resource_id, 0)
             if target is not None:
                 if target.parent_node != ROOT:
-                    self._insert(db, target.parent_node, 'resource', resource_id, target.insert_position)
+                    self._insert(db, target.parent_node, 'resource', resource_id,
+                                 0 if target.insert_position is None else target.insert_position)
                 elif target.insert_position is not None:
                     self._insert(db, ROOT, 'resource', resource_id, target.insert_position)
             if checkpoint:
@@ -342,14 +359,16 @@ class LibraryIndex:
             if icon is not None:
                 db.execute("UPDATE nodes SET icon=? WHERE id=?", (icon, node_id))
 
-    def move_node(self, node_id, parent_id=ROOT, position=None):
+    def move_node(self, node_id, parent_id=ROOT, position=None, *, report_order=False):
         parent_id = parent_id or ROOT
         if node_id == ROOT:
             raise ValueError("Cannot move the library root")
         with self.connect() as db:
+            if report_order:db.execute('BEGIN IMMEDIATE')
             old = db.execute("SELECT parent_id FROM nodes WHERE id=?", (node_id,)).fetchone()
             if old is None:
                 raise KeyError(node_id)
+            before=self._entries(db,parent_id) if report_order and (old[0] or ROOT)==parent_id else None
             descendants = {r[0] for r in db.execute("WITH RECURSIVE tree(id) AS (SELECT ? UNION ALL "
                 "SELECT n.id FROM nodes n JOIN tree t ON n.parent_id=t.id) SELECT id FROM tree", (node_id,))}
             if parent_id in descendants:
@@ -360,6 +379,7 @@ class LibraryIndex:
                 raise ValueError("Same-level node already exists at the destination") from exc
             db.execute("DELETE FROM content WHERE node_id=?", (node_id,))
             self._insert(db, parent_id, "node", node_id, position)
+            if report_order:return before is not None and before!=self._entries(db,parent_id)
 
     def move_nodes(self, node_ids, parent_id=ROOT, position=None):
         """Commit an ordered category block in one transaction and one order write per parent."""
@@ -368,6 +388,7 @@ class LibraryIndex:
         if not moving or ROOT in moving:
             return
         with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
             parents = {row['id']: row['parent_id'] or ROOT for row in
                        db.execute('SELECT id,parent_id FROM nodes')}
             if any(node_id not in parents for node_id in moving):
@@ -382,6 +403,8 @@ class LibraryIndex:
                     ancestor = parents[ancestor]
             affected = {parents[node_id] for node_id in moving} | {parent_id}
             streams = {key: self._entries(db, key) for key in affected}
+            before_target=list(streams[parent_id])
+            same_parent=all(parents[node_id]==parent_id for node_id in moving)
             selected = set(moving)
             for key in affected:
                 streams[key] = [entry for entry in streams[key]
@@ -401,6 +424,7 @@ class LibraryIndex:
                                [(key, item if kind == 'resource' else None,
                                  item if kind == 'node' else None, index)
                                 for index, (kind, item) in enumerate(entries)])
+            return same_parent and before_target!=streams[parent_id]
 
     def delete_node(self, node_id):
         """Remove this node's relations; promote children without touching files."""
@@ -427,10 +451,20 @@ class LibraryIndex:
         parent_id = parent_id or ROOT
         entries = [(e["kind"], e["id"]) if isinstance(e, dict) else tuple(e) for e in entries]
         with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
             current = self._entries(db, parent_id)
             if len(entries) != len(current) or set(entries) != set(current):
                 raise ValueError("Order must contain each direct content entry exactly once")
-            self._write_order(db, parent_id, entries)
+            # A permutation changes positions only. Keep membership rows and
+            # update the affected span instead of deleting/reinserting a large
+            # Library on every one-card move.
+            positions={('resource' if row['resource_id'] else 'node',row['resource_id'] or row['node_id']):row['position']
+                       for row in db.execute('SELECT resource_id,node_id,position FROM content WHERE parent_id=?',(parent_id,))}
+            for kind,column in [('resource','resource_id'),('node','node_id')]:
+                updates=[(index,parent_id,item) for index,(entry_kind,item) in enumerate(entries)
+                         if entry_kind==kind and positions[(entry_kind,item)]!=index]
+                db.executemany('UPDATE content SET position=? WHERE parent_id=? AND '+column+'=?',updates)
+            return entries!=current
 
     def reorder_resources(self, parent_id, resource_ids):
         """Reorder only the resource slots, leaving interleaved child nodes in place."""
@@ -468,34 +502,48 @@ class LibraryIndex:
             self._insert(db, target, "resource", resource_id, position)
             db.execute("DELETE FROM content WHERE parent_id=? AND resource_id=?", (source, resource_id))
 
-    def assign_memberships(self, resource_ids, target, *, copy=True, source=None, position=None):
+    def assign_memberships(self, resource_ids, target, *, copy=True, source=None, position=None, sources=None):
         """Apply a batch to the existing mixed content streams in one transaction."""
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
             target_entries = self._entries(db, target)
-            source_entries = self._entries(db, source) if not copy and source not in (None, ROOT, target) else None
-            target_changed = source_changed = False
-            added = 0
+            origins = {rid: (sources.get(rid) if sources else source) for rid in resource_ids}
+            source_streams = {parent:self._entries(db, parent) for parent in set(origins.values())
+                              if not copy and parent not in (None, ROOT, target)}
+            changed_sources = set()
+            target_changed = False
+            resource_ids = list(dict.fromkeys(rid for rid in resource_ids if rid is not None))
+            block = [('resource', rid) for rid in resource_ids]
+            # A numeric slot is measured in the original mixed stream. Remove
+            # the entire block once, then adjust that slot once.
+            if position is not None:
+                slot = max(0, min(position, len(target_entries)))
+                slot -= sum(entry in block for entry in target_entries[:slot])
+                added = sum(entry not in target_entries for entry in block)
+                target_entries = [entry for entry in target_entries if entry not in block]
+                target_entries[slot:slot] = block
+                target_changed = bool(block)
+            else:
+                added = 0
             for offset, resource_id in enumerate(resource_ids):
                 if resource_id is None:
                     continue
                 entry = ('resource', resource_id)
                 exists = entry in target_entries
-                if not exists:
+                if not exists and position is None:
                     added += 1
-                if not exists or position is not None:
-                    if exists:
-                        target_entries.remove(entry)
-                    slot = len(target_entries) if position is None else max(0, min(position + offset, len(target_entries)))
-                    target_entries.insert(slot, entry)
+                if not exists:
+                    target_entries.append(entry)
                     target_changed = True
+                parent = origins[resource_id]
+                source_entries = source_streams.get(parent)
                 if source_entries is not None and entry in source_entries:
                     source_entries.remove(entry)
-                    source_changed = True
+                    changed_sources.add(parent)
             if target_changed:
                 self._write_order(db, target, target_entries)
-            if source_changed:
-                self._write_order(db, source, source_entries)
+            for parent in changed_sources:
+                self._write_order(db, parent, source_streams[parent])
             return added
 
     def refresh_status(self):
@@ -584,6 +632,20 @@ class LibraryIndex:
             db.execute("INSERT INTO library_meta(key,value) VALUES (?,?) "
                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                        (str(key), str(value)))
+
+    def set_tag_order(self,names):
+        """Persist and report this transaction's logical tag-order change."""
+        ordered=list(dict.fromkeys(str(name) for name in names))
+        with self.connect(search=False) as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute("SELECT value FROM library_meta WHERE key='tag_order'").fetchone()
+            try:before=json.loads(row[0]) if row else []
+            except (ValueError,TypeError):before=[]
+            before=[str(name) for name in before] if isinstance(before,list) else []
+            db.execute("INSERT INTO library_meta(key,value) VALUES ('tag_order',?) "
+                       "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                       (json.dumps(ordered,ensure_ascii=False),))
+            return before!=ordered
 
     def set_search_fields(self, resource_id, *, tags=None, ocr_text=None):
         with self.connect() as db:

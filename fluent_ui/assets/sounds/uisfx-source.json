@@ -1,0 +1,78 @@
+{
+  "repository": "https://github.com/romainsimon/uisfx",
+  "commit": "9950fe66f993a6660dab9c2651dcbcd899ffd83b",
+  "files": {
+    "press": {
+      "url": "https://github.com/romainsimon/uisfx/blob/9950fe66f993a6660dab9c2651dcbcd899ffd83b/packages/uisfx/sounds/zen/press.ogg",
+      "sha256": "207fd9fd465261a9be86a0466b6069bcf0873b29fafbaeb0bb09fa13e2938a91",
+      "bytes": 1231,
+      "wav": "zen-press.wav",
+      "duration_seconds": 0.15520833333333334,
+      "gain_db": 11.28869779503749,
+      "active_rms_dbfs": -13.4,
+      "peak_dbfs": -3.170908970769158,
+      "wav_sha256": "739d8e91949f6ae1be8582190dfc69d0a06ab61ad3bccb0d27f6eadb0e1e5e8b",
+      "integrated_lufs_padded_1s": -20.5
+    },
+    "uncheck": {
+      "url": "https://github.com/romainsimon/uisfx/blob/9950fe66f993a6660dab9c2651dcbcd899ffd83b/packages/uisfx/sounds/zen/uncheck.ogg",
+      "sha256": "b95ab7aeb59eae03da6f1d9bc326ec44fb4eec9518363aaae0a78beba3d646cc",
+      "bytes": 2127,
+      "wav": "zen-uncheck.wav",
+      "duration_seconds": 0.24541666666666667,
+      "gain_db": 8.78863189697224,
+      "active_rms_dbfs": -17.1,
+      "peak_dbfs": -5.277172762820708,
+      "wav_sha256": "5704afc7502878cef2044929072c07293faeb2659fb051508cba16b8dae58f1f",
+      "integrated_lufs_padded_1s": -20.5
+    },
+    "LICENSE-AUDIO": {
+      "url": "https://github.com/romainsimon/uisfx/blob/9950fe66f993a6660dab9c2651dcbcd899ffd83b/LICENSE-AUDIO",
+      "sha256": "b608f986ab3b405a626f33345ccd216fba9f6d6cb0ec8b9672a0cc3d4bbda0c9",
+      "bytes": 686
+    },
+    "reorder": {
+      "url": "https://github.com/romainsimon/uisfx/blob/9950fe66f993a6660dab9c2651dcbcd899ffd83b/packages/uisfx/sounds/zen/reorder.ogg",
+      "sha256": "5a088889a1fb198b1c51cef4a58c5dd18299ad5434405867cbcc079926b286d9",
+      "bytes": 2734,
+      "wav": "zen-reorder.wav",
+      "wav_sha256": "3a61d39972c33e81390d09cabdc3d2b3b40e69d7479402966eb8e10d2955d142",
+      "duration_seconds": 0.3027916666666667,
+      "gain_db": 7.199999999999999,
+      "peak_dbfs": -6.880320680334194,
+      "active_rms_dbfs": -19.932018861885233,
+      "integrated_lufs_padded_1s": -20.5,
+      "true_peak_dbfs": -6.88,
+      "target_limited_by_peak": false
+    },
+    "typing": {
+      "url": "https://github.com/romainsimon/uisfx/blob/9950fe66f993a6660dab9c2651dcbcd899ffd83b/packages/uisfx/sounds/zen/typing.ogg",
+      "sha256": "b088ae2a7679801561dc406768c63c0feb059ae5726116145e0c9cfc26dd756f",
+      "bytes": 1213,
+      "wav": "zen-typing.wav",
+      "wav_sha256": "1a38385abecf471f6a48538812a6a1245de0494e1edc42f1bf2f8c6c1081995a",
+      "duration_seconds": 0.08491666666666667,
+      "gain_db": 16.47,
+      "peak_dbfs": -3.0601032203732674,
+      "active_rms_dbfs": -21.1889028171691,
+      "integrated_lufs_padded_1s": -25.55,
+      "true_peak_dbfs": -3.05,
+      "target_limited_by_peak": true
+    },
+    "swipe": {
+      "url": "https://github.com/romainsimon/uisfx/blob/9950fe66f993a6660dab9c2651dcbcd899ffd83b/packages/uisfx/sounds/zen/swipe.ogg",
+      "sha256": "211aa51b783213e6b928784ce8ee26ec1d54e3e17fabd0213c1b0d7fae8d6c8f",
+      "bytes": 1776,
+      "wav": "zen-swipe.wav",
+      "wav_sha256": "e83d6005889afc30035d46158e316f3b7fd4eb76bc0aec1644b46c3333a400c7",
+      "duration_seconds": 0.319,
+      "gain_db": 9.75,
+      "peak_dbfs": -5.24126923943892,
+      "active_rms_dbfs": -21.749802653663032,
+      "integrated_lufs_padded_1s": -20.55,
+      "true_peak_dbfs": -5.24,
+      "target_limited_by_peak": false
+    }
+  },
+  "processing": "Decode originals to stereo PCM 48 kHz / signed 16-bit. Static gain only; no synthesis, EQ or dynamics compression. Integrated EBU R128 measured with 1 second measurement-only silence padding; target -20.5 LUFS, peak below -3 dBFS."
+}

@@ -151,8 +151,11 @@ def _native_sink(path):
     read_fd, write_fd = os.pipe()
     options = dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     frozen = getattr(sys,'frozen',False) or globals().get('__compiled__')
-    prefix = [sys.executable,'--diagnostic-writer'] if frozen else [sys.executable,'-m','services.crash_evidence','--diagnostic-writer']
     try:
+        if frozen:
+            from services.autostart import _process_executable
+            prefix=[str(_process_executable()),'--diagnostic-writer']
+        else:prefix=[sys.executable,'-m','services.crash_evidence','--diagnostic-writer']
         handle = read_fd
         if sys.platform == 'win32':
             import msvcrt

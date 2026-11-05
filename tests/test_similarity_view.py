@@ -190,9 +190,22 @@ class SimilarityViewTests(unittest.TestCase):
 
         QTimer.singleShot(0, browse_and_close)
         self.dialog.preview(self.dialog.groups[0], 0)
-        self.assertEqual(self.dialog.page, 1)
-        self.assertEqual(self.dialog.pictures[0].feature.path, self.dialog.groups[0][2].path)
-        self.assertTrue(self.dialog.scroll.widget().findChild(CheckBox).isChecked())
+        self.assertEqual(self.dialog.page, 0)  # the oversized group remains intact
+        self.assertEqual(self.dialog.pictures[2].feature.path, self.dialog.groups[0][2].path)
+        self.assertTrue(self.dialog.scroll.widget().findChildren(CheckBox)[2].isChecked())
+
+    def test_pages_keep_groups_and_oversized_group_without_losing_members(self):
+        from fluent_ui.views.similarity_view import result_pages
+        for sizes in ([3,4,2,26,2,28], [35,2], [2,80,2], [], [36,36]):
+            groups = [list(range(n)) for n in sizes]
+            pages = result_pages(groups,36)
+            entries = [entry for page in pages for entry in page]
+            self.assertEqual(entries, [(g,i) for g,n in enumerate(sizes) for i in range(n)])
+            for g,n in enumerate(sizes):
+                self.assertEqual(sum(any(eg==g for eg,i in page) for page in pages), 1)
+            for page in pages:
+                if len(page)>36:
+                    self.assertEqual(len({g for g,i in page}), 1)
 
     def test_delete_failure_restores_controls_and_allows_retry(self):
         self.dialog.start_scan()

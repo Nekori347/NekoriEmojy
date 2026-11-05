@@ -1,0 +1,18 @@
+<!-- Exact MetaButton default-action glyph, shared action_glyphs.py geometry. -->
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="11.2889mm" height="11.2889mm"
+ viewBox="0 0 32 32"
+ xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.2" baseProfile="tiny">
+<title>Qt SVG Document</title>
+<desc>Generated with Qt</desc>
+<defs>
+</defs>
+<g fill="none" stroke="black" stroke-width="1" fill-rule="evenodd" stroke-linecap="square" stroke-linejoin="bevel" >
+
+<g fill="currentColor" fill-opacity="1" stroke="none" transform="matrix(1,0,0,1,16,16)"
+font-family="Sans Serif" font-size="9" font-weight="400" font-style="normal"
+>
+<path vector-effect="none" fill-rule="evenodd" d="M10,0 L9.83889,1.79751 L9.37437,3.48932 L8.63471,5.04719 L7.64813,6.44287 L6.44287,7.64813 L5.04719,8.63471 L3.48932,9.37437 L1.79751,9.83889 L0,10 L-1.79751,9.83889 L-3.48932,9.37437 L-3.96449,9.14877 L-1.58113,5.74498 L0,6 L1.89646,5.69412 L3.54352,4.84235 L4.84235,3.54352 L5.69412,1.89646 L6,0 L5.69412,-1.89646 L4.8765,-3.47748 L7.23922,-6.85178 L7.64813,-6.44287 L8.63471,-5.04719 L9.37437,-3.48932 L9.83889,-1.79751 L10,0 Z M-7.23922,6.85178 L-7.64813,6.44287 L-8.63471,5.04719 L-9.37437,3.48932 L-9.83889,1.79751 L-10,0 L-9.83889,-1.79751 L-9.37437,-3.48932 L-8.63471,-5.04719 L-7.64813,-6.44287 L-6.44287,-7.64813 L-5.04719,-8.63471 L-3.48932,-9.37437 L-1.79751,-9.83889 L0,-10 L1.79751,-9.83889 L3.48932,-9.37437 L3.96449,-9.14877 L1.58113,-5.74498 L0,-6 L-1.89646,-5.69412 L-3.54352,-4.84235 L-4.84235,-3.54352 L-5.69412,-1.89646 L-6,0 L-5.69412,1.89646 L-4.8765,3.47748 L-7.23922,6.85178 Z "/>
+</g>
+</g>
+</svg>

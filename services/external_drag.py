@@ -49,6 +49,9 @@ class ResourceDragMimeData(QMimeData):
         self._sources = tuple(path for path in paths if os.path.isfile(path))
         self._exports = None
         self.error = None
+        from fluent_ui.components.drop_contract import prepare_drag,DRAG_SESSION_MIME
+        operation=prepare_drag(self)
+        self.setData(DRAG_SESSION_MIME,operation.id.encode())
 
     def formats(self):
         formats = super().formats()
@@ -63,6 +66,7 @@ class ResourceDragMimeData(QMimeData):
         if self._exports is not None:
             return self._exports
         self._exports = []
+        started=time.perf_counter()
         try:
             root = app_data_dir() / 'cache' / 'external_drag'
             root.mkdir(parents=True, exist_ok=True)
@@ -85,6 +89,10 @@ class ResourceDragMimeData(QMimeData):
             self._exports = exports
         except OSError as error:
             self.error = error
+        from fluent_ui.components.drop_contract import prepare_drag
+        operation=prepare_drag(self)
+        from services import crash_evidence as evidence
+        evidence.breadcrumb('drag_files_prepared',session=operation.id,files=len(self._exports),elapsed_ms=round((time.perf_counter()-started)*1000,2),failed=self.error is not None)
         return self._exports
 
     def retrieveData(self, mime_type, preferred_type):

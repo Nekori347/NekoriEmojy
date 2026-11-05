@@ -117,12 +117,16 @@ class ResourceDropSource:
     _com_interfaces_ = [pythoncom.IID_IDropSource]
     _public_methods_ = ['QueryContinueDrag', 'GiveFeedback']
 
-    def __init__(self, image=None):
+    def __init__(self, image=None, operation=None):
         self.image = image
+        self.operation = operation
         self.released = False
         self.cancelled = False
 
     def QueryContinueDrag(self, escape, keys):
+        if self.operation is not None and self.operation.state in ('cancelled','failed','rejected'):
+            self.cancelled=True
+            return winerror.DRAGDROP_S_CANCEL
         if self.image:
             self.image.move()
         if escape:
@@ -195,6 +199,34 @@ class NativeDragImage:
         win32gui.ImageList_Destroy(self.images)
 
 
+def _post_mouse_release(drag):
+    """Release Qt's implicit widget target after OLE consumes the button-up.
+
+    Qt's Windows drag source does the same via QWindowSystemInterface
+    (QTBUG-66447). Post to our QWindow, never inject system input or click a
+    widget under the final cursor. The source finishes its drag before delivery.
+    """
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QCursor, QGuiApplication, QMouseEvent
+    from PySide6.QtWidgets import QWidget
+    from shiboken6 import isValid
+    if not isValid(drag):
+        return
+    widget = drag.source()
+    if not isinstance(widget, QWidget) or not isValid(widget):
+        return
+    window = widget.window()
+    handle = window.windowHandle()
+    if handle is None:
+        return
+    point = QCursor.pos()
+    QCoreApplication.postEvent(handle, QMouseEvent(
+        QEvent.MouseButtonRelease, QPointF(window.mapFromGlobal(point)),
+        QPointF(point), Qt.LeftButton,
+        QGuiApplication.mouseButtons() & ~Qt.LeftButton,
+        QGuiApplication.queryKeyboardModifiers()))
+
+
 def execute(drag):
     """Return recycle completion only after native DoDragDrop has unwound.
 
@@ -203,14 +235,28 @@ def execute(drag):
     """
     data = ResourceDataObject(drag.mimeData())
     image = NativeDragImage(drag.pixmap(), drag.hotSpot()) if not drag.pixmap().isNull() else None
-    source = ResourceDropSource(image)
+    from fluent_ui.components.drop_contract import prepare_drag
+    operation=prepare_drag(drag.mimeData())
+    source = ResourceDropSource(image,operation)
     try:
-        pythoncom.DoDragDrop(wrap(data, pythoncom.IID_IDataObject),
-                             wrap(source, pythoncom.IID_IDropSource), 3)
+        effect=pythoncom.DoDragDrop(wrap(data, pythoncom.IID_IDataObject),
+                                  wrap(source, pythoncom.IID_IDropSource), 3)
+        drag.mimeData().external_result={'session_id':operation.id,'effect':int(effect or 0),
+            'released':source.released,'cancelled':source.cancelled,'data_requested':data.delivered_files}
+        if operation.state=='dragging':
+            if source.released and not source.cancelled and effect and data.delivered_files:
+                operation.state='handed_off'
+            else:operation.cancel('ole_no_drop')
         return (source.released and not source.cancelled
                 and data.target == RECYCLE_BIN and data.logical_effect == 2
                 and data.delivered_files and drag.mimeData().error is None)
     finally:
         data.completed = True  # late target feedback cannot affect another session
-        if image:
-            image.close()
+        try:
+            if image:
+                image.close()
+        finally:
+            # Escape while held still gets its real release after OLE returns.
+            # Only bridge an actual release consumed by this native session.
+            if source.released:
+                _post_mouse_release(drag)

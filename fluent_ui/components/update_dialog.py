@@ -80,8 +80,8 @@ class UpdateDialog(dialogs.NekoriDialog):
         layout.addWidget(self.status)
         self.notes = TextEdit()
         self.notes.setReadOnly(True)
-        self.notes.setFixedHeight(160);self.notes.hide()
-        layout.addWidget(self.notes)
+        self.notes.setMinimumHeight(160);self.notes.hide()
+        layout.addWidget(self.notes, 1)
         self.progress = ProgressBar()
         self.progress.setRange(0, 100)
         self.progress.hide()
@@ -189,17 +189,20 @@ class UpdateDialog(dialogs.NekoriDialog):
         self.prepared = None
         self.latest_label.setText(t('最新可用版本')+'：v'+release['version']);self.latest_label.show()
         self.status.setText(t('有可用更新') if release.get('notes') else t('有可用更新，暂未获取更新说明。'))
-        self.notes.setPlainText(release.get('notes',''));self.notes.setVisible(bool(release.get('notes')))
-        self.notes.document().setTextWidth(470)
-        self.notes.setFixedHeight(max(60,min(200,round(self.notes.document().size().height())+16)))
+        self.notes.setMarkdown(release.get('notes',''));self.notes.setVisible(bool(release.get('notes')))
         self.action_button.setText(t("下载更新"))
         self.action_button.setEnabled(True)
         if release.get('manual_only') or not (self.service.root / MANIFEST).is_file():
             self.action_button.setText(t('获取更新'))
-        self.check_button.hide();self.page_button.hide();self._fit_content()
+        self.check_button.hide();self.page_button.show();self._fit_content()
 
     def _fit_content(self):
-        self.layout().activate();self.resize(520,self.layout().sizeHint().height())
+        self.layout().activate()
+        area = self.screen().availableGeometry()
+        if self.release and self.release.get('notes'):
+            self.resize(min(760, area.width()-32), min(640, area.height()-48))
+        else:
+            self.resize(min(600, area.width()-32), self.layout().sizeHint().height())
         if self.parentWidget():dialogs.center_on_owner(self,self.parentWidget())
 
     def _set_modality(self, modality):

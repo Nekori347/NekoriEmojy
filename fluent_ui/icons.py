@@ -16,6 +16,12 @@ def _renderer(name, color):
 
 
 class Icon(FluentIconBase, Enum):
+    PLAY = 'player-play'
+    STOP = 'player-stop'
+    RESTORE = 'restore'
+    SPEAKER = 'speaker'
+    NOTIFICATIONS = 'bell'
+    NEW_RESOURCE = 'star-four-fill'
     ACCEPT = 'check'
     ADD = 'plus'
     IMPORT_MENU = 'mood-plus'
@@ -109,6 +115,13 @@ class Icon(FluentIconBase, Enum):
         color = attributes.get('fill') or attributes.get('stroke') or visual.colors()['text']
         if hasattr(color, 'name'):
             color = color.name()
+        if self is Icon.RESTORE:
+            from PySide6.QtGui import QColor
+            from fluent_ui.presentation.action_glyphs import default_reset_path
+            painter.save();painter.translate(QRectF(rect).center())
+            painter.scale(rect.width()/32,rect.height()/32)
+            painter.fillPath(default_reset_path(),QColor(color));painter.restore()
+            return
         painter.save()
         _renderer(self.value, color).render(painter, QRectF(rect))
         painter.restore()

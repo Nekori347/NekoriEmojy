@@ -59,11 +59,12 @@ def test_batch_assignment_keeps_copy_move_and_mixed_order_semantics(tmp_path):
                                target=ImportTarget(source))[0]
              for i, color in enumerate(('red', 'green', 'blue'))]
     ids = [storage.index.resource(path)['id'] for path in paths]
+    source_order = [entry['id'] for entry in storage.index.content(source)]
     assert storage.move_resources_to(paths[:1], target, copy=True) == 1
     assert storage.move_resources_to(paths, target, copy=True, position=0) == 2
     assert [(entry['kind'], entry['id']) for entry in storage.index.content(target)] == [
         ('resource', ids[0]), ('resource', ids[1]), ('resource', ids[2]), ('node', child)]
-    assert [entry['id'] for entry in storage.index.content(source)] == ids
+    assert [entry['id'] for entry in storage.index.content(source)] == source_order
     assert storage.move_resources_to(paths, target, copy=False, source_node=source) == 0
     assert not storage.index.content(source)
     assert [entry['id'] for entry in storage.index.content(target)[:3]] == ids

@@ -142,7 +142,7 @@ def test_duplicate_reuse_preserves_other_memberships_and_live_anchor(setup):
     a=storage.create_node('A');b=storage.create_node('B')
     old=storage.save_file(sources[0],target=ImportTarget(a))[0]
     rid=storage.index.resource(old)['id'];storage.index.add_membership(rid,b)
-    anchor=storage.save_file(sources[2],target=ImportTarget(b))[0]
+    anchor=storage.save_file(sources[2],target=ImportTarget(b,1))[0]
     anchor_id=storage.index.resource(anchor)['id']
     job=ImportCheckpoint(storage,'import-test')
     job.create([sources[0],sources[1]],ImportTarget(b,0),('resource',anchor_id),False)

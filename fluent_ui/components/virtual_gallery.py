@@ -98,6 +98,26 @@ class FlowIndex:
     def between(self, top, bottom):
         return range(bisect_left(self.bottoms, top), bisect_right(self.tops, bottom))
 
+    def nearest(self, point):
+        """Exact Manhattan nearest rectangle, bounded by sorted row geometry."""
+        if not self.rects:return None
+        start=bisect_left(self.bottoms,point.y())
+        best=None;distance=float('inf')
+        def consider(index):
+            nonlocal best,distance
+            rect=self.rects[index]
+            value=(max(rect.left()-point.x(),0,point.x()-rect.right())+
+                   max(rect.top()-point.y(),0,point.y()-rect.bottom()))
+            if value<distance or (value==distance and (best is None or index<best)):
+                best,distance=index,value
+        for index in range(start,len(self.rects)):
+            if self.tops[index]-point.y()>distance:break
+            consider(index)
+        for index in range(min(start-1,len(self.rects)-1),-1,-1):
+            if point.y()-self.bottoms[index]>distance:break
+            consider(index)
+        return best
+
 
 class VirtualGallery:
     def __init__(self, gallery):
@@ -134,6 +154,9 @@ class VirtualGallery:
         finally:
             self.updating = False
         self.sync()
+        if hasattr(g,'new_markers'):
+            g.new_markers.refresh()
+            g.new_markers.layout_changed()
 
     def retire(self, card):
         focus = QApplication.focusWidget()
@@ -143,6 +166,7 @@ class VirtualGallery:
             self.gallery.scroll_area.viewport().setFocus(Qt.OtherFocusReason)
         if isinstance(card, EmojiCard) and getattr(self.gallery, 'preview_controller', None):
             self.gallery.preview_controller.leave(card)
+            if hasattr(self.gallery,'new_markers'):self.gallery.new_markers.cancel()
         card._renderer.hide()
         self.pool[card.content_entry['kind']].append(card)
 
@@ -198,6 +222,9 @@ class VirtualGallery:
             card._source_label = QLabel(wrapper)
             card._source_label.setProperty('role', 'data')
             card.gallery_reload = g._reload_resource_thumbnail
+            if hasattr(g,'new_markers'):
+                card.setMouseTracking(True)
+                card.installEventFilter(g.new_markers)
         else:
             card.setParent(g.grid_container)
             card._renderer = card
@@ -291,6 +318,10 @@ class VirtualGallery:
         # on every batch. sync() discards obsolete viewport requests above.
         self.loader.request(batch,append=True)
         g._sync_hover_card()
+        if hasattr(g,'new_markers'):
+            g.new_markers.raise_()
+            g.new_markers.update()
+            if g.drop_feedback.isVisible():g.drop_feedback.raise_()
         if self._pending:
             self._batch_timer.start()
             return

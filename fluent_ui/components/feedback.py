@@ -436,7 +436,7 @@ class FeedbackHost(QObject):
         return False
 
 
-    def upsert_task(self,key,title,*,current=0,total=0,state='running',content='',kind='import',cancel=None,resume=None,details='',action_text=None,phase='',caption=None):
+    def upsert_task(self,key,title,*,current=0,total=0,state='running',content='',kind='import',cancel=None,resume=None,details='',action_text=None,phase='',caption=None,count_text=None):
         """Update the existing job identity; presentation never starts or cancels work."""
         if self._dismissed_task_states.get(key)==state and state not in {'running','waiting'}:return
         if state in {'running','waiting'}:self._dismissed_task_states.pop(key,None)
@@ -444,6 +444,7 @@ class FeedbackHost(QObject):
         value=dict(title=clean_message(title),current=current,total=total,state=state,content=clean_message(content),kind=kind,cancel=cancel,resume=resume,details=str(details),action_text=action_text)
         value['phase']=phase
         value['caption']=caption
+        value['count_text']=count_text
         if previous==value:return
         if not previous or previous.get('state')!=state:
             from services.crash_evidence import breadcrumb

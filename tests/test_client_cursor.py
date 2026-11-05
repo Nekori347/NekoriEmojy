@@ -20,8 +20,10 @@ def test_client_setcursor_does_not_replace_qt_cursor(monkeypatch,shape,override,
     host._native_message=wintypes.MSG();host._native_state_log=None
     host.setCursor(shape)
     if override:app.setOverrideCursor(Qt.WaitCursor)
-    calls=[];backend=[]
+    calls=[];backend=[];resolved=[]
     monkeypatch.setattr('fluent_ui.window_shell.win32gui.SetCursor',lambda cursor:calls.append(cursor))
+    monkeypatch.setattr('fluent_ui.components.native_resize.restore_client_cursor',
+                        lambda window:(resolved.append(window.cursor().shape()) or True))
     monkeypatch.setattr(FramelessWindow,'nativeEvent',lambda *args:(backend.append(args[1]) or (False,0)))
     msg=wintypes.MSG();msg.message=win32con.WM_SETCURSOR
     msg.lParam=(win32con.WM_MOUSEMOVE<<16)|hit
@@ -33,6 +35,8 @@ def test_client_setcursor_does_not_replace_qt_cursor(monkeypatch,shape,override,
         app.restoreOverrideCursor()
     if hit==win32con.HTCLIENT:
         assert result==(True,1) and backend==[]
+        assert resolved==[shape]
     else:
         assert result==(False,0) and backend==[b'windows_generic_MSG']
+        assert resolved==[]
     host.deleteLater();app.processEvents()

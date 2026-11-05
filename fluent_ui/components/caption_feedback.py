@@ -165,6 +165,7 @@ class CaptionFeedback(QObject):
     """View selection/lifetime only; queue and recognition states stay in FeedbackHost."""
     def __init__(self,host,window):
         super().__init__(host);self.host=host;self.window=window
+        self.notification_button=None
         self.primary=None;self.overlay=None;self.pending=deque();self.hovered=set()
         self.opened=False;self.expansion=0.0;self._scroll_position=0
         self.fold=QVariantAnimation(self);self.fold.setDuration(220);self.fold.setEasingCurve(QEasingCurve.InOutCubic)
@@ -210,6 +211,11 @@ class CaptionFeedback(QObject):
         # rather than relying on the window's pre-resize event filter alone.
         self.caption_widgets=[]
         self._watch_caption(window)
+        # Only passive caption surfaces forward a press to native window move.
+        # Buttons and the expanded list keep their existing input contracts.
+        self.drag_surfaces=(host.strip,host.title_label,host.state_icon,host.progress,
+                            host.count_label,self.actions,self.cover,self.cover.front,self.cover.label,self.cover.icon)
+        for widget in self.drag_surfaces:widget.installEventFilter(self)
         i18n_engine.language_changed.connect(self.refresh)
         visual.theme.motion_changed.connect(self.reposition)
         self.refresh_theme()
@@ -224,7 +230,25 @@ class CaptionFeedback(QObject):
     def _watch_caption(self,window):
         for widget in self.caption_widgets:widget.removeEventFilter(self)
         title=getattr(window,'titleBar',None)
-        self.caption_widgets=[] if title is None else [title]+[getattr(title,n) for n in ('minBtn','titleLabel','iconLabel','themeButton') if hasattr(title,n)]
+        if title is not None and hasattr(title,'themeButton'):
+            if self.notification_button is None:
+                self.notification_button=TransparentToolButton(Icon.NOTIFICATIONS,title)
+                self.notification_button.setFixedSize(title.themeButton.size())
+                self.notification_button.hide()
+                self.notification_button.clicked.connect(self.toggle)
+                self.notification_button.installEventFilter(self)
+            else:
+                old=self.notification_button.parentWidget()
+                if old is not title:
+                    if getattr(old,'notificationButton',None) is self.notification_button:del old.notificationButton
+                    self.notification_button.setParent(title)
+            title.notificationButton=self.notification_button
+            layout=title.hBoxLayout
+            layout.insertWidget(layout.indexOf(title.themeButton)+1,self.notification_button)
+            layout.setAlignment(self.notification_button,Qt.AlignBottom)
+        elif self.notification_button is not None:
+            self.notification_button.hide()
+        self.caption_widgets=[] if title is None else [title]+[getattr(title,n) for n in ('minBtn','titleLabel','iconLabel','themeButton','notificationButton') if hasattr(title,n)]
         for widget in self.caption_widgets:widget.installEventFilter(self)
 
     def refresh_theme(self):
@@ -296,15 +320,15 @@ class CaptionFeedback(QObject):
             self._sync_action_role(self.host.action_button,None)
             self.host.strip.hide();self.detail.hide()
             if self.overlay:self.layout_header(False)
-        if len(self.host.named_tasks)<2:self.collapse()
+        if not self.host.named_tasks:self.collapse()
         self.reposition()
 
     def _has_focus(self):
         if not isValid(self.window):return False
         focus=QApplication.focusWidget()
         return self.window.isActiveWindow() and focus_input().keyboard and focus is not None and any(
-            root.isVisible() and (focus is root or root.isAncestorOf(focus))
-            for root in (self.host.strip,self.cover,self.panel,self.controls,self.ear,self.clear_button))
+            root is not None and root.isVisible() and (focus is root or root.isAncestorOf(focus))
+            for root in (self.host.strip,self.cover,self.panel,self.controls,self.ear,self.clear_button,self.notification_button))
 
     def _focus_changed(self,*_):
         if not isValid(self.window):return
@@ -313,23 +337,29 @@ class CaptionFeedback(QObject):
 
     def _sync_timeout(self):
         pause=self.window.isVisible() and (self._has_focus() or any(
-            w in self.hovered for w in (self.cover,self.panel,self.controls,self.ear,self.clear_button)))
+            w in self.hovered for w in (self.cover,self.panel,self.controls,self.ear,self.clear_button,self.notification_button)))
         self.deadline.pause() if pause else self.deadline.resume()
 
     def _controls(self):
+        available=bool(self.host.named_tasks) and self.window.isVisible()
         eligible=len(self.host.named_tasks)>=2 and self.window.isVisible()
         show=eligible and (self.opened or bool(self.hovered) or self._has_focus() or self.leave_timer.isActive())
         self.ear.setVisible(show)
+        if self.notification_button is not None:
+            self.notification_button.setVisible(available and self.notification_button.parentWidget() is getattr(self.window,'titleBar',None))
         focus=QApplication.focusWidget()
         control_focus=focus_input().keyboard and focus is not None and self.window.isActiveWindow() and any(
             root.isVisible() and (focus is root or root.isAncestorOf(focus)) for root in (self.controls,self.panel))
-        interacting=bool(self.hovered.intersection((self.controls,self.panel,self.ear,self.clear_button))) or control_focus
+        interacting=bool(self.hovered.intersection((self.controls,self.panel,self.ear,self.clear_button,self.notification_button))) or control_focus
         leaving=self.leave_timer.isActive() and not self.clear_button.isHidden()
-        self.clear_button.setVisible(eligible and self.opened and self.expansion>=.999 and bool(self.host.clearable_tasks()) and (interacting or leaving))
-        self.controls.setVisible(show)
+        self.clear_button.setVisible(available and self.opened and self.expansion>=.999 and bool(self.host.clearable_tasks()) and (interacting or leaving))
+        self.controls.setVisible(show or not self.clear_button.isHidden())
         source='收起通知' if self.opened else '展开通知'
         if self.ear.toolTip()!=t(source):bind_text(self.ear,source,'setToolTip')
         if self.ear.accessibleName()!=t(source):bind_text(self.ear,source,'setAccessibleName')
+        if self.notification_button is not None:
+            if self.notification_button.toolTip()!=t(source):bind_text(self.notification_button,source,'setToolTip')
+            if self.notification_button.accessibleName()!=t(source):bind_text(self.notification_button,source,'setAccessibleName')
         moving=show and not self.opened and motion_enabled() and any(j['state']=='running' for j in self.host.named_tasks.values())
         if moving and self.ear.motion.state()!=QVariantAnimation.Running:self.ear.motion.start()
         elif not moving:self.ear.motion.stop();self.ear.update()
@@ -339,11 +369,11 @@ class CaptionFeedback(QObject):
         title=getattr(self.window,'titleBar',None)
         left=92;right=self.window.width()-92
         if title is not None:
-            for name in ('iconLabel','themeButton','titleLabel'):
+            for name in ('iconLabel','themeButton','notificationButton','titleLabel'):
                 widget=getattr(title,name,None)
                 if widget is not None and not widget.isHidden():left=max(left,widget.mapTo(self.window,QPoint(widget.width(),0)).x()+12)
             right=min(right,title.minBtn.mapTo(self.window,QPoint()).x()-12)
-        return min(left,max(8,right-240)),max(88,right)
+        return min(left,max(8,right-1)),max(88,right)
 
 
     def layout_header(self,is_task):
@@ -421,7 +451,7 @@ class CaptionFeedback(QObject):
         h.title_label.setText(text);h.title_label.setToolTip(job['title']+('\n'+job['content'] if job['content'] else ''))
         h.title_label.setStyleSheet('color:'+tone+';background:transparent;border:none;')
         h.title_label.setWordWrap(False);h.title_label.setMaximumWidth(16777215)
-        h.count_label.setText(f'{job["current"]} / {job["total"]}' if job['total'] else '');h.count_label.setFont(visual.font('data_small'))
+        h.count_label.setText(job.get('count_text') if job.get('count_text') is not None else f'{job["current"]} / {job["total"]}' if job['total'] else '');h.count_label.setFont(visual.font('data_small'))
         h.progress.setVisible(is_task);h.count_label.setVisible(is_task);h.content_label.hide()
         if is_task:h.progress.setRange(0,job['total'] or 0);h.progress.setValue(job['current'])
         callback=job['cancel'] if is_task else job['resume']
@@ -458,7 +488,7 @@ class CaptionFeedback(QObject):
         active=job['state'] in ACTIVE
         count.setWordWrap(not active);count.setMinimumWidth(0);count.setMaximumWidth(16777215)
         row.layout().setStretchFactor(count,0 if active else 1)
-        count.setText(f'{job["current"]} / {job["total"]}' if active and job['total'] else job['content']);count.setToolTip(job['content'])
+        count.setText((job.get('count_text') if job.get('count_text') is not None else f'{job["current"]} / {job["total"]}') if active and job['total'] else job['content']);count.setToolTip(job['content'])
         bar.setVisible(active);bar.setRange(0,job['total'] or 0);bar.setValue(job['current'])
         action.setVisible(bool(job['cancel'] if active else job['resume']))
         action.setText(job['action_text'] or t('取消' if job['state']=='waiting' else '停止' if active else '继续'))
@@ -479,7 +509,7 @@ class CaptionFeedback(QObject):
         self.ear.update();self.host.obstruction_changed.emit()
 
     def expand(self):
-        if self.ear.isHidden() or self.opened:return
+        if not self.host.named_tasks or self.opened:return
         self.opened=True;self.leave_timer.stop();self.panel.show();self.ear.motion.stop()
         self.fold.stop();self.fold.setStartValue(self.expansion);self.fold.setEndValue(1.0)
         if motion_enabled():self.fold.start()
@@ -519,7 +549,7 @@ class CaptionFeedback(QObject):
         # Both controls share a real band after the rows; neither enters the
         # viewport or cover. The collapsed surface has no reserved empty band.
         clear_width=self.clear_button.width()+6 if not self.clear_button.isHidden() else 0
-        group_width=clear_width+self.ear.width()+4
+        group_width=clear_width+(self.ear.width()+4 if not self.ear.isHidden() else 4)
         x=self.header_area.center().x()-group_width//2
         y=top+extent+gap
         self.controls.setGeometry(x,y,group_width,control_height)
@@ -540,9 +570,22 @@ class CaptionFeedback(QObject):
     def eventFilter(self,obj,event):
         if not isValid(self.window):return False
         kind=event.type()
+        if (kind in (QEvent.MouseButtonPress,QEvent.MouseButtonDblClick) and event.button()==Qt.LeftButton
+                and obj in getattr(self,'drag_surfaces',())):
+            title=getattr(self.window,'titleBar',None)
+            point=title.mapFromGlobal(event.globalPosition().toPoint()) if title is not None else None
+            if title is not None and title.rect().contains(point):
+                if kind==QEvent.MouseButtonDblClick:
+                    from PySide6.QtGui import QMouseEvent
+                    forwarded=QMouseEvent(kind,QPointF(point),event.globalPosition(),event.button(),event.buttons(),event.modifiers())
+                    title.mouseDoubleClickEvent(forwarded)
+                    event.accept();return True
+                handle=self.window.windowHandle()
+                if handle is not None and handle.startSystemMove():
+                    event.accept();return True
         if kind in (QEvent.FocusIn,QEvent.FocusOut,QEvent.KeyPress):
             self._focus_changed()
-        if obj in (self.controls,self.ear,self.panel,self.clear_button,self.cover,self.host.strip):
+        if obj in (self.controls,self.ear,self.panel,self.clear_button,self.cover,self.host.strip,self.notification_button):
             if kind==QEvent.Enter:
                 self.hovered.add(obj);self.leave_timer.stop();self.reposition()
             elif kind==QEvent.Leave:
@@ -556,10 +599,11 @@ class CaptionFeedback(QObject):
             elif kind==QEvent.Hide:
                 self.hovered.clear();self.leave_timer.stop();self._sync_timeout()
                 self.host.strip.hide();self.panel.hide();self.controls.hide();self.ear.hide();self.clear_button.hide();self.material.hide();self.cover.hide();self.ear.motion.stop()
+                if self.notification_button is not None:self.notification_button.hide()
             elif kind==QEvent.WindowDeactivate:
                 self.hovered.clear()
                 if self.opened or self.ear.isVisible():self.leave_timer.start()
                 self._sync_timeout()
-        elif obj in self.caption_widgets and kind in (QEvent.Move,QEvent.Resize,QEvent.Show):
+        elif obj in self.caption_widgets and kind in (QEvent.Move,QEvent.Resize,QEvent.Show,QEvent.Hide):
             self.reposition()
         return False
