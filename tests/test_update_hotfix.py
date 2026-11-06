@@ -105,6 +105,29 @@ class HotfixTests(unittest.TestCase):
         self.service.cancel_install()
         self.assertTrue((self.service.workspace/('cancel-'+'a'*32)).is_file())
 
+    def test_launching_keeps_cancel_visible_and_can_restore(self):
+        self.dialog.installing=True
+        self.dialog._phase='launching'
+        self.dialog.show()
+        self.dialog._run(lambda _:self.service.cancel.wait(1),lambda _:None)
+        self.assertFalse(self.dialog.cancel_button.isHidden())
+        self.dialog._cancel_requested()
+        for _ in range(100):
+            QTest.qWait(10)
+            if not self.dialog.installing:break
+        self.assertFalse(self.dialog.installing)
+        self.assertTrue(self.dialog.later_button.isEnabled())
+        self.assertIsNotNone(self.dialog.prepared)
+
+    def test_helper_creation_failure_restores_controls(self):
+        self.service.attempt='a'*32
+        self.dialog.installing=True
+        self.dialog._error('fixture process creation failure')
+        self.dialog._poll_handoff()
+        self.assertFalse(self.dialog.installing)
+        self.assertTrue(self.dialog.action_button.isEnabled())
+        self.assertTrue(self.dialog.later_button.isEnabled())
+
     def test_real_qt_quit_event_loop_exits_while_installing(self):
         code='''import sys,tempfile,json
 from pathlib import Path

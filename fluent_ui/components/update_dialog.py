@@ -158,7 +158,7 @@ class UpdateDialog(dialogs.NekoriDialog):
         self.service.cancel.clear()
         self.check_button.setEnabled(False)
         self.action_button.setEnabled(False)
-        self.cancel_button.setVisible(cancellable)
+        self.cancel_button.setVisible(cancellable or self.installing)
         self.worker = UpdateWorker(operation, self)
         self.worker.progress.connect(self.progress.setValue)
 
