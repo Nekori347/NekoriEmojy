@@ -49,6 +49,8 @@ class UpdateService:
     def __init__(self, root=None, *, repository=None, asset_name=None):
         self.root = Path(root or install_root()).resolve()
         self.cancel = threading.Event()
+        self.attempt = None
+        self.helper = None
         self.channel_available = repository is None or bool(repository)
         self.releases_url = f'https://github.com/{repository}/releases' if repository else RELEASES_URL if repository is None else ''
         self.api_url = f'https://api.github.com/repos/{repository}/releases/latest' if repository else API_URL if repository is None else ''
@@ -206,6 +208,8 @@ class UpdateService:
                 raise ValueError("Archive contains files not owned by the release manifest")
 
     def launch_installer(self):
+        if self.helper is not None and self.helper.poll() is None:
+            raise RuntimeError("The previous updater has not exited yet; retry later")
         item = self.ready()
         if not item:
             raise ValueError("No prepared update")
@@ -219,14 +223,42 @@ class UpdateService:
         # Never execute an updater copied from the downloaded package before installation.
         if sha256(helper) != local["files"]["NekoriEmojyUpdater.exe"]:
             raise ValueError("Installed updater verification failed")
+        self._cancelled()
+        self.attempt = uuid.uuid4().hex
         handshake = self.workspace / "installer-ready"
         handshake.unlink(missing_ok=True)
-        process = subprocess.Popen([str(helper), "--root", str(self.root), "--pid", str(os.getpid())], cwd=str(self.workspace))
+        process = subprocess.Popen([str(helper), "--root", str(self.root), "--pid", str(os.getpid()), "--attempt", self.attempt], cwd=str(self.workspace))
+        self.helper = process
         import time
         for _ in range(200):
-            if handshake.is_file():
-                return
+            if self.cancel.is_set():
+                self.cancel_install()
+            status = self.install_status()
+            if status.get('state') in {'failed', 'cancelled'}:
+                raise RuntimeError(status.get('error') or 'Update cancelled')
+            if status.get('state') == 'waiting_parent' and handshake.is_file():
+                return self.attempt
             if process.poll() is not None:
                 break
             time.sleep(0.1)
+        self.cancel_install()
         raise RuntimeError("Updater did not become ready; application remains open")
+
+    def cancel_install(self):
+        if self.attempt:
+            (self.workspace / ('cancel-' + self.attempt)).touch()
+
+    def install_status(self):
+        if not self.attempt:
+            return {}
+        try:
+            state = json.loads((self.workspace / 'installer-status.json').read_text('utf-8'))
+            if state.get('attempt') == self.attempt:
+                return state
+        except (OSError, ValueError):
+            pass
+        if self.helper is None:
+            return {'state': 'failed', 'error': 'Updater could not start'}
+        if self.helper is not None and self.helper.poll() is not None:
+            return {'state': 'failed', 'error': 'Updater exited before completing the handoff'}
+        return {}

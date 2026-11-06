@@ -107,7 +107,7 @@ def install(root, stage):
         raise
 
 
-def wait_for_parent(pid, handshake):
+def wait_for_parent(pid, handshake, cancelled=lambda: False):
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     kernel.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
     kernel.OpenProcess.restype = ctypes.c_void_p
@@ -119,8 +119,19 @@ def wait_for_parent(pid, handshake):
         raise OSError("Cannot wait for the application process")
     try:
         handshake.write_text("ready", encoding="ascii")
-        if kernel.WaitForSingleObject(handle, 120000) != 0:
-            raise TimeoutError("Application did not exit; no files were changed")
+        deadline = time.monotonic() + 120
+        while True:
+            if cancelled():
+                raise InterruptedError("Update cancelled; no files were changed")
+            result = kernel.WaitForSingleObject(handle, 250)
+            if result == 0:
+                if cancelled():
+                    raise InterruptedError("Update cancelled; no files were changed")
+                return
+            if result != 258:
+                raise OSError("Cannot wait for the application process")
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Application did not exit; no files were changed")
     finally:
         kernel.CloseHandle(handle)
 
@@ -130,7 +141,12 @@ def main():
     parser.add_argument("--root", required=True)
     parser.add_argument("--pid", type=int)
     parser.add_argument("--recover", action="store_true")
+    parser.add_argument("--attempt")
     args = parser.parse_args()
+    if args.attempt:
+        import re
+        if not re.fullmatch(r'[0-9a-f]{32}', args.attempt):
+            raise ValueError('Invalid update attempt')
     root = Path(args.root).resolve()
     work = root / ".update"
     if not work.is_dir() or work.is_symlink() or (hasattr(work, "is_junction") and work.is_junction()):
@@ -144,7 +160,12 @@ def main():
     except OSError:
         return
     restart = False
+    parent_exited = False
     error = None
+    cancelled = lambda: bool(args.attempt and (work / ('cancel-' + args.attempt)).exists())
+    def status(state, error=''):
+        if args.attempt:
+            atomic_json(work / 'installer-status.json', {'attempt': args.attempt, 'state': state, 'error': error, 'pid': os.getpid()})
     try:
         if args.recover:
             recover(root)
@@ -152,23 +173,32 @@ def main():
         else:
             if not args.pid:
                 raise ValueError("Missing application PID")
-            wait_for_parent(args.pid, work / "installer-ready")
+            status('waiting_parent')
+            wait_for_parent(args.pid, work / "installer-ready", cancelled)
+            parent_exited = True
             item = json.loads((work / "ready.json").read_text(encoding="utf-8"))
             if "/" in item["directory"] or not item["directory"].startswith("stage-"):
                 raise ValueError("Invalid stage path")
             stage = child(work, item["directory"])
+            if cancelled():
+                raise InterruptedError("Update cancelled; no files were changed")
+            status('installing')
             install(root, stage)
             (work / "ready.json").unlink(missing_ok=True)
             shutil.rmtree(stage, ignore_errors=True)
             restart = True
+        status('complete')
+    except InterruptedError as exc:
+        status('cancelled', str(exc))
     except Exception as exc:
         error = str(exc)
+        status('failed', error)
         # If rollback failed, keep the journal and refuse to launch mixed files.
         (work / "last-error.txt").write_text(error, encoding="utf-8")
     finally:
         (work / "installer-ready").unlink(missing_ok=True)
         lock.close()
-    if error:
+    if error and (not args.attempt or parent_exited):
         ctypes.windll.user32.MessageBoxW(None, "更新未完成 / Update failed:\n\n" + error + "\n\n请重新启动软件以恢复，或查看 .update/last-error.txt。", "NekoriEmojy", 0x10)
     if restart:
         subprocess.Popen([str(root / "NekoriEmojy.exe")], cwd=str(root))

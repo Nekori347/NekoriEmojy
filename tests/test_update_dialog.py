@@ -88,6 +88,7 @@ class UpdateDialogTests(unittest.TestCase):
     def test_active_import_prevents_restart(self):
         self.dialog._prepared({"version": "1.14.0"})
         with patch("fluent_ui.components.update_dialog.active_tasks", return_value=[object()]), \
+                patch("fluent_ui.components.update_dialog.dialogs.confirm", return_value=True), \
                 patch.object(self.service, "launch_installer") as launch:
             self.dialog.action()
             launch.assert_not_called()
