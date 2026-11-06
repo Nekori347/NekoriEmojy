@@ -262,4 +262,3 @@ class UpdateService:
         if self.helper is not None and self.helper.poll() is not None:
             return {'state': 'failed', 'error': 'Updater exited before completing the handoff'}
         return {}
-
