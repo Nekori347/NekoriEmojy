@@ -2,11 +2,12 @@ from fluent_ui.components import dialogs
 """User-initiated update workflow; background work never touches Qt widgets."""
 import gc
 import threading
+import time
 
-from PySide6.QtCore import QThread, Qt, Signal, QUrl
+from PySide6.QtCore import QThread, Qt, Signal, QUrl, QTimer
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QApplication, QDialog, QHBoxLayout, QMessageBox, QVBoxLayout,
+    QApplication, QDialog, QHBoxLayout, QMessageBox, QVBoxLayout, QTextBrowser,
 )
 from qfluentwidgets import BodyLabel, isDarkTheme
 from fluent_ui.components.softframe import SoftframeProgress as ProgressBar
@@ -53,6 +54,25 @@ def active_tasks():
     return tasks
 
 
+class UpdateNotes(QTextBrowser):
+    """Read-only Markdown using the existing setting control surface."""
+    def __init__(self):
+        super().__init__()
+        from fluent_ui.components.controls import _own_presentation
+        from fluent_ui import visual
+        _own_presentation(self)
+        self.setFont(visual.font())
+        self.setOpenLinks(False)
+        self.setOpenExternalLinks(False)
+        self.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        self.refresh_theme()
+        visual.theme.changed.connect(self.refresh_theme)
+
+    def refresh_theme(self):
+        from fluent_ui import visual
+        self.setStyleSheet(visual.control_style())
+
+
 class UpdateDialog(dialogs.NekoriDialog):
     release_changed=Signal(object)
     check_state_changed=Signal(str)
@@ -66,6 +86,14 @@ class UpdateDialog(dialogs.NekoriDialog):
         self.release = None
         self.prepared = None
         self.installing = False
+        self._allow_update_close = False
+        self._quitting = False
+        self._phase = ''
+        self._exit_tasks = []
+        self._exit_backups = []
+        self._handoff_timer = QTimer(self)
+        self._handoff_timer.setInterval(100)
+        self._handoff_timer.timeout.connect(self._poll_handoff)
         self._checking = False
         self.setWindowTitle(t("软件更新"))
         self.setObjectName("updateDialog")
@@ -78,7 +106,8 @@ class UpdateDialog(dialogs.NekoriDialog):
         self.status = QLabel(t('正在检查更新…'))
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
-        self.notes = TextEdit()
+        self.notes = UpdateNotes()
+        self.notes.anchorClicked.connect(self._open_link)
         self.notes.setReadOnly(True)
         self.notes.setMinimumHeight(160);self.notes.hide()
         layout.addWidget(self.notes, 1)
@@ -100,9 +129,9 @@ class UpdateDialog(dialogs.NekoriDialog):
         self.page_button.hide()
         self.check_button.clicked.connect(self.check)
         self.action_button.clicked.connect(self.action)
-        self.cancel_button.clicked.connect(self.service.cancel.set)
+        self.cancel_button.clicked.connect(self._cancel_requested)
         channel_url=getattr(self.service,'releases_url',RELEASES_URL)
-        self.page_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(channel_url)))
+        self.page_button.clicked.connect(lambda: self._open_link(QUrl(channel_url)))
         self.page_button.setEnabled(bool(channel_url))
         self.later_button.clicked.connect(self.close)
         QApplication.instance().aboutToQuit.connect(self.shutdown)
@@ -153,10 +182,23 @@ class UpdateDialog(dialogs.NekoriDialog):
     def _error(self, error):
         if self._checking:
             self._checking=False;self.release=None;self.check_state_changed.emit('error')
+        if self.installing and getattr(self.service, 'attempt', None):
+            self._cancel_handoff(error)
+            return
+        self._restore_error(error)
+
+    def _restore_error(self, error, cancelled=False):
+        self._handoff_timer.stop()
+        self._phase = ''
+        self._allow_update_close = False
         self.installing = False
         self.later_button.setEnabled(True)
+        self.check_button.setEnabled(True)
+        self.cancel_button.hide()
+        self.cancel_button.setEnabled(True)
+        self.cancel_button.setText(t('取消下载'))
         self._set_modality(Qt.NonModal)
-        self.status.setText(t("更新失败，请重试或打开发布页"))
+        self.status.setText(t('更新已取消，已下载的更新包将保留。') if cancelled else t("更新失败，请重试或打开发布页"))
         self.notes.setPlainText(error)
         self.notes.show();self.page_button.show();self._fit_content()
         self.action_button.setEnabled(self.release is not None or self.prepared is not None)
@@ -222,16 +264,38 @@ class UpdateDialog(dialogs.NekoriDialog):
         if self.worker is not None:
             return
         if self.prepared:
-            if active_tasks():
-                self.status.setText(t("请等待导入、导出和后台任务结束后再更新"))
-                return
             if not dialogs.confirm(self, t("重启并更新"), t("现在退出软件并安装更新？用户数据将保留。")):
                 return
+            # Ask the existing settings transaction before starting any helper.
+            for widget in QApplication.allWidgets():
+                pending = getattr(widget, 'has_pending_changes', None)
+                if callable(pending) and pending():
+                    confirm = getattr(widget, 'confirm_close', None)
+                    if not callable(confirm) or not confirm():
+                        return
             self.installing = True
+            self._allow_update_close = False
             self.later_button.setEnabled(False)
             self._set_modality(Qt.ApplicationModal)
-            self.status.setText(t("正在准备重启更新…"))
-            self._run(lambda progress: self.service.launch_installer(), self._quit)
+            self.check_button.setEnabled(False)
+            self.action_button.setEnabled(False)
+            self.cancel_button.setText(t('取消更新'))
+            self.cancel_button.show()
+            self.status.setText(t('正在结束后台任务…'))
+            self._exit_tasks = active_tasks()
+            for task in self._exit_tasks:
+                if isinstance(task, QThread):
+                    task.requestInterruption()
+            self._exit_backups = []
+            for widget in QApplication.allWidgets():
+                backup = getattr(widget, 'backups', None)
+                if backup is not None and backup not in self._exit_backups:
+                    self._exit_backups.append(backup)
+                    backup.cancel()
+            self._deadline = time.monotonic() + 15
+            self._phase = 'tasks'
+            self._handoff_timer.start()
+            self._poll_handoff()
         elif self.release and (self.release.get('manual_only') or not (self.service.root / MANIFEST).is_file()):
             QDesktopServices.openUrl(QUrl(self.service.releases_url))
         elif self.release:
@@ -240,27 +304,91 @@ class UpdateDialog(dialogs.NekoriDialog):
             self.status.setText(t("正在下载并校验更新…"))
             self._run(lambda progress: self.service.download(self.release, progress), self._prepared, True)
 
+    def _open_link(self, url):
+        if not url.isValid() or url.scheme().lower() != 'https' or not url.host() or url.userInfo():
+            self.status.setText(t('无法打开此链接：仅支持安全的 HTTPS 链接。'))
+        elif not QDesktopServices.openUrl(url):
+            self.status.setText(t('无法打开浏览器，请复制链接后手动打开。'))
+
+    def _cancel_requested(self):
+        if self.installing:
+            self._cancel_handoff(t('更新已取消，已下载的更新包将保留。'), cancelled=True)
+        else:
+            self.service.cancel.set()
+
+    def _cancel_handoff(self, reason, cancelled=False):
+        self._failure_reason = reason
+        self._cancel_is_user = cancelled
+        self.service.cancel.set()
+        self.service.cancel_install()
+        self._phase = 'cancelling'
+        self._cancel_deadline = time.monotonic() + 5
+        self.status.setText(t('正在取消更新交接…'))
+        self.cancel_button.setEnabled(False)
+        self._handoff_timer.start()
+
+    def _poll_handoff(self):
+        if self._phase == 'tasks':
+            running = []
+            for task in self._exit_tasks:
+                try:
+                    if task.isRunning() if isinstance(task, QThread) else getattr(task, 'is_alive', lambda: True)():
+                        running.append(task)
+                except RuntimeError:
+                    pass
+            if running or any(backup.active for backup in self._exit_backups):
+                if time.monotonic() >= self._deadline:
+                    self._restore_error(t('后台任务尚未安全结束，请稍后重试更新。'))
+                return
+            if active_tasks():
+                self._restore_error(t('后台任务尚未安全结束，请稍后重试更新。'))
+                return
+            self._phase = 'launching'
+            self.status.setText(t('正在准备重启更新…'))
+            self._run(lambda progress: self.service.launch_installer(), self._quit)
+        elif self._phase == 'cancelling':
+            if self.worker is not None:
+                return
+            state = self.service.install_status()
+            if not self.service.attempt or state.get('state') in {'cancelled', 'failed', 'complete'}:
+                self.cancel_button.setEnabled(True)
+                self._restore_error(self._failure_reason, cancelled=self._cancel_is_user)
+            elif time.monotonic() >= self._cancel_deadline:
+                self._restore_error(t('更新助手尚未退出，请稍后重试；已下载的更新包将保留。'))
+                self.action_button.setEnabled(False)
+
     def _quit(self, result):
-        # Wait for any work that started while the installer was being prepared.
-        # aboutToQuit handlers then release application resources normally.
-        for task in active_tasks():
-            if isinstance(task, QThread):
-                task.wait()
-            else:
-                task.join()
+        if self._phase == 'cancelling':
+            self.service.cancel_install()
+            return
+        if active_tasks():
+            self._cancel_handoff(t('后台任务尚未安全结束，请稍后重试更新。'))
+            return
+        self._phase = 'exiting'
+        self._allow_update_close = True
+        self._set_modality(Qt.NonModal)
+        self.hide()
         QApplication.instance().quit()
+        # Runs only if some other window vetoed the real Qt Quit event.
+        QTimer.singleShot(0, self._exit_refused)
+
+    def _exit_refused(self):
+        if not self._quitting:
+            self.show()
+            self._cancel_handoff(t('程序未能退出，更新包已保留。请关闭未完成的操作后重试。'))
 
     def reject(self):
-        if not self.installing:
+        if not self.installing or self._allow_update_close:
             super().reject()
 
     def closeEvent(self, event):
-        if self.installing:
+        if self.installing and not self._allow_update_close:
             event.ignore()
         else:
             super().closeEvent(event)
 
     def shutdown(self):
+        self._quitting = True
+        self._handoff_timer.stop()
         self.service.cancel.set()
-        if self.worker is not None and self.worker.isRunning():
-            self.worker.wait()
+        # UpdateCenter's Quit filter drains update workers before aboutToQuit.

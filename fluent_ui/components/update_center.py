@@ -1,7 +1,7 @@
 """User-initiated update state shared by Settings, About and the wordmark."""
 import json
 import time
-from PySide6.QtCore import QObject,Signal,Qt,QPoint
+from PySide6.QtCore import QObject,Signal,Qt,QPoint,QEvent,QTimer
 from PySide6.QtWidgets import QApplication,QLabel,QWidget
 from services.update_service import UpdateService,install_root
 from fluent_ui.components.controls import TransparentToolButton,PushButton
@@ -89,6 +89,11 @@ class UpdateCenter(QObject):
         self.auto_worker=None
         self.auto_service=None
         parent.aboutToQuit.connect(self.shutdown)
+        parent.installEventFilter(self)
+        self._quit_deadline = None
+        self._quit_timer = QTimer(self)
+        self._quit_timer.setInterval(100)
+        self._quit_timer.timeout.connect(self._drain_quit)
 
     @staticmethod
     def service():
@@ -131,10 +136,35 @@ class UpdateCenter(QObject):
         worker.finished.connect(complete)
         worker.start()
 
+    def _running_workers(self):
+        pairs = [(self.auto_worker, self.auto_service)]
+        pairs.extend((dialog.worker, dialog.service) for dialog in self.dialogs.values())
+        return [(worker, service) for worker, service in pairs if worker is not None and worker.isRunning()]
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Quit and self._running_workers():
+            event.ignore()
+            for worker, service in self._running_workers():
+                service.cancel.set()
+            self._quit_deadline = time.monotonic() + 30
+            self._quit_timer.start()
+            return True
+        return super().eventFilter(obj, event)
+
+    def _drain_quit(self):
+        if not self._running_workers():
+            self._quit_timer.stop()
+            QApplication.instance().quit()
+        elif time.monotonic() >= self._quit_deadline:
+            self._quit_timer.stop()
+            for dialog in self.dialogs.values():
+                dialog.status.setText(t('后台任务尚未安全结束，请稍后重试更新。'))
+                dialog.show()
+
     def shutdown(self):
-        if self.auto_worker is not None:
+        self._quit_timer.stop()
+        if self.auto_service is not None:
             self.auto_service.cancel.set()
-            self.auto_worker.wait()
 
     def set_release(self,release):
         self.release=release;self.state='available' if release else 'current';self.changed.emit()

@@ -1970,5 +1970,14 @@
   "进度：{value}%": "Progress: {value}%",
   "毛玻璃兼容性提示": "Acrylic compatibility",
   "仍然开启": "Enable anyway",
-  "Windows 10 环境下启用毛玻璃可能导致窗口拖动延迟、卡顿或显示异常。建议保持关闭。仍要开启吗？": "Enabling Acrylic on Windows 10 may cause window dragging delays, stuttering or display problems. Keeping it off is recommended. Enable anyway?"
+  "Windows 10 环境下启用毛玻璃可能导致窗口拖动延迟、卡顿或显示异常。建议保持关闭。仍要开启吗？": "Enabling Acrylic on Windows 10 may cause window dragging delays, stuttering or display problems. Keeping it off is recommended. Enable anyway?",
+  "正在结束后台任务…": "Finishing background tasks…",
+  "取消更新": "Cancel update",
+  "更新已取消，已下载的更新包将保留。": "Update cancelled. The downloaded package has been kept.",
+  "正在取消更新交接…": "Cancelling the update handoff…",
+  "后台任务尚未安全结束，请稍后重试更新。": "Background tasks have not finished safely. Try updating again later.",
+  "程序未能退出，更新包已保留。请关闭未完成的操作后重试。": "The app could not exit. Your update package has been kept. Finish any pending operations and retry.",
+  "更新助手尚未退出，请稍后重试；已下载的更新包将保留。": "The updater has not exited yet. Try again later; the downloaded package has been kept.",
+  "无法打开此链接：仅支持安全的 HTTPS 链接。": "Cannot open this link. Only secure HTTPS links are supported.",
+  "无法打开浏览器，请复制链接后手动打开。": "Could not open your browser. Copy the link and open it manually."
 }
