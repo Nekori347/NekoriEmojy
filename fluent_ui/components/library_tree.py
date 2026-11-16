@@ -303,7 +303,9 @@ class LibraryTree(QTreeWidget):
 
     def set_display_sort(self, mode):
         self.display_sort = mode
-        self.refresh(select=self.current_node_id)
+        # Sorting changes the projection, not node/icon content. Reuse the
+        # current snapshot and its live icons through the existing refresh seam.
+        self.refresh(select=self.current_node_id,nodes=list(self._node_records.values()))
 
     def _make_item(self, node, counts, pinned=False):
         item = QTreeWidgetItem([node.get("name", ""), ''])
@@ -393,6 +395,10 @@ class LibraryTree(QTreeWidget):
                 self.doItemsLayout()
                 self.verticalScrollBar().setValue(scroll)
             self.blockSignals(False)
+        # Programmatic gallery navigation intentionally blocks tree signals;
+        # its other projection must still repaint the current selection/hint.
+        if hasattr(self.sidebar,'icons'):
+            self.sidebar.icons.canvas.update()
 
     def _find_item(self, node_id, parent=None):
         if parent is None:
@@ -573,6 +579,11 @@ class LibraryTree(QTreeWidget):
                 self.begin_drag_session(mime)
             if not payload or self.display_sort != 'manual':
                 return INVALID_TARGET
+        if node_id == ROOT and kind == RESOURCE_MIME:
+            from fluent_ui.components.drop_contract import parse_resource_sources
+            paths=parse_list_payload(mime.data(RESOURCE_MIME));gallery=self.sidebar.gallery_view
+            sources=parse_resource_sources(mime,paths) or gallery._resource_sources(paths)
+            if not gallery._resource_drop_available(paths,ROOT,sources):return INVALID_TARGET
         if node_id == ROOT:
             # The pinned "all resources" row is the library, not a category:
             # there is nothing to sit next to it.
@@ -581,6 +592,12 @@ class LibraryTree(QTreeWidget):
             # A temporary display order means the rows on screen are not the
             # manual slots a reparent would write into.
             return INVALID_TARGET
+        if kind == RESOURCE_MIME:
+            from fluent_ui.components.drop_contract import parse_resource_sources
+            paths=parse_list_payload(mime.data(RESOURCE_MIME))
+            gallery=self.sidebar.gallery_view
+            sources=parse_resource_sources(mime,paths) or gallery._resource_sources(paths)
+            if not gallery._resource_drop_available(paths,node_id,sources):return INVALID_TARGET
         if kind != NODE_MIME:
             # A resource or a file only ever goes *into* a category.
             return DropTarget(INTO, effect, node_id, node_id)

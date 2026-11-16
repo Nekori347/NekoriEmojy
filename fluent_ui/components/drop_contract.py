@@ -67,6 +67,16 @@ def tag_drop_target(target_id, *, category=False):
                       target_id, target_id)
 
 
+def parse_resource_sources(mime, paths):
+    if mime.hasFormat(RESOURCE_SOURCES_MIME):
+        try:
+            sources=json.loads(payload_text(mime.data(RESOURCE_SOURCES_MIME)))
+            if isinstance(sources,dict):
+                return {path:parent for path,parent in sources.items() if path in paths and isinstance(parent,str)}
+        except ValueError:pass
+    return {}
+
+
 class DropTarget:
     """What one pointer position means for one surface.
 
@@ -255,24 +265,21 @@ class DragSession:
         self.operation=prepare_drag(mime)
         self.id=self.operation.id
         self.kind = next((kind for kind in (TAG_MIME, NODE_MIME, RESOURCE_MIME)
-                          if mime.hasFormat(kind)), 'urls' if mime.hasUrls() else None)
+                          if mime.hasFormat(kind)), 'urls' if self._external(mime) else None)
         self.operation.kind=self.kind
         parser = parse_node_payload if self.kind == NODE_MIME else parse_list_payload
         self.payload = tuple(parser(mime.data(self.kind))) if self.kind not in (None, 'urls') else ()
         self.parents = dict(parents or {})
         # Membership origins travel with the drag, not the current projection:
         # a dwell navigation may clear selection before the eventual release.
-        self.sources = {}
-        if self.kind == RESOURCE_MIME and mime.hasFormat(RESOURCE_SOURCES_MIME):
-            try:
-                sources = json.loads(payload_text(mime.data(RESOURCE_SOURCES_MIME)))
-                if isinstance(sources, dict):
-                    self.sources = {path: parent for path, parent in sources.items()
-                                    if path in self.payload and isinstance(parent, str)}
-            except ValueError:
-                pass
+        self.sources = parse_resource_sources(mime,self.payload) if self.kind == RESOURCE_MIME else {}
         self.streams = {}
         self.target = INVALID_TARGET
+
+    @staticmethod
+    def _external(mime):
+        from services.clipboard import ClipboardService
+        return ClipboardService.advertises_import(mime)
 
     @property
     def committed(self):return self.operation.state in ('committed','awaiting_choice')
@@ -424,6 +431,11 @@ class DropFeedback(QWidget):
             geometry, self._mode = QRect(rect), 'outline'
         else:
             geometry, self._mode = indicator_rect(placement, rect, vertical), 'line'
+        # The first sibling has no gap above the viewport. Keep its line
+        # inside the host so the first insertion slot remains discoverable.
+        if self._mode == 'line':
+            if geometry.top()<0:geometry.moveTop(0)
+            if geometry.left()<0:geometry.moveLeft(0)
         if self.isVisible() and self.geometry() == geometry and getattr(self, '_last_mode', None) == self._mode:
             return
         self._last_mode = self._mode
@@ -461,9 +473,10 @@ class DropCancelZone(QWidget):
     """A temporary receive surface; CANCEL consumes the drag without domain writes."""
     entered = Signal()
 
-    def __init__(self, host, *, bounds_provider=None):
+    def __init__(self, host, *, bounds_provider=None, thumbnail_size_provider=None):
         super().__init__(host)
         self.bounds_provider=bounds_provider
+        self.thumbnail_size_provider=thumbnail_size_provider
         self.setAcceptDrops(True)
         self.setFocusPolicy(Qt.NoFocus)
         self._session = None
@@ -486,8 +499,20 @@ class DropCancelZone(QWidget):
     def _place(self):
         host = self.parentWidget()
         bounds=self.bounds_provider() if self.bounds_provider is not None else host.rect()
-        width = max(1, min(260, bounds.width()-24))
-        self.setGeometry(bounds.left()+(bounds.width()-width)//2,max(bounds.top(),bounds.bottom()-53),width,42)
+        if bounds.isEmpty():
+            self.setGeometry(0,0,0,0);return
+        thumbnail=max(1,int(self.thumbnail_size_provider() if self.thumbnail_size_provider else 60))
+        # 60 is the existing minimum gallery thumbnail size, not a monitor metric.
+        height=max(1,min(28,round(thumbnail*.4),59,thumbnail-1,bounds.height()))
+        from PySide6.QtGui import QFontMetrics
+        from math import ceil
+        from services.i18n import t
+        text_left,_,_,_,right_gap=self._content_geometry(height)
+        label_width=ceil(QFontMetrics(visual.font('secondary')).horizontalAdvance(t('拖到此处取消'))+text_left+right_gap)
+        width=max(1,min(248,max(min(220,round(thumbnail*2.5)),label_width),bounds.width()-16))
+        gap=max(2,min(6,round(thumbnail*.05)))
+        self.setGeometry(bounds.left()+(bounds.width()-width)//2,
+                         max(bounds.top(),bounds.bottom()-height-gap+1),width,height)
 
     def eventFilter(self, obj, event):
         if obj is self.parentWidget() and event.type() == QEvent.Resize and self.isVisible():
@@ -526,31 +551,39 @@ class DropCancelZone(QWidget):
             event.ignore()
         self.end()
 
+    @staticmethod
+    def _content_geometry(height):
+        # Scale the original 42px / 28px ring / 18px cross together.
+        scale=height/42.0
+        ring=QRectF(6*scale,(height-28*scale)/2,28*scale,28*scale)
+        cross=QRectF(ring.center().x()-9*scale,ring.center().y()-9*scale,18*scale,18*scale)
+        return 38*scale,ring,cross,max(.7,scale),8*scale
+
     def paintEvent(self, event):
         from fluent_ui.icons import Icon
         from services.i18n import t
         c = visual.colors()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+        text_left,ring,cross,stroke,right_gap=self._content_geometry(self.height())
         background = QColor(c['danger'] if self._hovered else c['surface'])
         background.setAlpha(52 if self._hovered else 235)
         border = QColor(c['danger'] if self._hovered else c['border'])
         border.setAlpha(175 if self._hovered else 140)
         painter.setBrush(background)
-        painter.setPen(QPen(border, 1))
-        outline = self.rect().adjusted(1,1,-1,-1)
-        painter.drawRoundedRect(outline, outline.height()/2, outline.height()/2)
-        painter.save()
-        painter.setOpacity(.35)
-        painter.setBrush(Qt.NoBrush)
-        painter.setPen(QPen(QColor(c['text_secondary']), 1, Qt.DashLine))
-        painter.drawEllipse(QRectF(9,7,28,28))
+        painter.setPen(QPen(border,stroke))
+        outline=QRectF(self.rect()).adjusted(stroke,stroke,-stroke,-stroke)
+        painter.drawRoundedRect(outline,outline.height()/2,outline.height()/2)
+        painter.save();painter.setOpacity(.35);painter.setBrush(Qt.NoBrush)
+        painter.setPen(QPen(QColor(c['text_secondary']),stroke,Qt.DashLine))
+        painter.drawEllipse(ring)
         painter.setOpacity(.42)
-        Icon.CANCEL.render(painter, QRect(14,12,18,18), fill=c['text_secondary'])
+        Icon.CANCEL.render(painter,cross,fill=c['text_secondary'])
         painter.restore()
-        painter.setFont(visual.font())
-        painter.setPen(QColor(c['text_primary']))
-        painter.drawText(self.rect().adjusted(38,0,-10,0), Qt.AlignCenter, t('拖到此处取消'))
+        painter.setFont(visual.font('secondary'));painter.setPen(QColor(c['text_primary']))
+        text_rect=QRectF(text_left,0,max(1,self.width()-text_left-right_gap),self.height())
+        label=painter.fontMetrics().elidedText(t('拖到此处取消'),Qt.ElideRight,int(text_rect.width()))
+        painter.drawText(text_rect,Qt.AlignCenter,label)
         painter.end()
 
 

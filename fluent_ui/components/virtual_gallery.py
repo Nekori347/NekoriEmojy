@@ -253,6 +253,9 @@ class VirtualGallery:
                 if getattr(card, '_is_dragging', False) or getattr(card, '_dragging', False):
                     # Keep QDrag's source alive and bound until exec returns,
                     # but don't paint the old projection over the new page.
+                    focus=QApplication.focusWidget()
+                    if focus is not None and (focus is card._renderer or card._renderer.isAncestorOf(focus)):
+                        g.scroll_area.viewport().setFocus(Qt.OtherFocusReason)
                     card._renderer.hide()
                 else:
                     self.retire(self.active.pop(key))

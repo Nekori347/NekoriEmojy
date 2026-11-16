@@ -104,7 +104,6 @@ class MainWindow(NekoriWindow):
         from services.app_icon import ApplicationIconService
         self.app_icon = ApplicationIconService(self.config)
         self.tray_icon = None
-        self._dev_placement_done = False
         self.reload_application_icon()
         self._restore_geometry()
 
@@ -148,13 +147,6 @@ class MainWindow(NekoriWindow):
             self.setFont(font)
 
         self.ensure_window_visible()
-        # Development rule: an AI-launched instance opens on the development
-        # monitor, resolved from the real QScreen list in dev_placement.
-        # The user's saved geometry is never rewritten by this (see
-        # _save_window_state).
-        from services.dev_placement import move_to_dev_screen
-        if move_to_dev_screen(self):
-            self.setAttribute(Qt.WA_ShowWithoutActivating)
         self._normal_window_geometry=QRect(self.geometry())
 
     def ensure_window_visible(self):
@@ -182,11 +174,8 @@ class MainWindow(NekoriWindow):
                       max(area.top(), min(geometry.y(), area.bottom()-self.height()+1)))
 
     def _save_window_state(self):
-        from services.dev_placement import geometry_writable
-        if not geometry_writable(self):
-            # A development placement, a headless run and a smoke run all put
-            # the window somewhere that is not the user's choice; none of them
-            # may become the position the user gets back on a normal launch.
+        from PySide6.QtGui import QGuiApplication
+        if QGuiApplication.platformName() in ('offscreen','minimal'):
             return
         geometry = getattr(self,'_normal_window_geometry',self.normalGeometry()) if self.isMaximized() or self.isMinimized() else self.geometry()
         if not self._usable_geometry(list(geometry.getRect()),self.minimumSize()):return
@@ -230,15 +219,6 @@ class MainWindow(NekoriWindow):
 
     def showEvent(self, event):
         super().showEvent(event)
-        # The native window is created at show time, which can land after the
-        # placement done in _restore_geometry, so the development placement is
-        # re-asserted on the first show before the frame is painted.
-        if not self._dev_placement_done:
-            self._dev_placement_done = True
-            from services.dev_placement import move_to_dev_screen
-            move_to_dev_screen(self)
-            if not self.isMaximized() and not self.isMinimized():
-                self._normal_window_geometry=QRect(self.geometry())
         # FramelessWindow 已在初始化时启用系统动画，显示/还原时不要重写窗口样式。
         self.apply_rounded_corners()
         # qframelesswindow/Windows 可能在显示阶段重新调整 Z 序，
@@ -264,6 +244,11 @@ class MainWindow(NekoriWindow):
             if not self.settings_window.close():
                 event.ignore()
                 return
+        # The caption close path bypasses hide_window_group(). Refresh the
+        # same tray-restore snapshot here, rather than restoring an initial
+        # zero or a position saved by an earlier tray/shortcut hide.
+        if hasattr(self, 'gallery_interface'):
+            self.gallery_interface.save_scroll_position()
         self._save_session_state()
         self._save_window_state()
         if hasattr(self, 'qq_scan_interface') and hasattr(self.qq_scan_interface, 'shutdown'):
@@ -620,10 +605,9 @@ class MainWindow(NekoriWindow):
             
             # 在下一帧恢复滚动位置
             if hasattr(self, 'gallery_interface'):
-                # 卡片采用分帧懒加载，延迟恢复可避免布局尚未完成时被截断。
+                # Restore once after the current layout turn; late retries would
+                # overwrite a new user scroll or a different category.
                 QTimer.singleShot(0, self.gallery_interface, self.gallery_interface.restore_scroll_position)
-                QTimer.singleShot(100, self.gallery_interface, self.gallery_interface.restore_scroll_position)
-                QTimer.singleShot(300, self.gallery_interface, self.gallery_interface.restore_scroll_position)
 
     def _owned_window_depth(self, window):
         current=window;seen=set();depth=0

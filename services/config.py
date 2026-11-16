@@ -29,6 +29,8 @@ class ConfigService:
             "category_sound_path": "",
             "sound_volume": 85,
             "show_new_resource_markers": True,
+            "auto_category_icons": False,
+            "show_animation_badges": True,
             "clipboard_import_enabled": True,
             "clipboard_import_hotkey": "ctrl+alt+v",
             "auto_check_updates": True,

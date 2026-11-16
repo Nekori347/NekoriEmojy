@@ -214,7 +214,7 @@ class ButtonPaint:
         tw = p.fontMetrics().horizontalAdvance(text)
         x = (available - tw - iw - gap) / 2
         if has_icon:
-            draw_icon(icon, p, QRectF(x, (self.height()-iw)/2, iw, iw), color)
+            draw_icon(icon, p, QRectF(x, (self.height()-self.iconSize().height())/2, iw, self.iconSize().height()), color)
         p.setPen(QColor(color))
         p.drawText(QRectF(x+iw+gap, 0, tw+1, self.height()), Qt.AlignCenter, text)
         if self.dropdown:

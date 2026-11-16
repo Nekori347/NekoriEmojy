@@ -2,7 +2,7 @@
 from collections import deque
 from dataclasses import dataclass,field
 import threading,uuid
-from PySide6.QtCore import QObject,Signal,QTimer,QThread,QEvent
+from PySide6.QtCore import QObject,Signal,QTimer,QThread,QEvent,SIGNAL,Qt
 from PySide6.QtWidgets import QApplication
 from services.resource_import import ImportTarget
 from services.ocr_service import ocr_service
@@ -33,6 +33,7 @@ class ImportRequest:
     before:tuple|None=None
     kind:str='import'
     background:bool=False
+    source_kind:str='unknown'
 
 
 class ImportQueue(QObject):
@@ -80,6 +81,8 @@ class ImportQueue(QObject):
         reason=self.recovery_block_reason(rid)
         if reason:raise RuntimeError(reason)
         request.state='waiting';request.errors=[];request.paths=[]
+        from services.crash_evidence import record_import
+        record_import(rid,'queued',source=self._source_kind(request.sources),recovery=True)
         self.waiting.append(rid);self.changed.emit(rid);QTimer.singleShot(0,self._next)
 
     def recovery_block_reason(self,rid):
@@ -101,7 +104,16 @@ class ImportQueue(QObject):
         ImportCheckpoint(self.storage,rid).forget()
         request.state='cancelled';self.changed.emit(rid)
 
-    def submit(self,sources,target,owner,*,delete_after=False,operation=None,kind='import',background=False):
+    @staticmethod
+    def _source_kind(sources):
+        from services.resource_import import ImportBytes
+        from PySide6.QtGui import QImage
+        kinds={('ole_image' if isinstance(source,ImportBytes) else 'clipboard_image' if isinstance(source,QImage) else
+                'network_url' if isinstance(source,str) and source.startswith(('http://','https://')) else
+                'local_file' if isinstance(source,str) else 'unknown') for source in sources}
+        return next(iter(kinds)) if len(kinds)==1 else 'mixed' if kinds else 'unknown'
+
+    def submit(self,sources,target,owner,*,delete_after=False,operation=None,kind='import',background=False,source_kind=None):
         if target.insert_position is None:target=ImportTarget(target.parent_node,0)
         request=ImportRequest(list(sources),target,owner,delete_after);request.total=len(request.sources)
         request.operation=operation
@@ -120,6 +132,9 @@ class ImportQueue(QObject):
             with self.storage.index.connect(search=False) as db:
                 from services.task_recovery import write_checkpoint
                 write_checkpoint(db,(request.id,''),unsupported=True)
+        from services.crash_evidence import record_import,IMPORT_SOURCES
+        request.source_kind=source_kind if source_kind in IMPORT_SOURCES else ('operation' if operation else self._source_kind(request.sources))
+        record_import(request.id,'queued',source=request.source_kind,count=len(request.sources),recovery=False)
         self.requests[request.id]=request;self.waiting.append(request.id);self.changed.emit(request.id)
         QTimer.singleShot(0,self._next);return request.id
 
@@ -134,11 +149,6 @@ class ImportQueue(QObject):
             if request.before is not None:
                 position=next((i for i,e in enumerate(self.storage.index.content(request.target.parent_node))
                                if (e['kind'],e['id'])==request.before),None)
-            worker=self.worker=ImportThread(request.sources,self.storage,request.target.parent_node,
-                delete_after=request.delete_after,insert_position=position,parent=self)
-            worker.job_id=request.id;worker.duplicate_resolver=lambda old,new:self._ask_duplicate(request,old,new)
-            worker.duplicate_batch_resolver=lambda candidates:self._ask_batch(request,candidates)
-            worker.operation=request.operation
             from services.task_recovery import ImportCheckpoint
             recovery=ImportCheckpoint(self.storage,request.id)
             with self.storage.index.connect(search=False) as db:
@@ -148,13 +158,27 @@ class ImportQueue(QObject):
             if header.get('unsupported') and request.phase:
                 request.state='interrupted';request.phase='此任务需要重新提供来源，不能安全重放';self.worker=None;self.current=None
                 self.changed.emit(request.id);continue
+            from services.crash_evidence import record_import
+            source=request.source_kind if request.source_kind!='unknown' else self._source_kind(request.sources)
+            request.source_kind=source
+            record_import(request.id,'worker_create',source=source,recovery=bool(request.phase))
+            worker=self.worker=ImportThread(request.sources,self.storage,request.target.parent_node,
+                delete_after=request.delete_after,insert_position=position,parent=self)
+            record_import(request.id,'worker_ready',source=source,recovery=bool(request.phase))
+            worker.job_id=request.id;worker.duplicate_resolver=lambda old,new:self._ask_duplicate(request,old,new)
+            worker.duplicate_batch_resolver=lambda candidates:self._ask_batch(request,candidates)
+            worker.operation=request.operation
             if header and not header.get('unsupported') and not header.get('delete_after'):
                 recovery.resuming=bool(request.phase)
                 worker.recovery=recovery
             worker.progress.connect(lambda done,total,r=request:self._progress(r,done,total))
             worker.stage.connect(lambda message,r=request:self._stage(r,message))
             worker.committed.connect(self._committed)
-            worker.finished.connect(self._finished);self.changed.emit(request.id);worker.start(QThread.LowPriority);return
+            worker.finished.connect(lambda a,b,c,w=worker:self._business_finished(w,a,b,c))
+            # The business signal shadows QThread.finished in Python. Connect the
+            # native zero-argument signal explicitly; only it releases the queue.
+            QObject.connect(worker,SIGNAL('finished()'),lambda w=worker:self._thread_finished(w),Qt.QueuedConnection)
+            self.changed.emit(request.id);worker.start(QThread.LowPriority);return
 
     def _progress(self,request,done,total):
         request.done=done;request.total=total;self.changed.emit(request.id)
@@ -173,10 +197,38 @@ class ImportQueue(QObject):
         self._committed_paths=set();self._committed_parents=set()
         self.resources_committed.emit(paths,parents)
 
-    def _finished(self,saved,duplicates,failed):
-        worker=self.worker
-        if worker is None:return
-        worker.wait();request=self.requests[self.current]
+    def _business_finished(self,worker,saved,duplicates,failed):
+        if self.worker is worker and not hasattr(worker,'_queue_result'):
+            worker._queue_result=(saved,duplicates,failed)
+
+    def _thread_finished(self,worker):
+        if self.worker is not worker:return
+        request=self.requests[self.current]
+        from services.crash_evidence import record_import
+        record_import(request.id,'thread_end',source=request.source_kind)
+        counts=getattr(worker,'_queue_result',None)
+        if counts is None and worker.result_emitted:counts=worker.outcome
+        if counts is None:
+            from services.crash_evidence import record_import
+            record_import(request.id,'finalize','worker_ended')
+            saved,duplicates,failed=worker.outcome
+            counts=(saved,duplicates,failed+int(not worker.cancel_event.is_set()))
+        saved,duplicates,failed=counts
+        request.saved=saved;request.duplicates=duplicates;request.failed=failed
+        request.paths=list(dict.fromkeys(worker.result_paths));request.skipped=worker.cancelled_count
+        # Identity guard also rejects late/duplicate callbacks from an old worker.
+        record_import(request.id,'result_commit',saved=saved,duplicates=duplicates,failed=failed)
+        try:self._finished(worker,request,saved,duplicates,failed)
+        except Exception:
+            from services.crash_evidence import record_import
+            record_import(request.id,'finalize','result_commit',saved=saved,duplicates=duplicates,failed=failed)
+            request.state='interrupted'
+            request.phase='发现未完成任务，请确认后继续'
+        finally:
+            self.worker=None;self.current=None;worker.deleteLater()
+            self.changed.emit(request.id);QTimer.singleShot(0,self._next)
+
+    def _finished(self,worker,request,saved,duplicates,failed):
         self._flush_committed()
         request.saved=saved;request.duplicates=duplicates;request.failed=failed
         request.kept=worker.kept_count
@@ -200,8 +252,6 @@ class ImportQueue(QObject):
         if terminal in {'completed','failed','cancelled'}:
             from services.task_recovery import ImportCheckpoint
             ImportCheckpoint(self.storage,request.id).forget()
-        self.worker=None;self.current=None;worker.deleteLater()
-        self.changed.emit(request.id);QTimer.singleShot(0,self._next)
 
     def _ocr_changed(self):
         for rid,request in tuple(self.requests.items()):
@@ -218,6 +268,10 @@ class ImportQueue(QObject):
         request=self.requests.get(rid)
         if not request:return
         request.state='cancelled'
+        if self.current!=rid:
+            from services.resource_import import ImportBytes
+            for source in request.sources:
+                if isinstance(source,ImportBytes):source.data=b'';source.fallback_url=''
         if self.current==rid and self.worker:self.worker.cancel()
         from services.task_recovery import ImportCheckpoint
         ImportCheckpoint(self.storage,rid).forget()

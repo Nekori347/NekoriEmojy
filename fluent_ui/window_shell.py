@@ -205,10 +205,6 @@ class NekoriWindow(FramelessWindow):
     _native_message = wintypes.MSG()
 
     def __init__(self, parent=None):
-        self._native_state_log = None
-        if os.environ.get('NEKORI_NATIVE_CHECK') == '1' and os.environ.get('NEKORI_APP_DATA'):
-            from fluent_ui.components.native_state_log import NativeStateLog
-            self._native_state_log = NativeStateLog()
         super().__init__(parent)
         # The frameless constructor has already created the native surface.
         # Enabling Qt alpha here only takes effect after HWND recreation,
@@ -372,9 +368,6 @@ class NekoriWindow(FramelessWindow):
             # client on every edge-resize step. Keep its native frame
             # calculation, while letting Qt repaint only exposed regions.
             result = (True, 0)
-        logger = self._native_state_log
-        if logger is not None and event_code in (0x84, 0x83, 0x7c, 0x7d, 0x231, 0x232, 0x18):
-            logger.record(self, hex(event_code), hwnd, list(result) if event_code in (0x83, 0x84) else None)
         return result
 
 

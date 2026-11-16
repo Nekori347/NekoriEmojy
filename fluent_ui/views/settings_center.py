@@ -29,7 +29,7 @@ from fluent_ui.theme import THEMES
 from services.autostart import AutostartService
 from services.i18n import SUPPORTED_LANGUAGES, i18n_engine, t, bind_text, translated
 
-PREVIEW_KEYS = {"show_new_resource_markers", "appearance_mode", "light_theme_key", "dark_theme_key",
+PREVIEW_KEYS = {"show_new_resource_markers", "show_animation_badges", "appearance_mode", "light_theme_key", "dark_theme_key",
                 "thumbnail_size", "sidebar_icon_size", "gallery_node_icon_size", "accent_color", "sidebar_mode", "sidebar_show_labels",
                 "quick_panel_thumbnail_size", "tag_panel_placement"}
 APPEARANCE_KEYS = ("appearance_mode", "accent_color")
@@ -458,7 +458,10 @@ class SettingsCenter(QWidget):
     def _page_gallery_display(self):
         section = self._section("图库显示")
         section.add_row(self._track(SwitchRow(
-            '新表情标记', '新添加的表情显示星标，悬停查看后消除。\n关闭并保存将清除现有星标。',
+            '动画标记','在多帧动画左下角显示 {animation_badge} 标记，不改变缩略图或原图。',
+            'show_animation_badges',self.config.get('show_animation_badges',True),self),'show_animation_badges',True))
+        section.add_row(self._track(SwitchRow(
+            '新表情标记', '新添加的表情显示 {new_resource_icon} 星标，悬停查看后消除。\n关闭并保存将清除现有星标。',
             'show_new_resource_markers', self.config.get('show_new_resource_markers', True), self),
             'show_new_resource_markers', True))
         section.add_row(self._track(
@@ -471,6 +474,9 @@ class SettingsCenter(QWidget):
                      "gallery_node_icon_size", self.config.get("gallery_node_icon_size", 22), 14, 48, 1, self),
             "gallery_node_icon_size", 22))
 
+        section.add_row(self._track(SwitchRow(
+            '自动分类图标','为无图标分类首次加入的图片生成一次性静态图标。\n开启并保存时补全已有分类，人工图标不会被覆盖。',
+            'auto_category_icons',self.config.get('auto_category_icons',False),self),'auto_category_icons',False))
         section = self._section("SIDEBAR")
         mode = self._track(ModeRow(
             "分类栏显示方式", "切换分类树与分类图标视图。\n也可通过分类栏顶部按钮快速切换。", "sidebar_mode",
@@ -568,8 +574,7 @@ class SettingsCenter(QWidget):
     def _set_icon(self, path):
         from services.app_icon import ApplicationIconService
         try:
-            frame=int(self.storage.resource_metadata(path).get('thumb_frame',0) or 0) if self.storage else 0
-            ApplicationIconService(self.config).set_from_image(path,frame=frame)
+            ApplicationIconService(self.config, storage=self.storage).set_from_image(path)
         except Exception as exc:
             self.show_error(t("设置图标失败"), str(exc))
             return
@@ -1067,6 +1072,8 @@ class SettingsCenter(QWidget):
             self._set_dirty(bool(self.pending))
             self.show_error(t('保存失败'), failure)
             return False
+        if keys.get('auto_category_icons') is True and not original.get('auto_category_icons',False) and self.storage is not None:
+            self.storage.fill_missing_category_icons()
         if keys.get('show_new_resource_markers') is False and self.storage is not None:
             self.storage.unseen_changed.emit()
         self.pending.clear()

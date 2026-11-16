@@ -493,3 +493,25 @@ def control_style(c=None):
         QComboBox QAbstractItemView {{ background: {c['surface_overlay']}; color: {c['text']}; border: 1px solid {c['border']}; selection-background-color: {c['selected']}; }}
         QScrollArea {{ background: transparent; border: none; }}
     """
+
+
+def animation_badge_size():
+    """Shared native ANIM geometry for gallery paint and inline text objects."""
+    from PySide6.QtCore import QSizeF
+    from PySide6.QtGui import QFontMetricsF
+    face=font('brand');face.setPixelSize(10)
+    metrics=QFontMetricsF(face)
+    return QSizeF(metrics.horizontalAdvance('ANIM')+8,metrics.height()+2)
+
+
+def paint_animation_badge(painter, rect):
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QPainter,QPen
+    painter.save();painter.setRenderHint(QPainter.Antialiasing)
+    face=font('brand');face.setPixelSize(10);painter.setFont(face)
+    c=colors();ink=QColor(c['text_secondary']);ink.setAlpha(180)
+    fill=QColor(c['surface']);fill.setAlpha(195)
+    edge=QColor(c['text_secondary']);edge.setAlpha(100)
+    painter.setBrush(fill);painter.setPen(QPen(edge,.6))
+    painter.drawRoundedRect(rect,3,3)
+    painter.setPen(ink);painter.drawText(rect,Qt.AlignCenter,'ANIM');painter.restore()

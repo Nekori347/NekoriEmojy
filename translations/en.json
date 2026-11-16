@@ -1979,5 +1979,21 @@
   "程序未能退出，更新包已保留。请关闭未完成的操作后重试。": "The app could not exit. Your update package has been kept. Finish any pending operations and retry.",
   "更新助手尚未退出，请稍后重试；已下载的更新包将保留。": "The updater has not exited yet. Try again later; the downloaded package has been kept.",
   "无法打开此链接：仅支持安全的 HTTPS 链接。": "Cannot open this link. Only secure HTTPS links are supported.",
-  "无法打开浏览器，请复制链接后手动打开。": "Could not open your browser. Copy the link and open it manually."
+  "无法打开浏览器，请复制链接后手动打开。": "Could not open your browser. Copy the link and open it manually.",
+    "检测到上次运行异常": "Previous session ended unexpectedly",
+    "NekoriEmojy 上次记录到了致命错误。": "A fatal error was recorded during the previous NekoriEmojy session.",
+    "NekoriEmojy 上次可能未正常退出。": "NekoriEmojy may not have exited normally last time.",
+    "已将可用的诊断信息保存到本地，可查看报告或打开诊断文件夹。": "Available diagnostics were saved locally. You can view the report or open the diagnostics folder.",
+    "查看报告": "View report",
+    "打开诊断文件夹": "Open diagnostics folder",
+    "无法打开诊断资料，请稍后重试。": "Unable to open diagnostics. Please try again later.",
+  "搜索范围：当前分类及其子分类。点击切换为全库。": "Search scope: this category and its descendants. Click to search the entire library.",
+  "搜索范围：全库。点击切换为当前分类及其子分类。": "Search scope: entire library. Click to search this category and its descendants.",
+  "自动分类图标": "Automatic category icons",
+  "为无图标分类首次加入的图片生成一次性静态图标。\n开启并保存时补全已有分类，人工图标不会被覆盖。": "Create a static icon once when an image first joins a category without an icon.\nEnabling and saving fills existing categories without replacing manual icons.",
+  "动画标记": "Animation badges",
+  "在多帧动画左下角显示 {animation_badge} 标记，不改变缩略图或原图。": "Show an {animation_badge} badge at the bottom left of multi-frame animations without changing the thumbnail or original.",
+  "新添加的表情显示 {new_resource_icon} 星标，悬停查看后消除。\n关闭并保存将清除现有星标。": "New images show a {new_resource_icon} marker until you pause over them.\nTurning this off and saving clears existing markers.",
+  "上一帧": "Previous frame",
+  "下一帧": "Next frame"
 }

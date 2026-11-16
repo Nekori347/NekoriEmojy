@@ -45,6 +45,8 @@ def build(stage,compiler,iscc,output):
 AppId={{{{CF92A7A8-2028-40BD-9EAA-8DD896C73407}}
 AppName=NekoriEmojy
 AppVersion={version}
+VersionInfoVersion={version}.0
+VersionInfoProductVersion={version}
 AppPublisher=Nekori_Net
 DefaultDirName={{localappdata}}\\Programs\\NekoriEmojy
 DefaultGroupName=NekoriEmojy

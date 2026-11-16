@@ -20,6 +20,14 @@ except ImportError:
 from fluent_ui import visual
 
 
+def _tag_animation(image,path):
+    # The existing PNG/QImage/QPixmap cache carries the result across cards and launches.
+    if image is not None and not image.isNull():
+        from services.image_frames import frame_count
+        image.setText('nekori.animation_frames',str(frame_count(path,animation_only=True)))
+    return image
+
+
 class _ThumbnailLoadSignals(QObject):
     finished = Signal(str, object, int, int)
 
@@ -46,6 +54,12 @@ class _ThumbnailLoadTask(QRunnable):
             if self.cache_file and os.path.isfile(self.cache_file):
                 cached = QImageReader(self.cache_file).read()
                 if not cached.isNull():
+                    if not cached.text('nekori.animation_frames'):
+                        _tag_animation(cached,self.image_path)
+                        temporary=self.cache_file+'.tmp'
+                        try:
+                            if cached.save(temporary,'PNG'):os.replace(temporary,self.cache_file)
+                        except OSError:pass
                     self._emit_finished(self.image_path, cached, self.request_id, self.target_size)
                     return
             if self.frame:
@@ -73,7 +87,7 @@ class _ThumbnailLoadTask(QRunnable):
             if self._cancelled:
                 return
             if loaded and not loaded.isNull():
-                image = loaded
+                image = _tag_animation(loaded,self.image_path)
                 if self.cache_file:
                     temporary = self.cache_file + '.tmp'
                     if image.save(temporary, 'PNG'):
@@ -195,6 +209,7 @@ class ThumbnailCache:
                 image = frame_at(image_path, int(frame))
                 if image is None or image.isNull():
                     return None
+                _tag_animation(image,image_path)
                 pixmap = QPixmap.fromImage(image)
                 if pixmap.width() > target_size or pixmap.height() > target_size:
                     pixmap = pixmap.scaled(target_size, target_size,
@@ -213,6 +228,7 @@ class ThumbnailCache:
 
             img = reader.read()
             if img and not img.isNull():
+                _tag_animation(img,image_path)
                 pixmap = QPixmap.fromImage(img)
 
                 # 确保最终尺寸不超过 target_size，并应用平滑缩放以保证画质
@@ -255,6 +271,7 @@ class EmojiCard(QLabel):
         self._is_dragging = False
         self.current_size = size
         self.frame = int(frame or 0)
+        self._animated = False
         # Set by the gallery: returns every path that should travel with one drag.
         self.drag_payload_provider = None
         self.drag_sources_provider = None
@@ -335,6 +352,11 @@ class EmojiCard(QLabel):
             q=image.adjusted(18,18,-18,-28)
             p.drawLine(q.topLeft(),q.bottomRight());p.drawLine(q.topRight(),q.bottomLeft())
             p.setFont(visual.font('data'));p.drawText(image,Qt.AlignBottom|Qt.AlignHCenter,'MISSING')
+        config=visual.theme.config
+        if self._animated and self.property('state')!='missing' and (config is None or config.get('show_animation_badges',True)):
+            size=visual.animation_badge_size()
+            badge=QRectF(4,self.height()-size.height()-4,size.width(),size.height())
+            visual.paint_animation_badge(p,badge)
         if self.is_selected or self._hovered:
             p.setBrush(Qt.NoBrush);p.setPen(QPen(QColor(c['accent']),2 if self._hovered else 1.5))
             selection=r.adjusted(1,1,-1,-1)
@@ -461,6 +483,7 @@ class EmojiCard(QLabel):
         self._is_loading = False
         self._loading_size = 0
         self.clear()
+        self._animated = False
         self._is_loaded = False
         self._loaded_size = 0
         self.setText("⋯")
@@ -490,6 +513,7 @@ class EmojiCard(QLabel):
             self.setText("?" if not os.path.isfile(self.image_path) else " ")
             return
 
+        self._animated = int(image.text('nekori.animation_frames') or 1)>1
         pixmap = QPixmap.fromImage(image)
         if pixmap.isNull():
             self._is_loaded = False
@@ -511,6 +535,7 @@ class EmojiCard(QLabel):
         cache_key = self._cache_key(target_size)
         cached = QPixmap()
         if QPixmapCache.find(cache_key, cached):
+            self._animated = int(cached.toImage().text('nekori.animation_frames') or 1)>1
             self.setText("")
             self.setPixmap(cached.scaled(target_size, target_size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
             self._is_loaded = True

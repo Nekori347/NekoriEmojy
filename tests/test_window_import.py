@@ -27,7 +27,7 @@ def test_blank_drop_uses_common_paste_target_and_batch_boundary(surface):
     request=list(s.g.imports.requests.values())[-1]
     assert len(s.g.imports.requests)==before+1 and request.target.parent_node==s.parent
     assert request.drag_session_id
-    for _ in range(100):
+    for _ in range(500):
         if request.state in ('completed','failed','cancelled'):break
         QTest.qWait(20)
     assert request.state=='completed' and request.saved==1

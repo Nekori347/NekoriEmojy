@@ -500,9 +500,19 @@ class FramePickerDialog(NekoriDialog):
         self.frame_count = self._count_frames()
         self.slider = QSlider(Qt.Horizontal, self)
         self.slider.setRange(0, max(0, self.frame_count - 1))
-        self.slider.setValue(min(int(self.metadata.get("thumb_frame", 0) or 0), self.frame_count - 1))
+        self.slider.setValue(min(storage.representative_frame(path), self.frame_count - 1))
         self.slider.valueChanged.connect(self._render)
-        self.add_widget(self.slider)
+        from fluent_ui.components.controls import TransparentToolButton
+        from fluent_ui.icons import Icon
+        frame_controls=QWidget(self);row=QHBoxLayout(frame_controls);row.setContentsMargins(0,0,0,0);row.setSpacing(4)
+        self.previous_frame=TransparentToolButton(Icon.CHEVRON_LEFT,frame_controls)
+        self.next_frame=TransparentToolButton(Icon.CHEVRON_RIGHT,frame_controls)
+        for button,label in ((self.previous_frame,'上一帧'),(self.next_frame,'下一帧')):
+            button.setFixedSize(28,28);bind_text(button,label,'setToolTip');bind_text(button,label,'setAccessibleName')
+        self.previous_frame.clicked.connect(lambda:self.slider.setValue(self.slider.value()-1))
+        self.next_frame.clicked.connect(lambda:self.slider.setValue(self.slider.value()+1))
+        row.addWidget(self.previous_frame);row.addWidget(self.slider,1);row.addWidget(self.next_frame)
+        self.add_widget(frame_controls)
 
         self.frame_label = QLabel(self)
         self.frame_label.setProperty("role", "data")
@@ -532,6 +542,8 @@ class FramePickerDialog(NekoriDialog):
         return frame_count(self.path)
 
     def _render(self, index):
+        self.previous_frame.setEnabled(index>self.slider.minimum())
+        self.next_frame.setEnabled(index<self.slider.maximum())
         from PySide6.QtGui import QPixmap
         from services.image_frames import frame_at
         # QImageReader cannot step GIF frames in this build, so the frame comes

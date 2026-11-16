@@ -26,16 +26,16 @@ class WindowImportReceiver(QObject):
         return True
 
     def eventFilter(self,watched,event):
-        if watched is not self.window or event.type() not in (QEvent.DragEnter,QEvent.DragMove,QEvent.Drop):
+        # Qt can dispatch while a Python-owned filter is being collected.
+        # A cleared wrapper must not re-enter UI/import code.
+        window=getattr(self,'window',None)
+        if window is None or watched is not window or event.type() not in (QEvent.DragEnter,QEvent.DragMove,QEvent.Drop):
             return False
         mime=event.mimeData()
         if any(mime.hasFormat(fmt) for fmt in (RESOURCE_MIME,NODE_MIME,TAG_MIME)) or not self._blank(event.position().toPoint()):
             event.ignore();return True
         if event.type()!=QEvent.Drop:
-            if mime.hasImage():supported=True
-            else:
-                kind,_=ClipboardService.importable_payload(mime,self.gallery.storage.SUPPORTED_FORMATS)
-                supported=kind is not None
+            supported=ClipboardService.advertises_import(mime)
             if supported:event.setDropAction(Qt.CopyAction);event.accept()
             else:event.ignore()
             return True
@@ -44,6 +44,8 @@ class WindowImportReceiver(QObject):
         operation.target=DropTarget(INTO,IMPORT,None,self.gallery.content_scope_node()).freeze()
         kind,payload=ClipboardService.importable_payload(mime,self.gallery.storage.SUPPORTED_FORMATS)
         if kind is None:
+            from services.crash_evidence import record_import
+            record_import('', 'receive', 'unsupported_source')
             self.gallery.feedback_host.notice(t('无法导入'),t('未找到支持的表情文件或图片。'),error=True)
             event.ignore();return True
         request=[]

@@ -1,6 +1,5 @@
 """Gallery-owned cache/queue. Renderer recycling never owns decode lifetime."""
 import hashlib
-import json
 import os
 from pathlib import Path
 from PySide6.QtCore import QObject, Slot
@@ -11,6 +10,7 @@ from fluent_ui.components.emoji_card import ThumbnailCache, _ThumbnailLoadTask, 
 class GalleryThumbnails(QObject):
     def __init__(self, config, parent):
         super().__init__(parent)
+        self.storage = parent.storage
         self.cache_dir = Path(config.base_dir)/'cache'/'thumbnails'
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.revisions = {}
@@ -42,8 +42,7 @@ class GalleryThumbnails(QObject):
                 self.revisions[path] = (stat.st_mtime_ns, stat.st_size)
             except OSError:
                 self.revisions[path] = (0, 0)
-        metadata = json.loads(entry.get('resource', {}).get('metadata_json') or '{}')
-        frame = int(metadata.get('thumb_frame', 0) or 0)
+        frame = self.storage.representative_frame(entry.get('resource') or path)
         tier = next((n for n in (128, 192, 256, 384) if n >= size-16), 384)
         identity = (ThumbnailCache.library_identity(), entry['id'], self.revisions[path], tier, frame)
         digest = hashlib.sha256(repr(identity).encode()).hexdigest()
@@ -70,6 +69,7 @@ class GalleryThumbnails(QObject):
         self.dispatch()
 
     def attach(self, card, key, pixmap):
+        card._animated = int(pixmap.toImage().text('nekori.animation_frames') or 1)>1
         size = max(10, card.current_size-8)
         from PySide6.QtCore import Qt
         # Display inset only: cache identity, decode tiers and queue stay intact.
