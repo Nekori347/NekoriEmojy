@@ -77,6 +77,7 @@ class StorageService:
         self.import_context = threading.local()
         self.importer = ResourceImporter(self)
         self._adopt_internal_data()
+        self.fill_missing_category_icons()
 
     def _adopt_internal_data(self):
         """One-time adoption of data already inside this selected library.
@@ -449,13 +450,53 @@ class StorageService:
     def resource_of(self, filepath):
         return self.index.resource(filepath)
 
-    def set_node_icon(self, node_id, value, *, frame=None):
+    @_storage_locked
+    def set_node_icon(self, node_id, value, *, frame=None, only_if_empty=False):
         """value is either an emoji/text or a local image path (copied into the library)."""
+        if only_if_empty:
+            node=self.index.node(node_id)
+            if not node or node.get("icon"):return False
         if value and Path(value).suffix.lower() in IMAGE_SUFFIXES and Path(value).is_file():
-            if frame is None:
-                frame = self.resource_metadata(value).get('thumb_frame', 0)
-            value = self._store_node_icon_file(value, frame=frame)
-        self.index.update_node(node_id, icon=value or "")
+            value = self._store_node_icon_file(value, frame=self.representative_frame(value, frame=frame))
+        return self.index.update_node(node_id, icon=value or "", only_if_empty=only_if_empty)
+
+    def ensure_category_icon(self, node_id, path):
+        if node_id in (None,ROOT) or not self.config.config.get('auto_category_icons',False):return False
+        try:
+            if not Path(path).is_file() or Path(path).suffix.lower() not in IMAGE_SUFFIXES:return False
+            return self.set_node_icon(node_id,path,only_if_empty=True)
+        except Exception:
+            import logging
+            logging.getLogger('nekori.crash_evidence').warning('automatic_category_icon_failed')
+            return False
+
+    def fill_missing_category_icons(self):
+        if not self.config.config.get('auto_category_icons',False):return 0
+        # One direct, canonical member per missing node, never a descendant cover.
+        try:
+            with self.index.connect(search=False) as db:
+                rows=db.execute("""SELECT n.id,r.relative_path FROM nodes n
+                    JOIN content c ON c.parent_id=n.id AND c.resource_id IS NOT NULL
+                    JOIN resources r ON r.id=c.resource_id
+                    WHERE n.id!=? AND COALESCE(n.icon,'')='' AND c.position=(
+                        SELECT MIN(first.position) FROM content first
+                        WHERE first.parent_id=n.id AND first.resource_id IS NOT NULL)
+                    ORDER BY n.id""",(ROOT,)).fetchall()
+        except (sqlite3.Error,OSError):
+            import logging
+            logging.getLogger('nekori.crash_evidence').warning('automatic_category_icon_fill_failed')
+            return 0
+        return sum(bool(self.ensure_category_icon(row[0],str(self.index.root/row[1]))) for row in rows)
+
+    def subtree_resource_counts(self):
+        # Batched closure with distinct IDs; direct node_counts stays unchanged.
+        with self.index.connect(search=False) as db:
+            return {row[0]:row[1] for row in db.execute("""WITH RECURSIVE scope(ancestor,id) AS (
+                SELECT id,id FROM nodes UNION ALL
+                SELECT scope.ancestor,n.id FROM scope JOIN nodes n ON n.parent_id=scope.id)
+                SELECT scope.ancestor,COUNT(DISTINCT c.resource_id) FROM scope
+                LEFT JOIN content c ON c.parent_id=scope.id AND c.resource_id IS NOT NULL
+                GROUP BY scope.ancestor""")}
 
     def _store_node_icon_file(self, source, *, frame=0):
         import shutil
@@ -505,11 +546,16 @@ class StorageService:
             source_ids = dict(zip(ids, (sources.get(path) for path in filepaths))) if sources else None
             added=self.index.assign_memberships(ids, target_node or ROOT, copy=copy,
                                                    source=source_node, position=position, sources=source_ids)
+        if filepaths:self.ensure_category_icon(target_node or ROOT,filepaths[0])
         from services.send_sound import completed_sound
         # This API represents an explicit existing-resource Copy/Move. Import
         # uses ResourceImporter/index directly and owns its own batch result.
         completed_sound(self.config,'category',copy and target_node not in (None,ROOT) and added>0)
         return added
+
+    def representative_frame(self, resource, *, frame=None):
+        """Shared static representative selection; does not generate a snapshot."""
+        return self.index.representative_frame(resource, frame=frame)
 
     def resource_metadata(self, filepath):
         record = self.index.resource(filepath)
@@ -1242,6 +1288,8 @@ class StorageService:
 
     @_storage_locked
     def _standardize_and_save(self, data_bytes, original_ext, source_path=None, pil_source=None, strict=False, force_new=False):
+        from services.crash_evidence import import_stage
+        import_stage(self.import_context,'decode')
         stage = "清洗失败"
         try:
             # 步骤 1：格式归一化预处理
@@ -1277,6 +1325,7 @@ class StorageService:
                 file_hash = self._calculate_bytes_hash(final_bytes)
 
             # 步骤 3：哈希查重与去重入库
+            import_stage(self.import_context,'store')
             stage = "索引保存失败"
             # L1 快路径：用最终入库文件的 file_md5 在 _hashes_cache 中查找
             self.import_context.normalized=(final_bytes,final_ext,file_hash)
@@ -1344,6 +1393,8 @@ class StorageService:
             return self._to_abspath(filename), False
 
         except Exception as e:
+            trace=getattr(self.import_context,'import_trace',None)
+            if trace:trace.failure(e)
             print(f"[ERROR] {stage}: {e}")
             if strict:
                 raise RuntimeError(f"{stage}: {e}") from e
@@ -1394,6 +1445,8 @@ class StorageService:
             return self._standardize_and_save(byte_array.data(), ".png")
 
     def _save_file_source(self, source_path, strict=False):
+        from services.crash_evidence import import_stage
+        import_stage(self.import_context,'resolve')
         if not os.path.exists(source_path):
             if strict:
                 raise FileNotFoundError(source_path)

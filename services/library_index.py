@@ -345,7 +345,7 @@ class LibraryIndex:
                 write_checkpoint(db, checkpoint, state='done', node=node_id)
         return node_id
 
-    def update_node(self, node_id, *, name=None, icon=None):
+    def update_node(self, node_id, *, name=None, icon=None, only_if_empty=False):
         if node_id == ROOT:
             raise ValueError("Cannot edit the library root")
         with self.connect() as db:
@@ -357,7 +357,8 @@ class LibraryIndex:
                 except sqlite3.IntegrityError as exc:
                     raise ValueError(f"Same-level node already exists: {name.strip()}") from exc
             if icon is not None:
-                db.execute("UPDATE nodes SET icon=? WHERE id=?", (icon, node_id))
+                condition=" AND COALESCE(icon,'')=''" if only_if_empty else ""
+                return bool(db.execute("UPDATE nodes SET icon=? WHERE id=?"+condition, (icon, node_id)).rowcount)
 
     def move_node(self, node_id, parent_id=ROOT, position=None, *, report_order=False):
         parent_id = parent_id or ROOT
@@ -574,6 +575,25 @@ class LibraryIndex:
     def forget_resource(self, resource_id):
         with self.connect() as db:
             return bool(db.execute("DELETE FROM resources WHERE id=?", (resource_id,)).rowcount)
+
+    def representative_frame(self, resource, *, frame=None):
+        """Static resource identity: explicit frame, saved choice, then frame zero.
+
+        Accept an existing catalog record to avoid per-card database reads, or
+        resolve a path/ID through the same Library identity rules. External
+        images have no saved choice. Decoders retain frame-count clamping.
+        """
+        if frame is None:
+            record = resource if isinstance(resource, dict) else self.resource(resource) if resource is not None else None
+            try:
+                metadata = json.loads(record.get('metadata_json') or '{}') if record else {}
+            except (ValueError, TypeError):
+                metadata = {}
+            frame = metadata.get('thumb_frame', 0) if isinstance(metadata, dict) else 0
+        try:
+            return max(0, int(frame or 0))
+        except (ValueError, TypeError, OverflowError):
+            return 0
 
     def set_resource_metadata(self, resource_id, metadata):
         with self.connect() as db:

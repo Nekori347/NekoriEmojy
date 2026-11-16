@@ -12,8 +12,6 @@ def instance_key():
     if os.environ.get('NEKORI_APP_DATA'):
         from services.app_paths import app_data_dir
         key += '_' + hashlib.sha256(str(app_data_dir()).casefold().encode()).hexdigest()[:20]
-    if '--smoke-test' in sys.argv:
-        key += f'_Smoke_{os.getpid()}'
     return key
 
 

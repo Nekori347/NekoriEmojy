@@ -6,6 +6,7 @@ import subprocess
 ROOT=Path(__file__).resolve().parents[1]
 FILES=('main.py','requirements.txt','ocr-component.json','ico.ico','README.md','LICENSE','THIRD_PARTY_NOTICES.md')
 PACKAGES=('fluent_ui/','services/')
+DEVELOPMENT_ONLY={'services/dev_placement.py','fluent_ui/components/native_state_log.py'}
 LANGUAGES=tuple('translations/'+lang+'.json' for lang in ('zh','en','ja','zh_TW'))
 SOURCE_OVERRIDES={'README.md':'docs/PACKAGE_README.md'}
 GENERATED=('NekoriEmojy.exe','NekoriEmojyUpdater.exe','version.json','BUILD_INFO.json','THIRD_PARTY_LICENSES.txt')
@@ -15,7 +16,7 @@ def source_files():
     paths=subprocess.check_output(['git','-C',str(ROOT),'ls-files','-z'],text=True,encoding='utf-8').split('\0')
     result=set(FILES+LANGUAGES)
     for name in paths:
-        if name.startswith(PACKAGES) and (name.endswith('.py') or name.startswith('fluent_ui/assets/')):
+        if name not in DEVELOPMENT_ONLY and name.startswith(PACKAGES) and (name.endswith('.py') or name.startswith('fluent_ui/assets/')):
             result.add(name)
     for name in result:
         if not (ROOT/SOURCE_OVERRIDES.get(name,name)).is_file():raise FileNotFoundError(name)

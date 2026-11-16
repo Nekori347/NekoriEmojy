@@ -27,12 +27,14 @@ def is_animated(path):
     return frame_count(path) > 1
 
 
-def frame_count(path):
+def frame_count(path, *, animation_only=False):
     """Number of frames, 1 for a still image or an unreadable file."""
     try:
         Image, _ = _pillow()
         with Image.open(path) as image:
-            return max(1, int(getattr(image, 'n_frames', 1) or 1))
+            count=max(1,int(getattr(image,'n_frames',1) or 1))
+            if animation_only and image.format=='PNG' and image.info.get('default_image'):count-=1
+            return max(1,count)
     except Exception:
         return 1
 

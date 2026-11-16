@@ -1,7 +1,21 @@
 """All desktop inputs share this small importer and the upstream codecs."""
 from dataclasses import dataclass, field
 from pathlib import Path
+from services.crash_evidence import import_stage
 from services.library_index import ROOT
+
+MAX_IMPORT_BYTES=256*1024**2
+
+
+@dataclass(repr=False)
+class ImportBytes:
+    """Owned virtual-file bytes, never a retained QMimeData/IDataObject."""
+    data: bytes
+    fallback_url: str = ''
+
+    def take(self):
+        data,self.data=self.data,b''
+        return data
 
 
 @dataclass(frozen=True)
@@ -43,6 +57,7 @@ class ResourceImporter:
     def _accept(self, saved, duplicate, source_name, target, library_added_seq=None):
         if not saved:
             raise RuntimeError("Resource could not be saved")
+        import_stage(self.storage.import_context,'store')
         index = self.storage.index
         checkpoint = getattr(self.storage.import_context, 'checkpoint', None)
         if checkpoint:
@@ -119,6 +134,7 @@ class ResourceImporter:
         raise ImportDeferred()
 
     def _notify(self,saved,duplicate=False,target=ImportTarget()):
+        self.storage.ensure_category_icon(target.parent_node,saved)
         committed=getattr(self.storage.import_context,'committed',None)
         if committed:committed([saved],{ROOT,target.parent_node})
         accepted=getattr(self.storage.import_context,'accepted',None)
@@ -184,6 +200,8 @@ class ResourceImporter:
                     raise RecoveryWait('目标分类已改变，无法安全继续')
                 raise
             except Exception as exc:
+                trace=getattr(self.storage.import_context,'import_trace',None)
+                if trace:trace.failure(exc)
                 result.errors[str(path)] = str(exc)
 
         for offset, source in enumerate(sources):

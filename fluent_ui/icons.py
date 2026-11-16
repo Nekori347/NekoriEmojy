@@ -80,6 +80,8 @@ class Icon(FluentIconBase, Enum):
     RIGHT_ARROW = 'arrow-right'
     SAVE = 'device-floppy'
     SEARCH = 'search'
+    SEARCH_ALL = 'search-all'
+    SEARCH_HERE = 'search-here'
     SEND = 'send'
     SETTING = 'settings-2'
     SHARE = 'share'

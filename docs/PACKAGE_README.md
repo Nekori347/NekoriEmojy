@@ -1,4 +1,4 @@
-# NekoriEmojy 0.2.4
+# NekoriEmojy 0.2.5
 
 本地表情管理工具。启动当前目录中的 `NekoriEmojy.exe`。请不要覆盖原 Suzu 安装目录。
 

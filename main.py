@@ -67,8 +67,20 @@ def main():
     if not instance.start():
         return
 
-    from services.crash_evidence import install as install_crash_evidence
+    from services.crash_evidence import begin_session, complete_session, install as install_crash_evidence
+    begin_session()
     install_crash_evidence()
+    result = _run_primary(app, instance)
+    # aboutToQuit can precede unfinished teardown; only normal return commits.
+    if result is None:
+        complete_session('startup_cancelled')
+    elif result == 0:
+        complete_session('event_loop_returned')
+    return result
+
+
+def _run_primary(app, instance):
+    from services.autostart import AutostartService
 
     try:
         AutostartService().repair_registration()
@@ -207,29 +219,6 @@ def main():
         QSystemTrayIcon.MiddleClick: run_middle_click,
     }, open_tray_menu, window)
     tray_icon.activated.connect(window.tray_activation.activate)
-    if os.environ.get('NEKORI_VIEW_CHECK') == '1':
-        # Temporary passive diagnostics: no injected desktop input or focus.
-        from pathlib import Path
-        from PySide6.QtGui import QShortcut, QKeySequence
-        import time
-        check_log = Path(config_service.base_dir)/'view-check.log'
-        def note_view_check(text):
-            with check_log.open('a', encoding='utf-8') as stream:
-                stream.write(f'{time.time():.3f} {text}\n')
-        note_view_check(f'START {__file__} library={storage_service.library_root}')
-        def toggle_empty_content():
-            window.stacked_widget.setVisible(not window.stacked_widget.isVisible())
-            gallery = window.gallery_interface
-            from PySide6.QtWidgets import QWidget
-            children = gallery.findChildren(QWidget)
-            note_view_check(f'CONTENT visible={window.stacked_widget.isVisible()} entries={len(gallery._entries)} '
-                           f'cards={len(gallery._all_card_widgets)} children={len(children)} '
-                           f'native_children={sum(w.testAttribute(Qt.WA_NativeWindow) for w in children)} '
-                           f'translucent_main={window.testAttribute(Qt.WA_TranslucentBackground)}')
-            if window._native_state_log:
-                window._native_state_log.record(window, 'F9-content', int(window.windowHandle().winId()))
-        window.view_check_shortcut = QShortcut(QKeySequence('F9'), window)
-        window.view_check_shortcut.activated.connect(toggle_empty_content)
     tray_icon.show()
     from fluent_ui.components.clipboard_import_command import install_clipboard_import
     install_clipboard_import(window, config_service, tray_icon)
@@ -238,37 +227,13 @@ def main():
     if not should_start_hidden(sys.argv, QSystemTrayIcon.isSystemTrayAvailable()):
         window.show()
     instance.set_window(window)
+    from fluent_ui.components.auto_crash_reports import install_auto_crash_reports
+    install_auto_crash_reports(app, window)
     from fluent_ui.components.update_center import update_center
     QTimer.singleShot(0, lambda: update_center().check_on_startup(config_service))
     
     
-    if "--smoke-test" in sys.argv:
-        def smoke_complete():
-            assert window.gallery_interface.storage is storage_service
-            assert window.quick_panel.storage is storage_service
-            from fluent_ui.components import dialogs, setting_rows
-            print("NEKORI_RUNTIME", sys.executable, os.path.abspath(__file__), os.getcwd(), flush=True)
-            for module in (sys.modules[type(window.gallery_interface).__module__], dialogs, setting_rows):
-                print("NEKORI_LOADED_MODULE", module.__name__, os.path.abspath(module.__file__), flush=True)
-            print("NEKORI_DIALOG_BASE", dialogs.NekoriDialog.__bases__[0].__name__, flush=True)
-            from services.dev_placement import dev_screen, selector
-            monitor = dev_screen()
-            print("NEKORI_DEV_PLACEMENT", selector() or 'unset',
-                  monitor.name() if monitor else 'not-applied', window.geometry().getRect(), flush=True)
-            print("NEKORI_STARTUP_OK", storage_service.library_root, flush=True)
-            # Existing opt-in smoke mode also supports the console-less EXE.
-            import json
-            from pathlib import Path
-            report = dict(argv=sys.argv, executable=sys.executable,
-                          script=os.path.abspath(__file__), cwd=os.getcwd(),
-                          visible=window.isVisible(), tray_available=QSystemTrayIcon.isSystemTrayAvailable(),
-                          startup_command=AutostartService().command(),
-                          library=str(storage_service.library_root))
-            (Path(config_service.base_dir) / 'smoke-result.json').write_text(
-                json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
-            app.quit()
-        QTimer.singleShot(1200, smoke_complete)
-    sys.exit(app.exec())
+    return app.exec()
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

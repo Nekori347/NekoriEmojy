@@ -28,8 +28,9 @@ def set_app_user_model_id():
 
 
 class ApplicationIconService:
-    def __init__(self, config):
+    def __init__(self, config, *, storage=None):
         self.config = config
+        self.storage = storage
         base = getattr(config, "base_dir", None)
         self.data_dir = Path(base) if isinstance(base, str) and base else Path(".")
 
@@ -43,10 +44,13 @@ class ApplicationIconService:
     def is_custom(self):
         return self.custom_path.is_file()
 
-    def set_from_image(self, image_path, *, frame=0):
+    def set_from_image(self, image_path, *, frame=None):
         source = Path(image_path)
         if not source.is_file():
             raise FileNotFoundError(str(source))
+        # Library-backed callers share resource identity; external files default
+        # to zero. Explicit frame selection always overrides either default.
+        frame = self.storage.representative_frame(image_path, frame=frame) if self.storage else (0 if frame is None else frame)
         with Image.open(source) as image:
             # Reuse the library's existing chosen thumbnail frame.
             if getattr(image, "is_animated", False):

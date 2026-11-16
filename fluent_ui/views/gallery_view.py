@@ -58,9 +58,10 @@ MAX_IMAGE_DOWNLOAD_BYTES = 256 * 1024 ** 2
 class DownloadThread(QThread):
     finished = Signal(bool, str, str, str)  # success, temp_filepath, error_msg, url
 
-    def __init__(self, url, parent=None):
+    def __init__(self, url, parent=None, trace=None):
         super().__init__(parent)
         self.url = url
+        self.trace = trace
 
     def run(self):
         import urllib.request
@@ -69,8 +70,14 @@ class DownloadThread(QThread):
         import os
         temp_path = None
         try:
+            if self.trace:self.trace.enter('resolve')
+            from urllib.parse import urlsplit
+            parsed=urlsplit(self.url)
+            if parsed.scheme not in {'http','https'} or not parsed.hostname:raise ValueError('Invalid URL')
+            if self.trace:self.trace.enter('network')
             req = urllib.request.Request(self.url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
             with urllib.request.urlopen(req, timeout=10) as response:
+                if self.trace:self.trace.enter('validate')
                 content_type = response.headers.get('Content-Type', '').lower()
                 is_image = content_type.startswith('image/')
 
@@ -82,10 +89,12 @@ class DownloadThread(QThread):
                         is_image = True
 
                 if not is_image:
+                    if self.trace:self.trace.failure(error='not_image')
                     self.finished.emit(False, "", t("该链接不是有效的表情"), self.url)
                     return
 
                 if int(response.headers.get('Content-Length', '0')) > MAX_IMAGE_DOWNLOAD_BYTES:
+                    if self.trace:self.trace.failure(error='too_large')
                     raise ValueError(t('图片下载超过大小上限'))
                 fd, temp_path = tempfile.mkstemp(suffix=".tmp")
                 with os.fdopen(fd, 'wb') as f:
@@ -93,13 +102,17 @@ class DownloadThread(QThread):
                     while chunk := response.read(64 * 1024):
                         total += len(chunk)
                         if total > MAX_IMAGE_DOWNLOAD_BYTES:
+                            if self.trace:self.trace.failure(error='too_large')
                             raise ValueError(t('图片下载超过大小上限'))
                         f.write(chunk)
 
                 self.finished.emit(True, temp_path, "", self.url)
         except Exception as e:
+            if self.trace:self.trace.failure(e)
             if temp_path and os.path.exists(temp_path):
-                os.unlink(temp_path)
+                try:os.unlink(temp_path)
+                except OSError as cleanup_error:
+                    if self.trace:self.trace.failure(cleanup_error,stage='cleanup')
             self.finished.emit(False, "", str(e), self.url)
 
 
@@ -126,6 +139,8 @@ class ImportThread(QThread):
         self.operation=None;self.result=None
         self.duplicate_batch_resolver=None;self.kept_count=0
         self.recovery=None;self.recovery_waiting=''
+        self.trace=None
+        self.outcome=(0,0,0);self.result_emitted=False;self._temporaries=[]
 
     def cancel(self):self.cancel_event.set()
 
@@ -153,20 +168,60 @@ class ImportThread(QThread):
                 except Exception:
                     pass
 
+    def _emit_result(self, saved, duplicates, failed):
+        if self.result_emitted:return
+        self.outcome=(saved,duplicates,failed);self.result_emitted=True
+        if self.trace:self.trace.finish(saved,duplicates,failed,self.cancelled_count,
+                                       self.cancel_event.is_set(),bool(self.recovery_waiting))
+        self.finished.emit(saved,duplicates,failed)
+
+    def _cleanup_temporaries(self):
+        from pathlib import Path
+        if self.trace:self.trace.enter('cleanup')
+        # Only mkstemp paths obtained by this task, never a directory sweep or source path.
+        paths,self._temporaries=self._temporaries,[]
+        for temporary in paths:
+            try:Path(temporary).unlink(missing_ok=True)
+            except OSError as exc:
+                if self.trace:self.trace.failure(exc,stage='cleanup')
+
     def run(self):
+        try:self._run_import()
+        except Exception as exc:
+            if self.trace:self.trace.failure(exc,stage='finalize')
+            self.errors.append(str(exc))
+            saved,duplicates,failed=self.outcome
+            self.outcome=(saved,duplicates,failed+int(not self.cancel_event.is_set()))
+        finally:
+            try:self._cleanup_temporaries()
+            finally:
+                context=self.storage.import_context
+                from services.resource_import import ImportBytes
+                for source in self.sources:
+                    if isinstance(source,ImportBytes):source.data=b'';source.fallback_url=''
+                for name,value in (('job_id',''),('duplicate_resolver',None),('cancelled',None),
+                    ('normalized',None),('checkpoint',None),('deferred_duplicates',None),
+                    ('duplicate_choice',''),('committed',None),('import_trace',None),('accepted',None)):
+                    setattr(context,name,value)
+        self._emit_result(*self.outcome)
+
+    def _run_import(self):
         from services.resource_import import ImportTarget
         from services.resource_import import ImportSkipped,ImportDeferred
         from PySide6.QtGui import QImage
         saved_count = skipped_count = failed_count = 0
         total = len(self.sources)
+        from services.crash_evidence import ImportTrace
+        self.trace=ImportTrace(self.job_id);self.trace.enter('receive')
         context=self.storage.import_context
+        context.import_trace=self.trace
         context.job_id=self.job_id;context.duplicate_resolver=self.duplicate_resolver
         context.cancelled=self.cancel_event.is_set
         if self.operation is not None:
             self._run_operation(context)
             return
         context.committed=self.committed.emit
-        pending=[];temporaries=[];awaiting_anchor=[];deferred_slots=0
+        pending=[];temporaries=self._temporaries;awaiting_anchor=[];deferred_slots=0
         context.deferred_duplicates=pending if self.duplicate_batch_resolver else None
         from services.task_recovery import RecoveryWait
         sources=self.sources
@@ -176,6 +231,7 @@ class ImportThread(QThread):
                 self.recovery_waiting=str(exc);sources=[]
             total=sum(not u['directory'] for u in sources)
         for i, source in enumerate(sources):
+            self.trace.begin_item()
             if self.cancel_event.is_set():break
             unit=source if self.recovery else None
             context.checkpoint=None
@@ -196,6 +252,7 @@ class ImportThread(QThread):
                             self.kept_count+=int(unit.get('kept',False))
                         elif unit['state']=='skipped':self.cancelled_count+=1
                         else:failed_count+=1
+                        self.outcome=(saved_count,skipped_count,failed_count)
                         self.progress.emit(saved_count+skipped_count+failed_count+self.cancelled_count,total+1)
                         continue
                     self.recovery.validate(unit)
@@ -205,8 +262,28 @@ class ImportThread(QThread):
             temporary=None;pending_before=len(pending);paths_before=len(self.result_paths)
             try:
                 if not unit:target = ImportTarget(self.target_node, None if self.insert_position is None else self.insert_position+i-deferred_slots)
+                from services.resource_import import ImportBytes,MAX_IMPORT_BYTES
+                if isinstance(source,ImportBytes):
+                    import tempfile,io
+                    from PIL import Image,UnidentifiedImageError
+                    self.trace.enter('validate');data=source.take();fallback=source.fallback_url;source.fallback_url=''
+                    if not 0<len(data)<=MAX_IMPORT_BYTES:
+                        self.trace.failure(error='too_large');raise ValueError('Invalid image snapshot size')
+                    # Validate before any catalog write. Only a decode failure
+                    # may try the captured URL once; a store failure is never replayed.
+                    self.trace.enter('decode')
+                    try:
+                        with Image.open(io.BytesIO(data)) as image:image.verify()
+                    except (UnidentifiedImageError,OSError,ValueError,Image.DecompressionBombError) as exc:
+                        self.trace.failure(exc)
+                        if not fallback:raise
+                        source=fallback;self.trace.begin_item()
+                    else:
+                        fd,temporary=tempfile.mkstemp(suffix='.tmp');source=temporary
+                        with os.fdopen(fd,'wb') as stream:stream.write(data)
+                    data=b''
                 if isinstance(source,str) and source.startswith(('https://','http://')):
-                    response=[];download=DownloadThread(source)
+                    response=[];download=DownloadThread(source,trace=self.trace)
                     download.finished.connect(lambda *args:response.append(args));download.run()
                     if not response or not response[0][0]:raise RuntimeError(response[0][2] if response else 'Download failed')
                     temporary=source=response[0][1]
@@ -235,6 +312,7 @@ class ImportThread(QThread):
                 self.recovery_waiting=str(exc);break
             except InterruptedError:break
             except Exception as exc:
+                self.trace.failure(exc)
                 self.errors.append(str(exc))
                 if isinstance(source,str):self._handle_failed_import(source)
                 failed_count += 1
@@ -244,6 +322,7 @@ class ImportThread(QThread):
                     from pathlib import Path
                     temporaries.append(temporary)
                 context.normalized=None
+                self.outcome=(saved_count,skipped_count,failed_count)
             # Deferred items have not occupied insertion slots. Anchor them to
             # the next accepted file so their later decision preserves batch
             # order without replaying stale numeric positions after a sort.
@@ -298,14 +377,9 @@ class ImportThread(QThread):
                         if unit:self.recovery.mark(unit,state='failed')
         except RecoveryWait as exc:self.recovery_waiting=str(exc)
         finally:
-            for temporary in temporaries:
-                from pathlib import Path
-                Path(temporary).unlink(missing_ok=True)
-            context.job_id='';context.duplicate_resolver=None;context.cancelled=None;context.normalized=None
-            context.checkpoint=None;context.deferred_duplicates=None
-            context.duplicate_choice=''
-            context.committed=None
-        self.finished.emit(saved_count, skipped_count, failed_count)
+            self.outcome=(saved_count,skipped_count,failed_count)
+            self._cleanup_temporaries()
+        self._emit_result(saved_count, skipped_count, failed_count)
 
     def _run_operation(self,context):
         context.accepted=[];context.skipped=0
@@ -328,7 +402,7 @@ class ImportThread(QThread):
             if isinstance(self.result,dict):
                 failed+=self.result.get('skipped',0);self.errors.extend(self.result.get('errors',[]))
             context.job_id='';context.duplicate_resolver=None;context.cancelled=None;context.normalized=None;context.accepted=None;context.skipped=0
-        self.finished.emit(saved,duplicates,failed)
+        self._emit_result(saved,duplicates,failed)
 
 
 class FilterState:
@@ -783,6 +857,7 @@ class GalleryInterface(QWidget):
         self._activate_inline_scope()
         self.current_category = "全部表情"
         self.search_keyword = ""
+        self.search_scope = 'here'
         self.filter_state = FilterState()
         self.active_tags = set()
         self.mode = "normal"
@@ -809,7 +884,13 @@ class GalleryInterface(QWidget):
         self._display_mode = "mixed"
         # Manual order is canonical; a display sort is temporary and never
         # writes back, so position-level actions must fall back to append.
-        self.content_sort = ResourceSort(self.config.get('resource_sort', 'manual')).value
+        # Library-local node identities own display order. The old global
+        # resource_sort remains readable by old versions, but never seeds all nodes.
+        valid_modes={mode.value for mode in ResourceSort}
+        raw_sorts=self._saved_view_state.get('content_sorts',{})
+        self._content_sorts={key:value for key,value in raw_sorts.items()
+                             if isinstance(key,str) and isinstance(value,str) and value in valid_modes} if isinstance(raw_sorts,dict) else {}
+        self.content_sort = self._sort_for_node(self.content_scope_node())
         self._loaded_count = 0
         self._is_loading = False
         self._target_load_count = 0
@@ -1007,7 +1088,9 @@ class GalleryInterface(QWidget):
         # One indicator for the whole content area, owned here and only ever
         # moved: drawing the drop target never touches the real layout.
         self.drop_feedback = DropFeedback(self.grid_container)
-        self.drop_cancel_zone = DropCancelZone(self.scroll_area.viewport(),bounds_provider=self.available_gallery_rect)
+        self.drop_cancel_zone = DropCancelZone(self.scroll_area.viewport(),
+            bounds_provider=self.available_gallery_rect,
+            thumbnail_size_provider=lambda:self.config.get('thumbnail_size',120))
         self.drop_cancel_zone.entered.connect(self._clear_drop)
         self.drop_scroller = EdgeAutoScroller(self.scroll_area)
         self._drop_target = INVALID_TARGET
@@ -1230,6 +1313,7 @@ class GalleryInterface(QWidget):
         self._remember_location_anchor()
         self.active_view_node = node_id
         self._activate_inline_scope()
+        self._load_content_sort()
         self._initial_anchor = self._decode_anchor(self._location_anchors.get(node_id))
         self._live_anchor = self._initial_anchor
         self._search_timer.stop()
@@ -1238,12 +1322,11 @@ class GalleryInterface(QWidget):
         self._save_view_state()
 
     def _view_state_is_default(self):
-        """Whether search, filter, tags and display order are all untouched."""
+        """Whether transient search/filter state is clear; saved sort is independent."""
         return (not self.search_keyword.strip()
                 and not self.search_box.text().strip()
                 and not self.filter_state.is_active()
-                and not self.active_tags
-                and self.content_sort == 'manual')
+                and not self.active_tags)
 
     def _drop_selection_only(self):
         changed=set(self.selected_keys)
@@ -1278,6 +1361,7 @@ class GalleryInterface(QWidget):
         self.current_node = node_id
         self.active_view_node = node_id
         self._activate_inline_scope()
+        self._load_content_sort()
         self._initial_anchor = self._decode_anchor(self._location_anchors.get(node_id))
         self._live_anchor = self._initial_anchor
         self.sidebar.tree.select_node(node_id, reveal=False)
@@ -1328,7 +1412,9 @@ class GalleryInterface(QWidget):
         def matches(entry):
             tags = set(self.storage.parse_tags(entry['tags']))
             return (not keyword or keyword in texts.get(entry['path'], '').casefold()) and self.active_tags.issubset(tags) and self._matches_filter(entry, tags, categories)
-        if getattr(self, '_recent_view', False):
+        # HERE/ALL describe keyword search, including when the recent lens
+        # is open. An empty search retains the existing recent-only view.
+        if getattr(self, '_recent_view', False) and not keyword:
             self._display_mode = 'recent'
             entries = {e['path']: e for e in self.entry_model.entries_of(ROOT) if e['kind'] == 'resource'}
             return [dict(entries[path], _parent=ROOT, _depth=0) for path in self.storage.get_recent_images()
@@ -1347,10 +1433,11 @@ class GalleryInterface(QWidget):
             return result
         if not keyword:
             return self._apply_content_sort(collect(content_node, 0))
-        scope = {n['id'] for n in self.storage.index.subtree(content_node)} | {content_node}
+        search_node = ROOT if self.search_scope == 'all' else content_node
+        scope = {n['id'] for n in self.storage.index.subtree(search_node)} | {search_node}
         memberships = {}
         for member in self.storage.index.memberships():
-            if content_node == ROOT or member['node_id'] in scope:
+            if search_node == ROOT or member['node_id'] in scope:
                 memberships.setdefault(member['resource_id'], []).append(member['node_id'])
         # One pass over the (small) node tree instead of a per-hit ancestor
         # walk, which opened a database connection for every result row.
@@ -1360,9 +1447,9 @@ class GalleryInterface(QWidget):
             if original['kind'] != 'resource' or not matches(original):
                 continue
             parents = memberships.get(original['id'], [])
-            if content_node != ROOT and not parents:
+            if search_node != ROOT and not parents:
                 continue
-            parent = ROOT if content_node == ROOT else (content_node if content_node in parents else parents[0])
+            parent = ROOT if search_node == ROOT else (content_node if content_node in parents else parents[0])
             names = [node_paths[p] for p in parents if p in node_paths]
             source_label = ' · '.join(names) if names else t('全部表情')
             result.append(dict(original, _parent=parent, _depth=0, _source_label=source_label, _unclassified_source=not parents))
@@ -1406,6 +1493,7 @@ class GalleryInterface(QWidget):
 
     def _view_signature(self):
         return (self.content_scope_node(), self.search_keyword.strip(), self.content_sort,
+                self.search_scope if self.search_keyword.strip() else None,
                 tuple(vars(self.filter_state).values()), tuple(sorted(self.active_tags)),
                 tuple(sorted(self._expanded_nodes)), getattr(self, '_recent_view', False))
 
@@ -1617,7 +1705,7 @@ class GalleryInterface(QWidget):
             self.return_child_hint = None
         self.location_rail.set_path(path, return_node)
         location_entries = self.entry_model.entries_of(self.current_node)
-        resources = sum(e['kind'] == 'resource' for e in location_entries)
+        resources = self.storage.subtree_resource_counts().get(self.current_node,0)
         children = 0 if self.current_node == ROOT else sum(e['kind'] == 'node' for e in location_entries)
         self.location_rail.set_counts(t('{value_0} 项表情').format(value_0=resources) + '\n' +
                                    t('{value_0} 个子分类').format(value_0=children))
@@ -1753,6 +1841,7 @@ class GalleryInterface(QWidget):
         self._sync_command_bar()
         self._update_placeholder()
         self._update_resource_sort_label()
+        self._update_search_scope_button()
 
     def refresh_theme(self):
         self.sidebar.update_theme()
@@ -2012,7 +2101,7 @@ class GalleryInterface(QWidget):
             card._drag_cleanup=self._hide_drag_cancel
             card.drag_finished.connect(self._hide_drag_cancel)
         else:
-            frame = int(json.loads(entry.get('resource', {}).get('metadata_json') or '{}').get('thumb_frame', 0) or 0)
+            frame = self.storage.representative_frame(entry.get('resource') or entry['path'])
             card = EmojiCard(entry['path'], size=size, frame=frame, load_image=False,
                              availability=self.storage.availability,status=entry.get('status'))
             card.entry_id = entry['id']
@@ -2049,14 +2138,15 @@ class GalleryInterface(QWidget):
     def _trigger_responsive_layout(self, force=False):
         self._responsive_layout_timer.stop()
         if hasattr(self, 'renderer'):
-            anchor = self._initial_anchor or self._live_anchor or self.renderer.anchor()
+            anchor = self._initial_anchor or self.renderer.anchor() or self._live_anchor
             index=self.renderer.index
             geometry=(max(60,self.scroll_area.viewport().width()),self.config.get('thumbnail_size',120),
                       max(14,min(48,int(self.config.get('gallery_node_icon_size',22)))))
             if not force and geometry==(index.width,index.size,index.node_icon_size):
                 # Command-bar visibility changes only viewport height. The
                 # mixed flow has not changed; update realization, not all rows.
-                if anchor:self.renderer.restore(anchor)
+                # Height-only changes preserve Qt's current value. A cached
+                # live anchor may predate a wheel/selection event in this turn.
                 self.renderer.sync()
             else:
                 self.renderer.relayout(anchor=anchor)
@@ -2151,10 +2241,15 @@ class GalleryInterface(QWidget):
     def save_scroll_position(self):
         if hasattr(self, 'scroll_area'):
             self._saved_scroll_position = self.scroll_area.verticalScrollBar().value()
+            self._saved_scroll_signature = self._view_signature()
+            self._saved_scroll_anchor = self.renderer.anchor()
 
     def restore_scroll_position(self):
-        if hasattr(self, 'scroll_area'):
-            self.scroll_area.verticalScrollBar().setValue(self._saved_scroll_position)
+        if (hasattr(self, 'scroll_area') and
+                getattr(self,'_saved_scroll_signature',None)==self._view_signature()):
+            anchor=getattr(self,'_saved_scroll_anchor',None)
+            if anchor:self.renderer.restore(anchor)
+            else:self.scroll_area.verticalScrollBar().setValue(self._saved_scroll_position)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -2775,7 +2870,7 @@ class GalleryInterface(QWidget):
             return
         if not dialogs.FramePickerDialog(self.window(), self.storage, path).exec():
             return
-        frame = int(self.storage.resource_metadata(path).get("thumb_frame", 0) or 0)
+        frame = self.storage.representative_frame(path)
         for widget in self._all_card_widgets:
             if getattr(widget, "image_path", None) == path and hasattr(widget, "set_frame"):
                 widget.set_frame(frame)
@@ -2809,7 +2904,7 @@ class GalleryInterface(QWidget):
             return
         from services.app_icon import ApplicationIconService
         try:
-            ApplicationIconService(self.config).set_from_image(path,frame=int(self.storage.resource_metadata(path).get("thumb_frame",0) or 0))
+            ApplicationIconService(self.config, storage=self.storage).set_from_image(path)
         except Exception as exc:
             self.show_error(t("设置软件图标失败"), str(exc))
             return
@@ -2874,7 +2969,7 @@ class GalleryInterface(QWidget):
     # ==================================================================
     # Import
     # ==================================================================
-    def import_paths_to(self, paths, node_id, position=None):
+    def import_paths_to(self, paths, node_id, position=None, *, source_kind=None):
         """Import into a category; without a placement the new items go first.
 
         An import with no explicit insertion point (clipboard paste, toolbar
@@ -2886,7 +2981,7 @@ class GalleryInterface(QWidget):
             return
         insert_position = 0 if position is None else position
         from services.resource_import import ImportTarget
-        return self.imports.submit(paths,ImportTarget(node_id or ALL_RESOURCES,insert_position),self)
+        return self.imports.submit(paths,ImportTarget(node_id or ALL_RESOURCES,insert_position),self,source_kind=source_kind)
 
     def _queued_files_finished(self,request):
         self.renderer.loader.invalidate(request.paths)
@@ -3041,23 +3136,31 @@ class GalleryInterface(QWidget):
         kind,data=ClipboardService.importable_payload(mime,self.storage.SUPPORTED_FORMATS)
         return self._import_clipboard_payload(parent,kind,data,position)
 
-    def _import_clipboard_payload(self,parent,data_type,data,position=None,*,background=False,notify=None):
+    def _import_clipboard_payload(self,parent,data_type,data,position=None,*,background=False,notify=None,source_kind=None):
         notify = notify or self.feedback_host.toast
+        source_kind=source_kind or {'file':'local_file','image':'clipboard_image','image_bytes':'ole_image','network_url':'clipboard_url'}.get(data_type,'unknown')
         if data_type == 'file':
             data=[p for p in data if p.lower().endswith(self.storage.SUPPORTED_FORMATS) or os.path.isdir(p)]
             if not data:
+                from services.crash_evidence import record_import
+                record_import('', 'receive', 'unsupported_source')
                 notify(t('剪贴板中没有可导入的表情'));return
             from services.resource_import import ImportTarget
-            return self.imports.submit(data,ImportTarget(parent,position if background or position is not None else 0),self,background=background)
+            return self.imports.submit(data,ImportTarget(parent,position if background or position is not None else 0),self,background=background,source_kind=source_kind)
         elif data_type == 'image':
             from services.resource_import import ImportTarget
-            return self.imports.submit([data.copy()],ImportTarget(parent,position),self,background=background)
+            return self.imports.submit([data.copy()],ImportTarget(parent,position),self,background=background,source_kind=source_kind)
+        elif data_type == 'image_bytes':
+            from services.resource_import import ImportTarget
+            return self.imports.submit([data],ImportTarget(parent,position),self,background=background,source_kind=source_kind)
         elif data_type == 'network_url':
             # A download finishes later, so an index captured now could point
             # into a stream that changed meanwhile; it appends by design.
             from services.resource_import import ImportTarget
-            return self.imports.submit([data],ImportTarget(parent,position),self,background=background)
+            return self.imports.submit([data],ImportTarget(parent,position),self,background=background,source_kind=source_kind)
         else:
+            from services.crash_evidence import record_import
+            record_import('', 'receive', 'unsupported_source')
             notify(t('剪贴板中没有可导入的表情'))
 
     def _on_download_finished(self, success, temp_filepath, error_msg, url, target_node=None):
@@ -3236,7 +3339,8 @@ class GalleryInterface(QWidget):
                                   (TAG_MIME, None)):
             if mime.hasFormat(mime_type):
                 return mime_type, effect
-        if mime.hasUrls():
+        from services.clipboard import ClipboardService
+        if ClipboardService.advertises_import(mime):
             return 'urls', IMPORT
         return None, None
 
@@ -3260,6 +3364,17 @@ class GalleryInterface(QWidget):
         index=self.renderer.index.nearest(point)
         if index is None:return None,-1,None,False
         best,rect=self._entries[index],self.renderer.index.rects[index]
+        # A vertical row gap denotes the boundary between rows regardless of
+        # which column is nearest. Paste and drop must name the same slot.
+        if best['kind']=='resource' and not rect.top()<=point.y()<=rect.bottom():
+            if point.y()<rect.top():
+                index=bisect_right(self.renderer.index.tops,rect.top()-1)
+                best,rect=self._entries[index],self.renderer.index.rects[index]
+                return best,index,rect,False
+            end=bisect_right(self.renderer.index.tops,rect.top())
+            index=end-1
+            best,rect=self._entries[index],self.renderer.index.rects[index]
+            return best,index,rect,True
         after=(point.y()>rect.center().y() if best['kind']=='node' else point.x()>rect.center().x())
         return best,index,rect,after
 
@@ -3312,11 +3427,23 @@ class GalleryInterface(QWidget):
             # Tags reorder against tags; the gallery is not a tag target.
             return INVALID_TARGET, None, False
         plain_order = not self.search_keyword.strip() and self.content_sort == 'manual'
-        if kind in (NODE_MIME, RESOURCE_MIME) and not plain_order:
+        if kind == NODE_MIME and not plain_order:
             return INVALID_TARGET, None, False
 
         moving_nodes = set(parse_node_payload(mime.data(NODE_MIME))) if kind == NODE_MIME else set()
         entry, _index, rect, after = self._hit_test(position)
+        if not plain_order:
+            parent = entry['id'] if entry and entry['kind']=='node' else (entry['_parent'] if entry else self.content_scope_node())
+            if kind == RESOURCE_MIME:
+                from fluent_ui.components.drop_contract import parse_resource_sources
+                paths=parse_list_payload(mime.data(RESOURCE_MIME))
+                sources=parse_resource_sources(mime,paths) or self._resource_sources(paths)
+                if not self._resource_drop_available(paths,parent,sources):
+                    return INVALID_TARGET,None,False
+            feedback = rect if entry and entry['kind']=='node' else QRect(
+                self.grid_container.mapFrom(self.scroll_area.viewport(),self.available_gallery_rect().topLeft()),
+                self.available_gallery_rect().size())
+            return DropTarget(INTO,effect,parent,parent),feedback,False
         if entry is None or self._below_last_card(position):
             # The empty area under the last row means "at the end of this
             # location", not "next to whichever card happens to be closest".
@@ -3400,6 +3527,9 @@ class GalleryInterface(QWidget):
         if not target.valid:
             self.drop_feedback.clear()
             self.drop_scroller.stop()
+            if event.mimeData().hasFormat(RESOURCE_MIME) and not self._exact_placement_available() and not getattr(self,'_sort_drop_hint_shown',False):
+                self._sort_drop_hint_shown=True
+                self._manual_order_available()
             event.ignore()
             return None
         event.acceptProposedAction()
@@ -3411,6 +3541,7 @@ class GalleryInterface(QWidget):
         return target
 
     def _begin_drop(self, event, position=None):
+        self._sort_drop_hint_shown=False
         from fluent_ui.components.drop_contract import DragSession
         self._clear_drop()
         position = position if position is not None else event.position().toPoint()
@@ -3506,6 +3637,9 @@ class GalleryInterface(QWidget):
             return False
         parent = target.container_id or self.content_scope_node()
         sources = sources or self._resource_sources(paths)
+        if not self._resource_drop_available(paths,parent,sources):return False
+        if not self._drop_order_exact(parent):
+            return self.request_resource_drop(paths,parent,global_pos=global_pos,sources=sources)
         if any(source != parent for source in sources.values()):
             return self.request_resource_drop(paths, parent, position=target.index, global_pos=global_pos, sources=sources,
                                        anchor=(target.target_id,target.placement) if target.target_id else None)
@@ -3534,6 +3668,12 @@ class GalleryInterface(QWidget):
         self.refresh_content_incremental(reason='drop_order', parents={parent})
 
     def _import_urls(self, mime, target):
+        from services.clipboard import ClipboardService
+        if not self._drop_order_exact(target.container_id or self.content_scope_node()):
+            target=DropTarget(INTO,IMPORT,target.container_id,target.container_id)
+        rendered=ClipboardService.rendered_image(mime)
+        if rendered is not None:
+            return self._import_clipboard_payload(target.container_id or self.content_scope_node(),'image_bytes',rendered,target.index)
         folders, files, remote = [], [], []
         library = os.path.normcase(os.path.abspath(self.storage.images_dir))
         for url in mime.urls():
@@ -3547,11 +3687,15 @@ class GalleryInterface(QWidget):
             else:
                 try:managed=os.path.commonpath((library,os.path.normcase(os.path.abspath(local))))==library
                 except ValueError:managed=False
-                if not managed:files.append(local)
+                if not managed and os.path.isfile(local) and local.lower().endswith(self.storage.SUPPORTED_FORMATS):files.append(local)
         if not folders and not files and not remote:
+            from services.clipboard import ClipboardService
+            kind,payload=ClipboardService.importable_payload(mime,self.storage.SUPPORTED_FORMATS,rendered_checked=True)
+            if kind in {'image','network_url'}:
+                return self._import_clipboard_payload(target.container_id or self.content_scope_node(),kind,payload,target.index,source_kind='url_drop' if kind=='network_url' else 'image_drop')
             return False
         return self.import_paths_to([*folders, *files, *remote], target.container_id or self.content_scope_node(),
-                             position=target.index)
+                             position=target.index,source_kind='mixed' if remote and (files or folders) else 'url_drop' if remote else 'local_file')
 
     # ==================================================================
     # Hover preview, focus tracking, inbox
@@ -3706,6 +3850,12 @@ class GalleryInterface(QWidget):
         self.sidebar.refresh_list(self.current_node)
 
     def on_settings_changed(self, key=""):
+        if key == 'show_animation_badges':
+            for card in self._all_card_widgets:card.update()
+        elif key == 'auto_category_icons':
+            self.sidebar.refresh_list(self.current_node)
+            for card in self._all_card_widgets:
+                if isinstance(card,NodeCard):card.refresh_icon()
         if key == 'show_new_resource_markers':
             self.new_markers.cancel()
             self.new_markers.refresh()
@@ -3808,13 +3958,37 @@ class GalleryInterface(QWidget):
         else:
             self._send_to_clipboard(path)
 
+    def _sort_for_node(self, node_id):
+        return self._content_sorts.get(node_id, 'recent_added' if node_id == ROOT else 'manual')
+
+    def _load_content_sort(self):
+        self.content_sort = self._sort_for_node(self.content_scope_node())
+        self._update_resource_sort_label()
+
+    def toggle_search_scope(self):
+        self.search_scope = 'all' if self.search_scope == 'here' else 'here'
+        self._update_search_scope_button()
+        if self.search_keyword.strip():
+            self._search_timer.stop()
+            self._execute_search()
+
+    def _update_search_scope_button(self):
+        all_library = self.search_scope == 'all'
+        self.btn_search_scope.setIcon(FIF.SEARCH_ALL if all_library else FIF.SEARCH_HERE)
+        text = ('搜索范围：全库。点击切换为当前分类及其子分类。' if all_library else
+                '搜索范围：当前分类及其子分类。点击切换为全库。')
+        self.btn_search_scope.setToolTip(t(text))
+        self.btn_search_scope.setAccessibleName(t(text))
+
     def set_content_sort(self, mode):
         mode = ResourceSort(mode).value
         if mode == self.content_sort:
             self._update_resource_sort_label()
             return
         self.content_sort = mode
-        self.config.set('resource_sort', mode)
+        if not getattr(self,'_recent_view',False):
+            self._content_sorts[self.content_scope_node()] = mode
+            self._save_view_state()
         self._update_resource_sort_label()
         self.refresh_content()
 
@@ -3841,12 +4015,19 @@ class GalleryInterface(QWidget):
             self.resource_sort_actions[mode.value] = action
         self.btn_content_sort.setMenu(menu)
 
+    def _drop_order_exact(self, parent):
+        if parent == self.content_scope_node():return self._exact_placement_available()
+        return self._sort_for_node(parent) == 'manual'
+
+    def _resource_drop_available(self, paths, parent, sources):
+        if self._drop_order_exact(parent) or any(sources.get(path)!=parent for path in paths):return True
+        return False
+
     def _manual_order_available(self):
         if self.search_keyword.strip():
             self.feedback_host.hint(t('请先清空搜索再调整手动顺序'), self.btn_arrange)
             return False
         if self.content_sort != 'manual':
-            self.feedback_host.hint(t('当前是临时显示排序，请先切回手动顺序'), self.btn_content_sort)
             return False
         return True
 
@@ -3895,11 +4076,14 @@ class GalleryInterface(QWidget):
         states = dict(self.config.config.get('library_view_states', {}))
         state = {'location': self.current_node,
                  'sidebar_expanded': sorted(self.sidebar.tree._expanded_ids()-{ROOT}),
+                 'sidebar_icons_collapsed': sorted(self.sidebar.icons.canvas.collapsed),
                  'inline_expanded_by_scope': {key: sorted(value) for key, value in self._expanded_by_scope.items()},
                  'active_relative_view_node_id': self.content_scope_node(),
                  'sidebar_scroll': int(self._sidebar_scroll or 0),
                  'gallery_anchor': self._current_anchor(),
-                 'gallery_anchors': dict(self._location_anchors)}
+                 'gallery_anchors': dict(self._location_anchors),
+                 'content_sorts': {key:value for key,value in self._content_sorts.items()
+                                   if key == ROOT or self.storage.index.node(key)}}
         if states.get(self._view_state_key) != state:
             states[self._view_state_key] = state
             self.config.set('library_view_states', states)
@@ -3918,6 +4102,8 @@ class GalleryInterface(QWidget):
     def request_resource_drop(self, paths, target, position=None, global_pos=None, sources=None, anchor=None):
         """After dropping, ask for the membership action before writing data."""
         sources = sources or self._resource_sources(paths)
+        if not self._resource_drop_available(paths,target,sources):return False
+        if not self._drop_order_exact(target):position=anchor=None
         paths=tuple(paths);sources=dict(sources)
         from fluent_ui.components.drop_contract import current_drop_operation
         operation=current_drop_operation()
@@ -3979,6 +4165,8 @@ class GalleryInterface(QWidget):
         else:QTimer.singleShot(0,self,show_menu)
 
     def _apply_drop_action(self, paths, target, copy, sources, position, anchor=None):
+        if not self._resource_drop_available(paths,target,sources):return False
+        if not self._drop_order_exact(target):position=anchor=None
         with self.storage.lock:
             if anchor and anchor[1] in (INSERT_BEFORE,INSERT_AFTER,APPEND):
                 position = self._node_insert_index(target,anchor[0],anchor[1],set())

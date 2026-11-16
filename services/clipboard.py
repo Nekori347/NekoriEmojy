@@ -161,14 +161,60 @@ class ClipboardService(QObject):
             if temporary and os.path.exists(temporary):os.remove(temporary)
 
     @staticmethod
-    def decode_mime_data(mime_data):
+    def advertises_import(mime):
+        """No external OLE rendering before drop; inspect format names only."""
+        if mime is None:return False
+        return any(fmt in {'text/uri-list','text/html','text/plain','application/x-qt-image'}
+                   or fmt.startswith('image/') or fmt.startswith('application/x-qt-windows-mime;value="FileContents"')
+                   for fmt in mime.formats())
+
+    @staticmethod
+    def rendered_image(mime):
+        """Snapshot index=0 during Drop/Paste while the native provider is alive.
+
+        FILEDESCRIPTOR metadata is optional/advisory: Chromium can omit the
+        size flag. The received QByteArray's size is the actual acceptance bound.
+        Only owned bytes and an optional URL snapshot escape this call;
+        no filename, MIME object or descriptor is retained by the worker.
+        """
+        from services.resource_import import ImportBytes,MAX_IMPORT_BYTES
+        base='application/x-qt-windows-mime;value="FileContents"'
+        formats=set(mime.formats())
+        if base not in formats and base+';index=0' not in formats:return None
+        descriptor='application/x-qt-windows-mime;value="FileGroupDescriptorW"'
+        if descriptor in formats:
+            header=mime.data(descriptor)
+            if header.size()>4096:return None
+            raw=bytes(header)
+            if len(raw)>=76:
+                if int.from_bytes(raw[:4],'little')!=1:return None
+                if int.from_bytes(raw[4:8],'little')&0x40:
+                    declared=(int.from_bytes(raw[68:72],'little')<<32)|int.from_bytes(raw[72:76],'little')
+                    if declared>MAX_IMPORT_BYTES:return None
+        buffer=mime.data(base+';index=0')
+        if not 0<buffer.size()<=MAX_IMPORT_BYTES:return None
+        data=bytes(buffer)
+        valid=(data.startswith((b'\x89PNG\r\n\x1a\n',b'GIF87a',b'GIF89a',b'\xff\xd8\xff',b'BM'))
+               or (data.startswith(b'RIFF') and data[8:12]==b'WEBP'))
+        if not valid:return None
+        fallback=next((u.toString() for u in mime.urls() if u.isValid() and u.scheme() in ('http','https') and u.host()),'')
+        return ImportBytes(data,fallback)
+
+    @staticmethod
+    def decode_mime_data(mime_data, supported_formats=None, *, rendered=None, rendered_checked=False):
         """Paste and external drops share the same payload recognition."""
         if mime_data is None:
             return None, None
         if mime_data.hasUrls():
             files = [url.toLocalFile() for url in mime_data.urls() if url.isLocalFile()]
+            # Browser OLE may advertise an expired/unsupported temporary file
+            # alongside a valid bitmap or URL. Reject that candidate, not the payload.
+            files = [p for p in files if os.path.isdir(p) or
+                     (os.path.isfile(p) and (supported_formats is None or p.lower().endswith(supported_formats)))]
             if files:
                 return 'file', files
+        if not rendered_checked:rendered=ClipboardService.rendered_image(mime_data)
+        if rendered is not None:return 'image_bytes',rendered
         if mime_data.hasHtml():
             match = re.search(r'<img[^>]+src=["\']([^"\'>]+)["\']', mime_data.html(), re.IGNORECASE)
             if match:
@@ -195,8 +241,8 @@ class ClipboardService(QObject):
         return self.decode_mime_data(self.clipboard.mimeData())
 
     @classmethod
-    def importable_payload(cls, mime, supported_formats):
-        kind, payload = cls.decode_mime_data(mime)
+    def importable_payload(cls, mime, supported_formats, **snapshot):
+        kind, payload = cls.decode_mime_data(mime, supported_formats, **snapshot)
         if kind == 'file':
             paths = [path for path in payload if os.path.isdir(path) or
                      (os.path.isfile(path) and path.lower().endswith(supported_formats))]

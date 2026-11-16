@@ -262,6 +262,7 @@ class QuickPanel(QWidget):
         for path in results:
             # 初始化时不加载图片，交给懒加载处理
             card = EmojiCard(path, size=card_size, parent=self.grid_container,
+                             frame=self.storage.representative_frame(path),
                              availability=self.storage.availability)
             card.update_size(card_size, load_image=False)
             card._is_loaded = False

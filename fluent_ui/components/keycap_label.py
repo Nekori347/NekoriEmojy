@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QLabel
 from fluent_ui import visual
 
 KEY_PATTERN=re.compile(r'(?<![A-Za-z0-9_./\\])(?:Ctrl|Alt|Shift|Win|Enter(?!\s+(?:a|an|the|your)\b)|Esc|Tab|Space|Backspace|Delete|Home|End|PgUp|PgDown|F(?:1[0-2]|[1-9]))(?:\s*\+\s*(?:Ctrl|Alt|Shift|Win|[A-Z0-9]))*(?![A-Za-z0-9_./\\])')
+INLINE_PATTERN=re.compile(KEY_PATTERN.pattern+r'|\{new_resource_icon\}|\{animation_badge\}')
 KEY_OBJECT=QTextFormat.UserObject+9
 KEY_TEXT=QTextFormat.UserProperty+9
 
@@ -24,10 +25,16 @@ def paint_keycap(p,rect,text,font):
 class KeyFace(QPyTextObject):
     def intrinsicSize(self,doc,pos,fmt):
         metrics=QFontMetricsF(fmt.toCharFormat().font())
+        if fmt.property(KEY_TEXT)=='{new_resource_icon}':return QSizeF(metrics.height(),metrics.height())
+        if fmt.property(KEY_TEXT)=='{animation_badge}':return visual.animation_badge_size()
         return QSizeF(metrics.horizontalAdvance(fmt.property(KEY_TEXT))+12,metrics.height()+2)
 
     def drawObject(self,p,rect,doc,pos,fmt):
-        paint_keycap(p,rect,fmt.property(KEY_TEXT),fmt.toCharFormat().font())
+        if fmt.property(KEY_TEXT)=='{new_resource_icon}':
+            from fluent_ui.icons import Icon
+            Icon.NEW_RESOURCE.render(p,rect,fill=visual.accent())
+        elif fmt.property(KEY_TEXT)=='{animation_badge}':visual.paint_animation_badge(p,rect)
+        else:paint_keycap(p,rect,fmt.property(KEY_TEXT),fmt.toCharFormat().font())
 
 
 class KeycapLabel(QLabel):
@@ -46,7 +53,7 @@ class KeycapLabel(QLabel):
     def _rebuild(self):
         self._document.clear();self._document.setDefaultFont(self.font())
         cursor=QTextCursor(self._document);text=self.text();start=0
-        for match in KEY_PATTERN.finditer(text):
+        for match in INLINE_PATTERN.finditer(text):
             cursor.insertText(text[start:match.start()])
             fmt=QTextCharFormat();fmt.setObjectType(KEY_OBJECT)
             fmt.setVerticalAlignment(QTextCharFormat.AlignBaseline)

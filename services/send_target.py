@@ -5,7 +5,7 @@ from ctypes import wintypes
 from enum import Enum
 from dataclasses import dataclass
 from collections import deque
-import uuid, time, logging
+import uuid, time, logging, sqlite3
 from PySide6.QtCore import QObject, QTimer
 
 
@@ -35,6 +35,13 @@ class INPUT(ctypes.Structure):
     _fields_ = [('type', wintypes.DWORD), ('data', INPUTUNION)]
 
 
+class GUITHREADINFO(ctypes.Structure):
+    _fields_ = [('cbSize',wintypes.DWORD),('flags',wintypes.DWORD),
+        ('hwndActive',wintypes.HWND),('hwndFocus',wintypes.HWND),
+        ('hwndCapture',wintypes.HWND),('hwndMenuOwner',wintypes.HWND),
+        ('hwndMoveSize',wintypes.HWND),('hwndCaret',wintypes.HWND),('rcCaret',wintypes.RECT)]
+
+
 class WindowsTargetAPI:
     def __init__(self):
         self.native = ctypes.WinDLL('user32', use_last_error=True)
@@ -47,6 +54,11 @@ class WindowsTargetAPI:
         self.native.SetForegroundWindow.argtypes = [wintypes.HWND]
         self.native.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
         self.native.SendInput.restype = wintypes.UINT
+        self.native.GetAsyncKeyState.argtypes=[ctypes.c_int]
+        self.native.GetAsyncKeyState.restype=ctypes.c_short
+        self.native.GetGUIThreadInfo.argtypes=[wintypes.DWORD,ctypes.POINTER(GUITHREADINFO)]
+        self.native.GetAncestor.argtypes=[wintypes.HWND,wintypes.UINT]
+        self.native.GetAncestor.restype=wintypes.HWND
 
     def foreground(self):
         return int(self.native.GetForegroundWindow() or 0)
@@ -67,7 +79,18 @@ class WindowsTargetAPI:
     def acquire_foreground(self, hwnd):
         if self.native.IsIconic(hwnd):
             self.native.ShowWindow(hwnd, 9)  # SW_RESTORE
-        self.native.SetForegroundWindow(hwnd)
+        return bool(self.native.SetForegroundWindow(hwnd))
+
+    def modifiers_pressed(self):
+        # Include right-hand modifiers and AltGr; never synthesize their release.
+        return any(self.native.GetAsyncKeyState(key)&0x8000
+                   for key in (0xA0,0xA1,0xA2,0xA3,0xA4,0xA5,0x5B,0x5C))
+
+    def keyboard_ready(self, hwnd):
+        if self.foreground()!=hwnd:return False
+        info=GUITHREADINFO();info.cbSize=ctypes.sizeof(info)
+        return bool(self.native.GetGUIThreadInfo(0,ctypes.byref(info)) and info.hwndFocus
+                    and self.native.GetAncestor(info.hwndFocus,2)==hwnd)
 
 
 class PasteInjector:
@@ -121,6 +144,7 @@ class _SendRequest:
     preparation_ticket: object = None
     observed_hwnd: int | None = None
     prepared_async: bool = False
+    activation_attempted: bool = False
 
 
 class SendTargetService(QObject):
@@ -215,25 +239,34 @@ class SendTargetService(QObject):
         getter=getattr(type(request.clipboard),'delivery_revision',None)
         if callable(getter):request.clipboard_ticket=request.clipboard.delivery_revision()
         try:request.storage.add_recent_image(request.path,request.recent_limit)
-        except (OSError,RuntimeError):
-            logging.getLogger('nekori.send').exception('request=%s recent update failed',request.identity)
+        except (OSError,RuntimeError,sqlite3.Error):
+            # History metadata must not strand an already prepared send or
+            # prevent all subsequent requests from starting.
+            logging.getLogger('nekori.send').warning('request=%s recent_update_failed',request.identity)
         try:
             if not self.valid(request.hwnd,request.pid):
                 if self.last_external_hwnd==request.hwnd:self.last_external_hwnd=self._target_pid=None
                 self._finish(request,SendResult.COPIED_ONLY,'no_target');return
             if request.prepared_async and self.api.foreground() not in (request.observed_hwnd,request.hwnd):
                 self._finish(request,SendResult.COPIED_ONLY,'foreground_changed');return
-            self.api.acquire_foreground(request.hwnd)
         except (OSError,RuntimeError) as error:
             self._finish(request,SendResult.COPIED_ONLY,'activation_failed',str(error));return
         self._attempt(request)
 
-    def _attempt(self,request,remaining=10):
+    def _attempt(self,request,remaining=150):
         if request.done or self._closed:return
         try:
             if not self.valid(request.hwnd,request.pid):
                 self._finish(request,SendResult.COPIED_ONLY,'target_changed');return
-            if self.api.foreground()==request.hwnd:
+            modifiers=getattr(type(self.api),'modifiers_pressed',None)
+            held=bool(modifiers(self.api)) if callable(modifiers) else False
+            reason='modifiers_held' if held else 'activation_timeout'
+            if not held and not request.activation_attempted:
+                request.activation_attempted=True
+                self.api.acquire_foreground(request.hwnd)
+            focus=getattr(type(self.api),'keyboard_ready',None)
+            ready=bool(focus(self.api,request.hwnd)) if callable(focus) else True
+            if not held and self.api.foreground()==request.hwnd and ready:
                 if not self.valid(request.hwnd,request.pid) or self.api.foreground()!=request.hwnd:
                     self._finish(request,SendResult.COPIED_ONLY,'foreground_changed');return
                 ticket=request.clipboard_ticket
@@ -249,9 +282,10 @@ class SendTargetService(QObject):
                     self._finish(request,SendResult.SENT,'input_submitted')
                 else:
                     self._finish(request,SendResult.COPIED_ONLY,'input_failed',str(getattr(self.injector,'last_error','')))
-            elif remaining:
-                self.schedule(lambda:self._attempt(request,remaining-1))
-            else:self._finish(request,SendResult.COPIED_ONLY,'activation_timeout')
+            else:
+                if not held and self.api.foreground()==request.hwnd:reason='focus_unavailable'
+                if remaining:self.schedule(lambda:self._attempt(request,remaining-1))
+                else:self._finish(request,SendResult.COPIED_ONLY,reason)
         except (OSError,RuntimeError,ValueError) as error:
             self._finish(request,SendResult.COPIED_ONLY,'input_failed',str(error))
 
