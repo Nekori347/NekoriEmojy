@@ -1,6 +1,7 @@
 """User-requested, bounded, redacted diagnostics; never read Library contents."""
 import json
 import platform
+import time
 import re
 import zipfile
 from pathlib import Path
@@ -121,8 +122,14 @@ def export_automatic_report(candidate, protected=(), cancel=None):
     session=candidate['session']
     native=any(e['kind']=='native' and re.search(r'File [\"\']|(?:Current thread|Thread) 0x',e['text']) for e in candidate['evidence'])
     from services.windows_fault_event import query_fault
-    native_fault=query_fault(session)
-    metadata=dict(native_fault=native_fault,schema=1,session_id=session['id'],version=session['version'],started_at=session['started_at'],
+    lookup = dict(session, observed_end=candidate.get('capture_started') or time.time())
+    native_fault=query_fault(lookup)
+    windows_hang=query_fault(lookup, event_id=1002)
+    gui_sample=any(e['kind']=='python' and 'gui_unresponsive_sample pid=' in e['text']
+                   for e in candidate['evidence'])
+    # native_stack_available is the legacy field for fatal Python traceback text.
+    metadata=dict(native_fault=native_fault,windows_hang=windows_hang,gui_hang_python_sample=gui_sample,
+                  fatal_python_stack_available=native,symbolized_native_stack_available=False,schema=1,session_id=session['id'],version=session['version'],started_at=session['started_at'],
                   assessment=candidate['assessment'],evidence_kind=candidate['evidence_kind'],
                   native_stack_available=native,native_writer_complete=candidate.get('native_complete',False),
                   session_environment=session.get('environment',{}),
@@ -131,7 +138,11 @@ def export_automatic_report(candidate, protected=(), cancel=None):
     note=('Saved redacted diagnostics only. No Library, settings or browser data.\n'
           'The cause of the previous exit is not determined by this report.\n')
     if native_fault.get('status')!='matched':note+='No verified Windows Application Error match was available.\n'
-    else:note+='The OS faulting module is a crash location, not proof of the root cause.\n'
+    elif native_fault.get('module'):note+='Windows reported a faulting module; the underlying cause remains undetermined.\n'
+    if windows_hang.get('status')=='matched':note+='Windows recorded an application hang for this process.\n'
+    if gui_sample:note+='A missed GUI heartbeat retained a Python stack sample.\n'
+    if native:note+='The fatal traceback shows Python frames.\n'
+    note+='No symbolized native instruction stack was collected.\n'
     if not session.get('environment'):note+='Previous-session environment metadata was not captured by the older session format.\n'
     if not native:note+='No native stack was available. Evidence is insufficient to identify a crash cause.\n'
     if not candidate.get('native_complete',False):note+='Native writer completion was not confirmed within the bounded capture window.\n'

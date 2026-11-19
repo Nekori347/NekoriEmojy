@@ -143,12 +143,41 @@ def test_height_only_layout_does_not_restore_stale_scroll(long_view):
     assert bar.value()==expected
 
 
-def test_tray_pixel_restore_is_scoped_to_its_view(long_view):
-    g=long_view.g;bar=g.scroll_area.verticalScrollBar()
-    bar.setValue(bar.maximum()//2);g.save_scroll_position()
-    g.set_node(ROOT);QTest.qWait(120);expected=bar.value()
-    g.restore_scroll_position();QTest.qWait(80)
-    assert bar.value()==expected
+def test_new_scroll_wins_immediately_after_show(long_view):
+    g = long_view.g
+    bar = g.scroll_area.verticalScrollBar()
+    bar.setValue(bar.maximum() // 2)
+    g.hide()
+    g.show()
+    expected = bar.maximum() // 3
+    bar.setValue(expected)
+    QTest.qWait(80)
+    assert bar.value() == expected
+
+
+def test_invalidation_keeps_current_and_inactive_search_positions(long_view):
+    g = long_view.g
+    bar = g.scroll_area.verticalScrollBar()
+    bar.setValue(bar.maximum() // 3)
+    normal_anchor = g.renderer.anchor()
+    g.set_search_keyword('.png')
+    g._search_timer.stop()
+    g._execute_search()
+    bar.setValue(bar.maximum() // 2)
+    search_anchor = g.renderer.anchor()
+    g.on_images_changed()
+    assert g.renderer.anchor() == search_anchor
+    g.set_search_keyword('')
+    g._search_timer.stop()
+    g._execute_search()
+    assert g.renderer.anchor() == normal_anchor
+    from fluent_ui.components.gallery_model import occurrence_id
+    old_anchors = tuple(g.renderer.visible_anchors())
+    victim = next(entry for entry in g._entries if occurrence_id(entry) == old_anchors[0][0])
+    long_view.storage.delete_image(victim['path'])
+    g.refresh_content_incremental(parents={g.content_scope_node(), ROOT})
+    assert g.renderer.anchor()[0][0] != old_anchors[0][0][0]
+    assert bar.value() > 0
 
 
 def test_hide_resize_show_preserves_visible_anchor(long_view):

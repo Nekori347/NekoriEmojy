@@ -25,9 +25,14 @@ class QuickPanel(QWidget):
             return
         super().keyPressEvent(event)
 
-    def __init__(self, storage_service, clipboard_service, config_service, parent=None, *, send_target_service=None):
+    def __init__(self, storage_service, clipboard_service, config_service, parent=None, *, send_target_service=None, representative_source=None):
         super().__init__(parent)
         self.storage = storage_service
+        backfill = getattr(self.storage, 'animation_backfill', None)
+        if backfill is not None:
+            backfill.changed.connect(self._animation_changed)
+        if representative_source is not None:
+            representative_source.representative_changed.connect(self._representative_changed)
         self.clipboard = clipboard_service
         self.config = config_service
         self.send_target_service = send_target_service or SendTargetService(self)
@@ -120,8 +125,6 @@ class QuickPanel(QWidget):
     def _on_scroll(self, value):
         self._lazy_load_timer.start(32)
         
-        from fluent_ui.components.emoji_card import ThumbnailCache
-        ThumbnailCache().reset_idle_timer()
 
     def _apply_lazy_loading(self):
         if not hasattr(self, '_all_card_widgets') or not self._all_card_widgets:
@@ -224,30 +227,21 @@ class QuickPanel(QWidget):
         if not force and query_key == self._cached_query and self._cached_results is not None:
             return
         
-        if not keyword:
-            # 初始状态或清空搜索框时，显示最近使用
-            results = self.storage.get_recent_images()
-            results = results[:limit]
-        else:
-            results = self.storage.search_images(keyword, "全部表情")
-            # 限制结果数量，保证性能
-            results = results[:30]
-        
+        records = (self.storage.search_records(keyword, limit=30) if keyword
+                   else self.storage.recent_records(limit))
+        results = tuple(self.storage.index.absolute_path(record) for record in records)
         self._cached_query = query_key
-        self._cached_results = tuple(results)
-        
-        # 清理旧结果
+        self._cached_results = results
+
         self.preview_controller.cancel()
         while self.grid_layout.count():
-            item = self.grid_layout.takeAt(0)
-            widget = item.widget()
-            if widget and widget != self.empty_label:
-                widget.hide()
-                widget.setParent(None)
-                widget.deleteLater()
-                
+            self.grid_layout.takeAt(0)
+        # A hidden panel can have cards which have not entered the layout yet.
+        for card in self._all_card_widgets:
+            card.close()
+            card.deleteLater()
         self._all_card_widgets.clear()
-                
+
         if not results:
             self.empty_label.setText(t("没有找到匹配的表情") if keyword else t("暂无最近使用的表情"))
             self.empty_label.show()
@@ -259,13 +253,13 @@ class QuickPanel(QWidget):
         card_size = self.config.get("quick_panel_thumbnail_size", 72)
         
         # 填充新结果
-        for path in results:
+        for path, record in zip(results, records):
             # 初始化时不加载图片，交给懒加载处理
             card = EmojiCard(path, size=card_size, parent=self.grid_container,
-                             frame=self.storage.representative_frame(path),
-                             availability=self.storage.availability)
-            card.update_size(card_size, load_image=False)
-            card._is_loaded = False
+                             frame=self.storage.representative_frame(record), crop=self.storage.representative_crop(record),
+                             animated=self.storage.index.animation_attribute(record or {}), library_id=os.path.normcase(str(self.storage.index.root)),
+                             availability=self.storage.availability, status=record['status'], load_image=False)
+            card.entry_id = record['id']
             
             card.clicked.connect(self._on_card_clicked)
             card.hover_started.connect(
@@ -280,6 +274,34 @@ class QuickPanel(QWidget):
         # 如果窗口不可见（刚唤醒），则等待 show_at_cursor 中的延迟触发
         if self.isVisible():
             self._trigger_responsive_layout(force=True)
+
+    def _representative_changed(self, path):
+        cards = [card for card in self._all_card_widgets
+                 if os.path.normcase(card.image_path) == os.path.normcase(path)]
+        if not cards:
+            return
+        record = self.storage.index.resource(path)
+        if record is None:
+            return
+        frame = self.storage.representative_frame(record)
+        crop = self.storage.representative_crop(record)
+        for card in cards:
+            card.set_representative(frame, crop, load_image=False)
+        if self.isVisible():
+            self._apply_lazy_loading()
+
+    def _animation_changed(self, changed):
+        if None in changed.values():
+            # Rebinding can change a card path and the membership of visible
+            # results. Refresh the bounded result set once, before enrichment.
+            self._cached_query = None
+            if self.isVisible():
+                self._perform_search()
+                return
+        for card in self._all_card_widgets:
+            if getattr(card, 'entry_id', None) in changed:
+                card._animated = changed[card.entry_id] is True
+                card.update()
 
     def _trigger_responsive_layout(self, force=False):
         if not self._all_card_widgets:
@@ -499,7 +521,7 @@ class QuickPanel(QWidget):
             from PySide6.QtCore import QSignalBlocker
             with QSignalBlocker(self.search_box):self.search_box.setText(search_text)
             self.search_timer.stop()
-            self._perform_search(force=True)
+            self._perform_search()
         elif self.search_box.text():
             self.search_box.clear()
         else:

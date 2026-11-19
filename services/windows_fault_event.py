@@ -1,4 +1,4 @@
-"""One bounded, read-only Event 1000 lookup during existing report generation."""
+"""Bounded, read-only Windows fault and hang lookups during existing report generation."""
 import hashlib
 import ntpath
 import re
@@ -30,43 +30,59 @@ def process_identity():
     except (OSError,AttributeError,ValueError):return {}
 
 
-def match_fault(session,xml_events,now=None):
+_PROVIDERS = {1000: 'Application Error', 1002: 'Application Hang'}
+
+
+def match_fault(session,xml_events,now=None,*,event_id=1000):
     """PID alone is never sufficient. Old sessions safely yield unknown."""
     unknown=lambda reason:dict(status='unknown',reason=reason)
     if not session.get('process_created') or not session.get('executable_hash'):return unknown('identity_unavailable')
     now=time.time() if now is None else now;matches=[]
+    identity_problem = None
     ns={'e':'http://schemas.microsoft.com/win/2004/08/events/event'}
     for xml in xml_events:
         if len(xml)>65536:continue
         try:
             event=ET.fromstring(xml);system=event.find('e:System',ns)
-            if system.findtext('e:EventID',namespaces=ns)!='1000':continue
-            if system.find('e:Provider',ns).get('Name')!='Application Error':continue
+            if system.findtext('e:EventID',namespaces=ns)!=str(event_id):continue
+            if system.find('e:Provider',ns).get('Name')!=_PROVIDERS[event_id]:continue
             stamp=system.find('e:TimeCreated',ns).get('SystemTime')
             occurred=datetime.fromisoformat(stamp.replace('Z','+00:00')).timestamp()
             if not session['started_at']-5<=occurred<=now+5:continue
             data={v.get('Name'):v.text or '' for v in event.findall('e:EventData/e:Data',ns)}
             if int(data['ProcessId'],0)!=session['pid']:continue
-            if int(data['ProcessCreationTime'],0)!=session['process_created']:continue
-            if _image_hash(data['AppPath'])!=session['executable_hash']:continue
-            module=ntpath.basename(data['ModuleName'])
-            if not re.fullmatch(r'[A-Za-z0-9_.+-]{1,128}',module):continue
-            code=int(data['ExceptionCode'].removeprefix('0x'),16)
-            offset=int(data['FaultingOffset'].removeprefix('0x'),16)
-            if not 0<=code<2**32 or not 0<=offset<2**64:continue
-            matches.append(dict(status='matched',event_id=1000,pid=session['pid'],
-                                occurred_at=occurred,exception_code=f'0x{code:08x}',
-                                module=module,module_offset=f'0x{offset:x}'))
+            creation = data.get('StartTime' if event_id == 1002 else 'ProcessCreationTime')
+            path = data.get('ExeFileName' if event_id == 1002 else 'AppPath')
+            if not creation or not path or not ntpath.isabs(path):
+                identity_problem = 'incomplete_identity'
+                continue
+            if int(creation,0)!=session['process_created'] or _image_hash(path)!=session['executable_hash']:
+                identity_problem = 'different_process'
+                continue
+            if event_id == 1002:
+                matches.append(dict(status='matched', event_id=1002, pid=session['pid'], occurred_at=occurred))
+                continue
+            fault = dict(status='matched', event_id=1000, pid=session['pid'], occurred_at=occurred)
+            module = ntpath.basename(data.get('ModuleName', ''))
+            if re.fullmatch(r'[A-Za-z0-9_.+-]{1,128}', module):
+                fault['module'] = module
+            code = data.get('ExceptionCode', '').lower().removeprefix('0x')
+            offset = data.get('FaultingOffset', '').lower().removeprefix('0x')
+            if re.fullmatch(r'[0-9a-f]{1,8}', code):
+                fault['exception_code'] = f'0x{int(code,16):08x}'
+            if re.fullmatch(r'[0-9a-f]{1,16}', offset):
+                fault['module_offset'] = f'0x{int(offset,16):x}'
+            matches.append(fault)
         except (ET.ParseError,AttributeError,KeyError,TypeError,ValueError):continue
-    return matches[0] if len(matches)==1 else unknown('ambiguous' if matches else 'not_found')
+    return matches[0] if len(matches)==1 else unknown('ambiguous' if matches else (identity_problem or 'not_found'))
 
 
-def _read_events(session,now):
+def _read_events(session,now,event_id=1000):
     import win32evtlog as events
-    since=datetime.fromtimestamp(max(session['started_at']-5,now-14*86400),timezone.utc).isoformat()
-    until=datetime.fromtimestamp(now+5,timezone.utc).isoformat()
+    since=datetime.fromtimestamp(max(session['started_at']-5,now-14*86400),timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.000Z')
+    until=datetime.fromtimestamp(now+5,timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.999Z')
     # Filter before reading; no unrelated event text is saved or exported.
-    query=("*[System[Provider[@Name='Application Error'] and EventID=1000 and "
+    query=(f"*[System[Provider[@Name='{_PROVIDERS[event_id]}'] and EventID={event_id} and "
            f"TimeCreated[@SystemTime>='{since}' and @SystemTime<='{until}']] and "
            f"EventData[Data[@Name='ProcessId']='0x{session['pid']:x}']]")
     result=events.EvtQuery('Application',events.EvtQueryReverseDirection,query)
@@ -84,13 +100,14 @@ def _read_events(session,now):
     finally:result.Close()
 
 
-def query_fault(session):
+def query_fault(session, *, event_id=1000):
     if sys.platform!='win32' or not session.get('process_created') or not session.get('executable_hash'):
         return dict(status='unknown',reason='identity_unavailable')
     try:
-        now=time.time();events,truncated=_read_events(session,now)
+        now=min(time.time(),session.get('observed_end',float('inf')))
+        events,truncated=_read_events(session,now,event_id)
         if truncated:return dict(status='unknown',reason='query_limit')
-        return match_fault(session,events,now)
+        return match_fault(session,events,now,event_id=event_id)
     except Exception:
         # Optional OS evidence never blocks a local report or application startup.
         return dict(status='unknown',reason='query_unavailable')

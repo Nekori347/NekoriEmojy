@@ -1,6 +1,7 @@
 """Mixed flow layout index and a viewport-sized pool of existing card widgets."""
 from bisect import bisect_left, bisect_right
 from time import perf_counter
+import os
 from PySide6.QtCore import QPoint, QRect, Qt, QSignalBlocker, QTimer, QAbstractAnimation
 from PySide6.QtWidgets import QWidget, QLabel, QApplication
 from fluent_ui.components.gallery_model import occurrence_id
@@ -147,10 +148,8 @@ class VirtualGallery:
             # widget as tall as that moving viewport feeds panel animation
             # back into the scroll range and can toggle the vertical bar.
             g.grid_container.setFixedSize(self.index.width, self.index.height)
-            if scroll is not None:
+            if not self.restore(anchor) and scroll is not None:
                 g.scroll_area.verticalScrollBar().setValue(scroll)
-            elif anchor:
-                self.restore(anchor)
         finally:
             self.updating = False
         self.sync()
@@ -174,11 +173,13 @@ class VirtualGallery:
         changed = getattr(card, 'content_entry', None) != entry
         card.content_entry = entry
         if isinstance(card, EmojiCard):
+            card.thumbnail_library_id = os.path.normcase(str(self.gallery.storage.index.root))
             if card.image_path != entry['path']:
                 card.set_hovered(False)
                 card.clear_resources()
                 card.image_path = entry['path']
                 card._gallery_thumbnail_key = None
+            card._animated = self.gallery.storage.index.animation_attribute(entry.get('resource') or {}) is True
             card.entry_id = entry['id']
             state = 'missing' if entry.get('status') == 'missing' else 'normal'
             if card.property('state') != state:
@@ -221,7 +222,6 @@ class VirtualGallery:
             card._renderer = wrapper
             card._source_label = QLabel(wrapper)
             card._source_label.setProperty('role', 'data')
-            card.gallery_reload = g._reload_resource_thumbnail
             if hasattr(g,'new_markers'):
                 card.setMouseTracking(True)
                 card.installEventFilter(g.new_markers)
@@ -355,4 +355,5 @@ class VirtualGallery:
             for i, entry in enumerate(self.gallery._entries):
                 if occurrence_id(entry) == key:
                     self.gallery.scroll_area.verticalScrollBar().setValue(self.index.rects[i].top()+offset)
-                    break
+                    return True
+        return False

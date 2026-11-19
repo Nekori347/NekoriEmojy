@@ -1,5 +1,6 @@
 """Desktop storage facade over the Nekori catalog and Suzu's mature codecs."""
 import os
+from itertools import islice
 import uuid
 import json
 import hashlib
@@ -15,6 +16,8 @@ from PySide6.QtCore import QObject, Signal
 from services.library_index import LibraryIndex, ROOT
 from services.resource_import import ResourceImporter, ImportTarget
 from services.exchange_icons import IMAGE_SUFFIXES, resolve_icon_path, portable_icon_path
+
+_REPRESENTATIVE_CROP = object()
 
 
 def _storage_locked(method):
@@ -35,7 +38,7 @@ class UnseenEvents(QObject):
 class StorageService:
     SUPPORTED_FORMATS = ('.png', '.apng', '.jpg', '.jpeg', '.gif', '.webp', '.webm', '.tgs', '.bmp', '.tiff')
 
-    def __init__(self, library_path=None, config=None):
+    def __init__(self, library_path=None, config=None, *, fill_icons=True):
         from services.app_paths import selected_library
         from services.config import ConfigService
         from services.feature_db import FeatureDB
@@ -77,7 +80,8 @@ class StorageService:
         self.import_context = threading.local()
         self.importer = ResourceImporter(self)
         self._adopt_internal_data()
-        self.fill_missing_category_icons()
+        if fill_icons:
+            self.fill_missing_category_icons()
 
     def _adopt_internal_data(self):
         """One-time adoption of data already inside this selected library.
@@ -451,26 +455,29 @@ class StorageService:
         return self.index.resource(filepath)
 
     @_storage_locked
-    def set_node_icon(self, node_id, value, *, frame=None, only_if_empty=False):
+    def set_node_icon(self, node_id, value, *, frame=None, crop=_REPRESENTATIVE_CROP, only_if_empty=False):
         """value is either an emoji/text or a local image path (copied into the library)."""
         if only_if_empty:
             node=self.index.node(node_id)
             if not node or node.get("icon"):return False
         if value and Path(value).suffix.lower() in IMAGE_SUFFIXES and Path(value).is_file():
-            value = self._store_node_icon_file(value, frame=self.representative_frame(value, frame=frame))
+            value = self._store_node_icon_file(value, frame=self.representative_frame(value, frame=frame), crop=self.representative_crop(value) if crop is _REPRESENTATIVE_CROP else crop)
         return self.index.update_node(node_id, icon=value or "", only_if_empty=only_if_empty)
 
-    def ensure_category_icon(self, node_id, path):
+    def ensure_category_icon(self, node_id, path, *, on_error=None):
         if node_id in (None,ROOT) or not self.config.config.get('auto_category_icons',False):return False
         try:
             if not Path(path).is_file() or Path(path).suffix.lower() not in IMAGE_SUFFIXES:return False
             return self.set_node_icon(node_id,path,only_if_empty=True)
-        except Exception:
-            import logging
-            logging.getLogger('nekori.crash_evidence').warning('automatic_category_icon_failed')
+        except Exception as error:
+            if on_error is not None:
+                on_error(error)
+            else:
+                import logging
+                logging.getLogger('nekori.crash_evidence').warning('automatic_category_icon_failed')
             return False
 
-    def fill_missing_category_icons(self):
+    def fill_missing_category_icons(self, *, on_error=None):
         if not self.config.config.get('auto_category_icons',False):return 0
         # One direct, canonical member per missing node, never a descendant cover.
         try:
@@ -482,11 +489,15 @@ class StorageService:
                         SELECT MIN(first.position) FROM content first
                         WHERE first.parent_id=n.id AND first.resource_id IS NOT NULL)
                     ORDER BY n.id""",(ROOT,)).fetchall()
-        except (sqlite3.Error,OSError):
-            import logging
-            logging.getLogger('nekori.crash_evidence').warning('automatic_category_icon_fill_failed')
+        except (sqlite3.Error,OSError) as error:
+            if on_error is not None:
+                on_error(error)
+            else:
+                import logging
+                logging.getLogger('nekori.crash_evidence').warning('automatic_category_icon_fill_failed')
             return 0
-        return sum(bool(self.ensure_category_icon(row[0],str(self.index.root/row[1]))) for row in rows)
+        return sum(bool(self.ensure_category_icon(row[0], str(self.index.root/row[1]), on_error=on_error))
+                   for row in rows)
 
     def subtree_resource_counts(self):
         # Batched closure with distinct IDs; direct node_counts stays unchanged.
@@ -498,17 +509,18 @@ class StorageService:
                 LEFT JOIN content c ON c.parent_id=scope.id AND c.resource_id IS NOT NULL
                 GROUP BY scope.ancestor""")}
 
-    def _store_node_icon_file(self, source, *, frame=0):
+    def _store_node_icon_file(self, source, *, frame=0, crop=None):
         import shutil
         target_dir = Path(self.data_dir) / "category_icons"
         target_dir.mkdir(parents=True, exist_ok=True)
         from services.image_frames import is_animated, frame_at
-        if is_animated(source):
+        if is_animated(source) or crop:
             # Category icons are static representations. Freeze the chosen
             # resource frame once, rather than losing it when copying a GIF or
             # decoding animation again on every tree/menu paint.
             from PySide6.QtCore import QByteArray, QBuffer, QIODevice
-            image = frame_at(source, frame)
+            from services.image_frames import crop_image
+            image = crop_image(frame_at(source, frame),crop)
             if image is None:
                 raise ValueError('Cannot decode category icon frame')
             payload = QByteArray();buffer = QBuffer(payload)
@@ -552,6 +564,9 @@ class StorageService:
         # uses ResourceImporter/index directly and owns its own batch result.
         completed_sound(self.config,'category',copy and target_node not in (None,ROOT) and added>0)
         return added
+
+    def representative_crop(self, resource):
+        return self.index.representative_crop(resource)
 
     def representative_frame(self, resource, *, frame=None):
         """Shared static representative selection; does not generate a snapshot."""
@@ -709,8 +724,22 @@ class StorageService:
         if self.index.search_revision==revision:self._search_metadata_snapshot=(revision,result)
         return result
 
+    def search_records(self, keyword, limit=None):
+        """Root resources in manual order, with the metadata needed by result cards."""
+        from services.search_text import normalize_search
+        keyword = normalize_search(keyword.strip())
+        texts = self.index.search_texts() if keyword else {}
+        with self.index.connect() as db:
+            rows = db.execute(
+                'SELECT r.id,r.relative_path,r.status,r.metadata_json FROM content c '
+                'JOIN resources r ON r.id=c.resource_id WHERE c.parent_id=? ORDER BY c.position', (ROOT,))
+            matches = (dict(row) for row in rows if not keyword or keyword in texts.get(row['id'], ''))
+            return list(islice(matches, limit))
+
     def search_images(self, keyword, category_name='全部表情'):
         from services.search_text import normalize_search
+        if category_name in (None, '全部表情', ROOT):
+            return [self.index.absolute_path(row) for row in self.search_records(keyword)]
         images = self.get_images_by_category(category_name)
         keyword = normalize_search(keyword.strip())
         if not keyword:
@@ -721,11 +750,14 @@ class StorageService:
     def _get_recent_limit(self):
         return int(self.config.get('recent_limit', 30))
 
-    def get_recent_images(self, limit=None):
+    def recent_records(self, limit=None):
         with self.index.connect() as db:
             rows = db.execute('SELECT r.* FROM recent h JOIN resources r ON h.resource_id=r.id ORDER BY h.used_at DESC LIMIT ?',
                               (limit if limit is not None else self._get_recent_limit(),)).fetchall()
-            return [self.index.absolute_path(r) for r in rows if Path(self.index.absolute_path(r)).is_file()]
+            return [dict(row) for row in rows if Path(self.index.absolute_path(row)).is_file()]
+
+    def get_recent_images(self, limit=None):
+        return [self.index.absolute_path(row) for row in self.recent_records(limit)]
 
     def add_recent_image(self, filepath, limit=None):
         resource_id = self._resource_id(filepath)
@@ -769,7 +801,7 @@ class StorageService:
                 state=self.index._ocr_state(record)
                 state.update(source=None,revision=state.get('revision',0)+1)
                 if not state.get('manual'):state.update(status='unrecognized',error='')
-                metadata=json.loads(record.get('metadata_json') or '{}');metadata.pop('thumb_frame',None)
+                metadata=json.loads(record.get('metadata_json') or '{}');metadata.pop('thumb_frame',None);metadata.pop('thumb_crop',None);metadata.pop('animation',None)
                 with self.index.connect() as db:
                     db.execute('BEGIN IMMEDIATE')
                     db.execute('UPDATE resources SET relative_path=?,status=\'normal\',ocr_text=?,ocr_state_json=?,metadata_json=? WHERE id=?',
@@ -816,6 +848,10 @@ class StorageService:
         self._remove_feature_record(resource['filename'])
         self._hashes_cache = self._load_hashes()
         self._sync_key_index = None
+        backfill = getattr(self, 'animation_backfill', None)
+        if backfill is not None:
+            backfill.requested.emit(resource_id)
+            backfill.changed.emit({resource_id: None})
 
     def forget_resource(self, resource_id):
         resource = self.index.resource(resource_id)
@@ -1287,7 +1323,7 @@ class StorageService:
         return data_bytes, fmt, False
 
     @_storage_locked
-    def _standardize_and_save(self, data_bytes, original_ext, source_path=None, pil_source=None, strict=False, force_new=False):
+    def _standardize_and_save(self, data_bytes, original_ext, source_path=None, pil_source=None, strict=False, force_new=False, on_decoded=None):
         from services.crash_evidence import import_stage
         import_stage(self.import_context,'decode')
         stage = "清洗失败"
@@ -1300,8 +1336,12 @@ class StorageService:
             else:
                 norm_bytes, norm_fmt, is_norm_animated = self._convert_source_to_standard_bytes(data_bytes, source_path)
                 img = Image.open(io.BytesIO(norm_bytes))
-                is_animated = getattr(img, "is_animated", False) or is_norm_animated
+                decoded_animated = bool(getattr(img, "is_animated", False))
+                is_animated = decoded_animated or is_norm_animated
                 final_ext = '.gif' if is_animated else '.png'
+
+            if on_decoded is not None:
+                on_decoded(decoded_animated if pil_source is None else False)
 
             # 步骤 2：清洗与编码
             if is_animated:
@@ -1420,7 +1460,7 @@ class StorageService:
             index[skey] = filename
         self._images_dirty = True
 
-    def _save_qimage_source(self, qimage):
+    def _save_qimage_source(self, qimage, *, on_decoded=None):
         """
         保存剪贴板或传入的 QImage 对象
         针对静态位图在内存中直接转换为 RGBA PIL Image，消除多余的 Qt PNG 压缩与 PIL 二进制解码
@@ -1434,7 +1474,7 @@ class StorageService:
             w, h = qimg_rgba.width(), qimg_rgba.height()
             ptr = qimg_rgba.constBits()
             pil_img = Image.frombuffer("RGBA", (w, h), bytes(ptr), "raw", "RGBA", 0, 1)
-            return self._standardize_and_save(None, ".png", pil_source=pil_img)
+            return self._standardize_and_save(None, ".png", pil_source=pil_img, on_decoded=on_decoded)
         except Exception as e:
             print(f"[WARNING] QImage 快速转 PIL 失败，回退至兼容模式: {e}")
             from PySide6.QtCore import QByteArray, QBuffer, QIODevice
@@ -1442,9 +1482,9 @@ class StorageService:
             buffer = QBuffer(byte_array)
             buffer.open(QIODevice.WriteOnly)
             qimage.save(buffer, "PNG")
-            return self._standardize_and_save(byte_array.data(), ".png")
+            return self._standardize_and_save(byte_array.data(), ".png", on_decoded=on_decoded)
 
-    def _save_file_source(self, source_path, strict=False):
+    def _save_file_source(self, source_path, strict=False, *, on_decoded=None):
         from services.crash_evidence import import_stage
         import_stage(self.import_context,'resolve')
         if not os.path.exists(source_path):
@@ -1461,7 +1501,7 @@ class StorageService:
             if not ext:
                 ext = ".png"
 
-            return self._standardize_and_save(data_bytes, ext, source_path=source_path, strict=strict)
+            return self._standardize_and_save(data_bytes, ext, source_path=source_path, strict=strict, on_decoded=on_decoded)
         except Exception as e:
             if strict:
                 raise

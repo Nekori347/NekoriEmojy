@@ -52,9 +52,9 @@ def test_icons_cover_import_duplicate_enable_restart_and_manual_race(surface,mon
     assert StorageService(config=s.config).node(fresh)['icon']==first
     raced=s.storage.create_node('Concurrent manual icon')
     original=s.storage._store_node_icon_file
-    def manual_during_render(path,*,frame=0):
+    def manual_during_render(path,*,frame=0,crop=None):
         s.storage.index.update_node(raced,icon='manual raced')
-        return original(path,frame=frame)
+        return original(path,frame=frame,crop=crop)
     monkeypatch.setattr(s.storage,'_store_node_icon_file',manual_during_render)
     assert not s.storage.ensure_category_icon(raced,s.paths[0])
     assert s.storage.node(raced)['icon']=='manual raced'
@@ -94,27 +94,25 @@ def test_unsupported_resume_does_not_construct_an_orphan_worker(surface):
     assert not q.findChildren(ImportThread)
 
 
-def test_anim_metadata_survives_disk_cache_without_rereading_original(surface,monkeypatch):
+def test_thumbnail_disk_cache_never_reopens_original_for_anim(surface,monkeypatch):
     from PIL import Image
     from fluent_ui.components.emoji_card import _ThumbnailLoadTask
-    from services import image_frames
+    from services.animation_attributes import probe_animation
     s=surface
     for fmt,suffix in (('GIF','.gif'),('WEBP','.webp'),('PNG','.png')):
         path=s.tmp/('animated'+suffix);disk=s.tmp/('cached'+suffix+'.png')
         Image.new('RGBA',(39,35),'red').save(path,format=fmt,save_all=True,
             append_images=[Image.new('RGBA',(39,35),'blue')],duration=100,loop=0)
+        assert probe_animation(path) is True
         task=_ThumbnailLoadTask(str(path),64,1,cache_file=str(disk));images=[]
         task.signals.finished.connect(lambda p,image,*_:images.append(image));task.run()
-        assert images[0].text('nekori.animation_frames')=='2'
+        assert not images[0].isNull() and not images[0].text('nekori.animation_frames')
+        path.unlink()  # Disk cache is sufficient, not an animation metadata carrier.
         with monkeypatch.context() as patch:
-            patch.setattr(image_frames,'frame_count',Mock(side_effect=AssertionError('must use cached metadata')))
+            patch.setattr(Image,'open',Mock(side_effect=AssertionError('thumbnail must not probe animation')))
             cached=_ThumbnailLoadTask(str(path),64,2,cache_file=str(disk));result=[]
             cached.signals.finished.connect(lambda p,image,*_:result.append(image));cached.run()
-            assert result[0].text('nekori.animation_frames')=='2'
-    path=s.tmp/'single.gif';Image.new('RGB',(16,16),'green').save(path)
-    task=_ThumbnailLoadTask(str(path),64,3);result=[]
-    task.signals.finished.connect(lambda p,image,*_:result.append(image));task.run()
-    assert result[0].text('nekori.animation_frames')=='1'
+            assert not result[0].isNull()
 
 
 def test_badge_state_survives_gallery_cache_and_clears_on_card_reuse(surface):
@@ -126,9 +124,9 @@ def test_badge_state_survives_gallery_cache_and_clears_on_card_reuse(surface):
         if cards[s.paths[4]]._is_loaded:break
     animated=cards[s.paths[4]];still=cards[s.paths[0]]
     assert animated._animated and not still._animated
-    animated.clear_resources();assert not animated._animated
+    animated.clear_resources();assert animated._animated
     g.renderer.loader.request([animated]);s.app.processEvents()
-    assert animated._animated  # cached QPixmap retains the source frame count
+    assert animated._animated  # resource index supplies animation independently of the pixmap
 
 
 def test_animation_count_ignores_apng_poster_and_untrusted_source_text(surface):
@@ -140,13 +138,15 @@ def test_animation_count_ignores_apng_poster_and_untrusted_source_text(surface):
     Image.new('RGB',(23,25),'red').save(path,pnginfo=info)
     task=_ThumbnailLoadTask(str(path),64,1);result=[]
     task.signals.finished.connect(lambda p,image,*_:result.append(image));task.run()
-    assert result[0].text('nekori.animation_frames')=='1'
+    from services.animation_attributes import probe_animation
+    assert probe_animation(path) is False
     for count in (1,2):
         path=s.tmp/f'poster-{count}.png'
         Image.new('RGBA',(29,31),'red').save(path,save_all=True,default_image=True,
             append_images=[Image.new('RGBA',(29,31),color) for color in ('blue','green')[:count]],duration=100,loop=0)
         assert frame_count(path)==count+1  # Picker still sees the poster as a selectable frame.
         assert frame_count(path,animation_only=True)==count
+        assert probe_animation(path) is (count > 1)
 
 
 def test_new_resource_focus_is_independent_and_rejects_quick_pass_reuse_drag(surface,monkeypatch):

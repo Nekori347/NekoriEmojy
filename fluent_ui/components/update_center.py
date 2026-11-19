@@ -141,13 +141,20 @@ class UpdateCenter(QObject):
         pairs.extend((dialog.worker, dialog.service) for dialog in self.dialogs.values())
         return [(worker, service) for worker, service in pairs if worker is not None and worker.isRunning()]
 
+    def cancel_running_workers(self):
+        running = self._running_workers()
+        for worker, service in running:
+            service.cancel.set()
+        return bool(running)
+
     def eventFilter(self, obj, event):
-        if event.type() == QEvent.Quit and self._running_workers():
+        if event.type() == QEvent.Quit and self.cancel_running_workers():
             event.ignore()
-            for worker, service in self._running_workers():
-                service.cancel.set()
-            self._quit_deadline = time.monotonic() + 30
-            self._quit_timer.start()
+            if getattr(event, 'update_handoff', False):
+                event.update_workers_draining = True
+            else:
+                self._quit_deadline = time.monotonic() + 30
+                self._quit_timer.start()
             return True
         return super().eventFilter(obj, event)
 
@@ -183,6 +190,7 @@ class UpdateCenter(QObject):
             dialog.release_changed.connect(self.set_release)
             dialog.check_state_changed.connect(self.set_check_state)
             self.dialogs[owner]=dialog
+            dialog.destroyed.connect(lambda *_: self.dialogs.pop(owner, None))
         dialog=self.dialogs[owner]
         if self.release:
             dialog._checked(self.release);dialog.show();dialog.raise_();dialog.activateWindow()

@@ -7,7 +7,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-from PySide6.QtCore import QThread, QTimer, QUrl, Qt
+from PySide6.QtCore import QEvent, QTimer, QUrl, Qt
 from PySide6.QtWidgets import QApplication, QWidget
 from PySide6.QtTest import QTest
 from fluent_ui.components.update_dialog import UpdateDialog
@@ -44,23 +44,46 @@ class HotfixTests(unittest.TestCase):
             self.assertFalse(self.dialog.installing)
 
     def test_unsaved_settings_refusal_preserves_pending(self):
-        class Pending(QWidget):
-            def has_pending_changes(self):return True
-            def confirm_close(self):return False
-        pending = Pending()
+        from fluent_ui.components.controls import PushButton
+        from fluent_ui.views.settings_center import SettingsCenter
+        from services.config import ConfigService
+        from services.i18n import t
+
+        pending = SettingsCenter(ConfigService(self.root / 'isolated-settings'))
+        pending._stage('preview_delay', 850)
+
+        def keep_editing():
+            dialog = self.app.activeModalWidget()
+            button = next(button for button in dialog.findChildren(PushButton)
+                          if button.text() == t('继续编辑'))
+            QTest.mouseClick(button, Qt.LeftButton)
+
+        QTimer.singleShot(0, keep_editing)
         with patch('fluent_ui.components.update_dialog.dialogs.confirm', return_value=True), patch.object(self.service, 'launch_installer') as launch:
             self.dialog.action()
             launch.assert_not_called()
             self.assertTrue(pending.has_pending_changes())
             self.assertFalse(self.dialog.installing)
+
+        # Unsaved settings can also appear after the first drain began.
+        self.dialog.installing = True
+        self.dialog._phase = 'launching'
+        self.service.attempt = 'a' * 32
+        QTimer.singleShot(0, keep_editing)
+        self.dialog._quit(None)
+        self.assertEqual(self.dialog._phase, 'cancelling')
+        self.assertTrue(pending.has_pending_changes())
+        self.assertTrue((self.service.workspace / ('cancel-' + self.service.attempt)).is_file())
         pending.deleteLater()
         self.app.processEvents()
 
     def test_cooperative_task_finishes_without_blocking_gui(self):
-        class Task(QThread):
+        from fluent_ui.views.gallery_view import ImportThread
+        class Task(ImportThread):
             def run(self):
-                while not self.isInterruptionRequested():self.msleep(5)
-        task = Task();task.start()
+                self.cancel_event.wait(2)
+        task = Task([], None, None)
+        task.start()
         ticks=[];timer=QTimer();timer.timeout.connect(lambda:ticks.append(1));timer.start(2)
         with patch('fluent_ui.components.update_dialog.dialogs.confirm', return_value=True), patch('fluent_ui.components.update_dialog.active_tasks', side_effect=lambda:[task] if task.isRunning() else []), patch.object(self.service,'launch_installer',side_effect=OSError('fixture helper failure')):
             self.dialog.action()
@@ -69,6 +92,7 @@ class HotfixTests(unittest.TestCase):
                 if not self.dialog.installing:break
         timer.stop()
         self.assertFalse(task.isRunning())
+        self.assertTrue(task.cancel_event.is_set())
         self.assertGreater(len(ticks),0)
         self.assertFalse(self.dialog.installing)
         self.assertTrue(self.dialog.action_button.isEnabled())
@@ -127,6 +151,66 @@ class HotfixTests(unittest.TestCase):
         self.assertFalse(self.dialog.installing)
         self.assertTrue(self.dialog.action_button.isEnabled())
         self.assertTrue(self.dialog.later_button.isEnabled())
+
+    def test_tasks_started_during_handoff_are_drained_before_quit(self):
+        from types import SimpleNamespace
+        from unittest.mock import Mock
+        backup = Mock(pending=True)
+        ocr = SimpleNamespace(busy=True, installing=False)
+        imports = SimpleNamespace(worker=None, waiting=[object()], _decisions={})
+        storage = SimpleNamespace(backup_service=backup, ocr=ocr, desktop_imports=imports)
+        self.dialog.installing = True
+        self.dialog._phase = 'launching'
+        with patch.object(self.dialog, '_active_storage', return_value=storage), \
+             patch.object(self.dialog, '_request_exit') as request_exit:
+            self.dialog._quit(None)
+            self.assertEqual(self.dialog._phase, 'draining')
+            backup.cancel.assert_called_once()
+            request_exit.assert_not_called()
+            backup.pending = False
+            ocr.busy = False
+            self.dialog._poll_handoff()
+            request_exit.assert_not_called()
+            imports.waiting.clear()
+            self.dialog._poll_handoff()
+            request_exit.assert_called_once()
+
+    def test_real_close_veto_cancels_attempt_and_keeps_update_ready(self):
+        class Veto(QWidget):
+            def closeEvent(self, event):
+                event.ignore()
+        owner = Veto()
+        owner.show()
+        self.dialog.show()
+        self.dialog.installing = True
+        self.dialog._phase = 'launching'
+        self.service.attempt = 'a' * 32
+        self.dialog._quit(None)
+        self.assertTrue(owner.isVisible())
+        self.assertTrue(self.dialog.isVisible())
+        self.assertEqual(self.dialog._phase, 'cancelling')
+        self.assertTrue((self.service.workspace / ('cancel-' + self.service.attempt)).is_file())
+        self.dialog._poll_handoff()
+        self.assertTrue(self.dialog.action_button.isEnabled())
+        self.assertIsNotNone(self.dialog.prepared)
+        owner.hide()
+        owner.deleteLater()
+
+    def test_update_center_drains_handoff_quit_without_posting_a_second_quit(self):
+        from fluent_ui.components.update_center import UpdateCenter
+        from unittest.mock import Mock
+        center = UpdateCenter(self.app)
+        event = QEvent(QEvent.Quit)
+        event.update_handoff = True
+        service = Mock()
+        with patch.object(center, '_running_workers', return_value=[(object(), service)]):
+            self.assertTrue(self.app.sendEvent(self.app, event))
+        self.assertTrue(event.update_workers_draining)
+        self.assertFalse(center._quit_timer.isActive())
+        self.assertFalse(event.isAccepted())
+        service.cancel.set.assert_called_once()
+        self.app.removeEventFilter(center)
+        center.deleteLater()
 
     def test_real_qt_quit_event_loop_exits_while_installing(self):
         code='''import sys,tempfile,json

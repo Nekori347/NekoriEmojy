@@ -1,7 +1,6 @@
 """Shared predicates for resource menus and selection commands."""
 from dataclasses import dataclass
 from services.library_index import ROOT
-from services.image_frames import is_animated
 
 
 @dataclass(frozen=True)
@@ -10,7 +9,6 @@ class ActionContext:
     existing: tuple[str, ...]
     active_view: str
     all_direct: bool
-    animated: bool
 
     @classmethod
     def from_entries(cls, entries, direct_ids, active_view=ROOT):
@@ -18,8 +16,7 @@ class ActionContext:
         paths = tuple(e['path'] for e in entries)
         existing = tuple(e['path'] for e in entries if e.get('status') != 'missing')
         return cls(paths, existing, active_view,
-                   bool(paths) and all(e['id'] in direct_ids for e in entries),
-                   len(paths) == 1 and bool(existing) and is_animated(paths[0]))
+                   bool(paths) and all(e['id'] in direct_ids for e in entries))
 
     @classmethod
     def build(cls, storage, paths, active_view=ROOT, *, revalidate=False):
@@ -27,8 +24,7 @@ class ActionContext:
         existing = tuple(p for p in paths if storage.availability.exists(p, revalidate=revalidate))
         direct = {e['id'] for e in storage.index.content(active_view) if e['kind'] == 'resource'} if paths and active_view != ROOT else set()
         all_direct = bool(paths) and all((storage.resource_of(p) or {}).get('id') in direct for p in paths)
-        animated = len(paths) == 1 and bool(existing) and is_animated(paths[0])
-        return cls(paths, existing, active_view, all_direct, animated)
+        return cls(paths, existing, active_view, all_direct)
 
 
 class ActionPolicy:
@@ -38,7 +34,7 @@ class ActionPolicy:
         if action in ('tag_edit', 'copy_path', 'delete', 'category_membership'):
             return selected
         if action == 'thumbnail_frame':
-            return len(context.paths) == 1 and bool(context.existing) and context.animated
+            return len(context.paths) == 1 and bool(context.existing)
         if action in ('show_in_explorer', 'send', 'set_icon'):
             return len(context.paths) == 1 and bool(context.existing)
         if action == 'export':

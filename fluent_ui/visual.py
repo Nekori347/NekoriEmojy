@@ -505,13 +505,19 @@ def animation_badge_size():
 
 
 def paint_animation_badge(painter, rect):
-    from PySide6.QtCore import Qt
-    from PySide6.QtGui import QPainter,QPen
-    painter.save();painter.setRenderHint(QPainter.Antialiasing)
-    face=font('brand');face.setPixelSize(10);painter.setFont(face)
-    c=colors();ink=QColor(c['text_secondary']);ink.setAlpha(180)
-    fill=QColor(c['surface']);fill.setAlpha(195)
-    edge=QColor(c['text_secondary']);edge.setAlpha(100)
-    painter.setBrush(fill);painter.setPen(QPen(edge,.6))
-    painter.drawRoundedRect(rect,3,3)
-    painter.setPen(ink);painter.drawText(rect,Qt.AlignCenter,'ANIM');painter.restore()
+    from PySide6.QtCore import QRectF, Qt
+    from PySide6.QtGui import QPainter, QPen
+
+    painter.save()
+    painter.setRenderHint(QPainter.Antialiasing)
+    face = font('brand')
+    face.setPixelSize(10)
+    face.setWeight(QFont.Bold)
+    painter.setFont(face)
+
+    painter.setBrush(QColor(0, 0, 0, 140))
+    painter.setPen(QPen(QColor(0, 0, 0, 215), .8))
+    painter.drawRoundedRect(QRectF(rect).adjusted(.4, .4, -.4, -.4), 3, 3)
+    painter.setPen(QColor(255, 255, 255, 235))
+    painter.drawText(rect, Qt.AlignCenter, 'ANIM')
+    painter.restore()

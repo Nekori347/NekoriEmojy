@@ -568,13 +568,24 @@ class LibraryIndex:
                     state['status']='unrecognized'
                     db.execute("UPDATE resources SET ocr_text='' WHERE id=?", (resource_id,))
                 db.execute('UPDATE resources SET ocr_state_json=? WHERE id=?', (json.dumps(state,ensure_ascii=False),resource_id))
-            if not db.execute("UPDATE resources SET relative_path=?,status='normal' WHERE id=?",
-                              (relative, resource_id)).rowcount:
+            if not db.execute(
+                "UPDATE resources SET relative_path=?,status='normal',metadata_json="
+                "CASE WHEN json_valid(metadata_json) AND json_type(metadata_json)='object' "
+                "THEN json_remove(metadata_json,'$.animation') ELSE metadata_json END WHERE id=?",
+                (relative, resource_id),
+            ).rowcount:
                 raise KeyError(resource_id)
 
     def forget_resource(self, resource_id):
         with self.connect() as db:
             return bool(db.execute("DELETE FROM resources WHERE id=?", (resource_id,)).rowcount)
+
+    def representative_crop(self, resource):
+        from services.image_frames import normalized_crop
+        record=resource if isinstance(resource,dict) else self.resource(resource) if resource is not None else None
+        try:metadata=json.loads(record.get('metadata_json') or '{}') if record else {}
+        except (ValueError,TypeError):return None
+        return normalized_crop(metadata.get('thumb_crop')) if isinstance(metadata,dict) else None
 
     def representative_frame(self, resource, *, frame=None):
         """Static resource identity: explicit frame, saved choice, then frame zero.
@@ -595,10 +606,53 @@ class LibraryIndex:
         except (ValueError, TypeError, OverflowError):
             return 0
 
+    @staticmethod
+    def animation_attribute(record):
+        """Unknown is distinct from a verified static resource; never decode here."""
+        try:
+            value = json.loads(record.get('metadata_json') or '{}').get('animation', {})
+            return value['animated'] if value.get('v') == 1 and type(value.get('animated')) is bool else None
+        except (ValueError, TypeError, AttributeError):
+            return None
+
+    def set_animation_attribute(self, record, animated):
+        return record['id'] in self.set_animation_attributes([(record, animated)])
+
+    def set_animation_attributes(self, updates):
+        """One bounded enrichment transaction; no search projection invalidation."""
+        changed = {}
+        with self.connect(search=False) as db:
+            for record, animated in updates:
+                if type(animated) is not bool:
+                    raise TypeError('Animation attribute must be verified')
+                # Compare the observed record: never overwrite concurrent edits.
+                if db.execute("UPDATE resources SET metadata_json=json_set("
+                        "CASE WHEN json_valid(metadata_json) AND json_type(metadata_json)='object' "
+                        "THEN metadata_json ELSE '{}' END, '$.animation',json(?)) "
+                        "WHERE id=? AND relative_path=? AND metadata_json=?",
+                        (json.dumps({'v': 1, 'animated': animated}), record['id'],
+                         record['relative_path'], record['metadata_json'])).rowcount:
+                    changed[record['id']] = animated
+        return changed
+
     def set_resource_metadata(self, resource_id, metadata):
-        with self.connect() as db:
+        # Representative frame/crop are display metadata, not search fields.
+        with self.connect(search=False) as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute('SELECT metadata_json FROM resources WHERE id=?', (resource_id,)).fetchone()
+            value = dict(metadata or {})
+            # Frame picker snapshots/reset cannot overwrite a later enrichment.
+            if row:
+                try:
+                    intrinsic = json.loads(row[0] or '{}').get('animation')
+                except (ValueError, AttributeError):
+                    intrinsic = None
+                if intrinsic is not None:
+                    value['animation'] = intrinsic
+                else:
+                    value.pop('animation', None)
             db.execute("UPDATE resources SET metadata_json=? WHERE id=?",
-                       (json.dumps(metadata or {}, ensure_ascii=False), resource_id))
+                       (json.dumps(value, ensure_ascii=False), resource_id))
 
     def resource_metadata(self, resource_id):
         with self.connect() as db:
@@ -686,10 +740,11 @@ class LibraryIndex:
                 names.setdefault(resource_id, []).append(name)
             result={}
             for r in db.execute('SELECT id,display_name,filename,tags,ocr_text FROM resources'):
-                raw=' '.join([r['display_name'],r['filename'],r['tags'],r['ocr_text'],*names.get(r['id'],[])])
+                fields = (r['display_name'], r['filename'], r['tags'], r['ocr_text'], *names.get(r['id'], ()))
+                raw = ' '.join(fields)
                 cached=self._search_projections.get(r['id'])
                 if cached is None or cached[0]!=raw:
-                    cached=(raw,search_projection(raw))
+                    cached=(raw,search_projection(*fields))
                     self._search_projections[r['id']]=cached
                 result[r['id']]=cached[1]
             for rid in self._search_projections.keys()-result.keys():self._search_projections.pop(rid,None)

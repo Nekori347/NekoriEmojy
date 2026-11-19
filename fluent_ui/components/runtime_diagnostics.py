@@ -70,6 +70,23 @@ class RuntimeDiagnostics(QObject, QAbstractNativeEventFilter):
         self.maintenance_timer.timeout.connect(evidence.maintenance)
         self.maintenance_timer.start()
         self.note_environment(window)
+        self.heartbeat = QTimer(self)
+        self.heartbeat.setInterval(3000)
+        self.heartbeat.timeout.connect(self._heartbeat)
+        self.watch = None
+        QTimer.singleShot(0, self, self._start_heartbeat)
+
+    def _start_heartbeat(self):
+        if self.maintenance_timer.isActive():
+            self.watch = evidence.start_gui_watch()
+            if self.watch is not None:
+                self.heartbeat.start()
+
+    def _heartbeat(self):
+        if self.watch.stopped.is_set():
+            self.heartbeat.stop()
+        else:
+            self.watch.last = time.monotonic()
 
     def role(self, window):
         if window is self.main:return 'main'
@@ -171,6 +188,8 @@ class RuntimeDiagnostics(QObject, QAbstractNativeEventFilter):
             evidence.persist_context('window_move')
 
     def shutdown(self):
+        self.heartbeat.stop()
+        evidence.stop_gui_watch()
         self.maintenance_timer.stop()
         evidence.breadcrumb('shutdown')
         evidence.persist_context('shutdown')

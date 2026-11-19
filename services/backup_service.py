@@ -19,12 +19,14 @@ PHASE_TEXT={'inventory':'正在核对文件清单','archive':'正在保存备份
 SETTINGS_KEYS={'backup_enabled','backup_interval_hours','backup_path','backup_keep'}
 
 
-def backup_service(storage,parent=None,host=None):
+def backup_service(storage,parent=None,host=None,*,start=True):
     import shiboken6
-    service=getattr(storage.config,'backup_service',None)
+    service=getattr(storage,'backup_service',None)
     if service is None or not shiboken6.isValid(service):
-        service=BackupService(storage,parent or QApplication.instance())
-        storage.config.backup_service=service
+        service=BackupService(storage,parent or QApplication.instance(),start=start)
+        storage.backup_service=service
+        if start:
+            storage.config.backup_service=service
     if host is not None:service.host=host
     if isinstance(parent,QWidget):service.attach(parent)
     return service
@@ -35,7 +37,7 @@ class BackupService(QObject):
     completed=Signal(object)
     pressure=Signal()
 
-    def __init__(self,storage,parent=None):
+    def __init__(self,storage,parent=None,*,start=True):
         super().__init__(parent);self.storage=storage;self.config=storage.config
         self.library=Path(storage.library_root).resolve();self.host=None;self.roots=[]
         key=hashlib.sha256(str(self.library).casefold().encode()).hexdigest()[:24]
@@ -45,19 +47,32 @@ class BackupService(QObject):
         try:self.state.update(json.loads(self.state_path.read_text('utf-8')))
         except (OSError,ValueError,TypeError):pass
         self.process=None;self.job=None;self.outcome=None;self.buffer=b'';self.error_buffer=b''
-        self.phase='';self.progress=(0,0);self.detail='';self.operation_error='';self._pause='';self._closing=False
+        self.phase='';self.progress=(0,0);self.detail='';self.operation_error='';self.startup_error='';self._pause='';self._closing=False
         self._retry_at=0.0;self._retry_count=0;self._prior_state=None
         self.activity=activity_for(self.library)
         self._notify=lambda:self.pressure.emit()
         self.activity.notify=self._notify;self.pressure.connect(self._pressure)
         self._last_tick=time.monotonic();self._wal_stamp=None
-        self._recover_interrupted()
         app=QApplication.instance()
         if app:
             app.installEventFilter(self);app.aboutToQuit.connect(self.shutdown)
-        self.timer=QTimer(self);self.timer.setInterval(250);self.timer.timeout.connect(self._tick);self.timer.start()
-        self.configure()
+        self.timer=QTimer(self);self.timer.setInterval(250);self.timer.timeout.connect(self._tick)
+        if start:
+            self.start()
         if parent is not None:parent.destroyed.connect(self.shutdown)
+
+    def start(self):
+        try:
+            self._recover_interrupted()
+            self.configure()
+        except Exception as error:
+            self.timer.stop()
+            self.startup_error = str(error) or type(error).__name__
+            self.changed.emit()
+            raise
+        self.startup_error = ''
+        self.timer.start()
+        self.changed.emit()
 
     @property
     def active(self):return self.process is not None

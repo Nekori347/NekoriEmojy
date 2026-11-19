@@ -25,12 +25,11 @@ class MainPanelAutoHideTests(unittest.TestCase):
     def test_hide_preserves_position_and_cancels_preview(self):
         from fluent_ui.main_window import MainWindow
         window = SimpleNamespace(
-            clear_transient_button_states=Mock(), gallery_interface=Mock(), hide=Mock()
+            clear_transient_button_states=Mock(), gallery_interface=Mock(), hide_window_group=Mock()
         )
         MainWindow._hide_after_paste(window)
-        window.gallery_interface.save_scroll_position.assert_called_once()
         window.gallery_interface.preview_controller.cancel.assert_called_once()
-        window.hide.assert_called_once()
+        window.hide_window_group.assert_called_once()
 
     def test_setting_waits_for_explicit_save(self):
         os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')

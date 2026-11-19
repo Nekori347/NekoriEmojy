@@ -13,11 +13,15 @@ _lock = threading.Lock()
 @lru_cache(maxsize=16384)
 def normalize_search(text):
     text = str(text or '').casefold()
+    if text.isascii():
+        return text
     with _lock:
         return _converter.convert(text)
 
 
-def search_projection(text):
-    raw = str(text or '').casefold()
-    folded = normalize_search(raw)
+def search_projection(text, *fields):
+    # Spaces delimit fields in the index and are OpenCC phrase boundaries.
+    parts = (text, *fields)
+    raw = ' '.join(parts).casefold()
+    folded = ' '.join(normalize_search(part) for part in parts)
     return raw if folded == raw else raw + '\n' + folded

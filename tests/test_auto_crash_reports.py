@@ -190,7 +190,7 @@ def pump(app, predicate, timeout=5):
 def test_hidden_startup_deferred_once_and_actions(isolated,app,monkeypatch):
     from PySide6.QtWidgets import QWidget
     from fluent_ui.components import auto_crash_reports as ui
-    candidate=seed();identity=candidate['session']['id'];window=QWidget()
+    candidate=seed(assessment='fatal_error_recorded',evidence_kind='fatal_signature');identity=candidate['session']['id'];window=QWidget()
     controller=ui.AutoCrashReports(app,window)
     try:
         pump(app,lambda:latest(identity)['report_state']=='ready')
@@ -210,7 +210,7 @@ def test_hidden_startup_deferred_once_and_actions(isolated,app,monkeypatch):
 def test_dialog_shutdown_does_not_acknowledge(isolated,app):
     from PySide6.QtWidgets import QWidget
     from fluent_ui.components.auto_crash_reports import AutoCrashReports
-    candidate=seed();identity=candidate['session']['id'];window=QWidget();window.show();controller=AutoCrashReports(app,window)
+    candidate=seed(assessment='fatal_error_recorded',evidence_kind='fatal_signature');identity=candidate['session']['id'];window=QWidget();window.show();controller=AutoCrashReports(app,window)
     pump(app,lambda:controller.dialog is not None)
     controller.stop();assert latest(identity)['notification_state']=='shown'
     window.close();window.deleteLater();app.processEvents()
@@ -220,7 +220,7 @@ def test_four_language_real_dialogs(isolated,app,monkeypatch):
     from PySide6.QtWidgets import QWidget
     from fluent_ui.components.auto_crash_reports import CrashReportDialog
     from services.i18n import i18n_engine
-    candidate=seed();exports.generate_pending_reports();window=QWidget();window.resize(700,400);window.show()
+    candidate=seed(assessment='fatal_error_recorded',evidence_kind='fatal_signature');exports.generate_pending_reports();window=QWidget();window.resize(700,400);window.show()
     try:
         for lang in ['zh','en','ja','zh_TW']:
             i18n_engine.load_language(lang);dialog=CrashReportDialog(window,candidate);dialog.open();app.processEvents()
@@ -275,7 +275,7 @@ def test_legacy_task01_candidate_is_rechecked(isolated):
 def test_owner_hide_does_not_acknowledge_and_reopens(isolated,app):
     from PySide6.QtWidgets import QWidget
     from fluent_ui.components.auto_crash_reports import AutoCrashReports
-    candidate=seed();identity=candidate['session']['id'];window=QWidget();window.show();controller=AutoCrashReports(app,window)
+    candidate=seed(assessment='fatal_error_recorded',evidence_kind='fatal_signature');identity=candidate['session']['id'];window=QWidget();window.show();controller=AutoCrashReports(app,window)
     try:
         pump(app,lambda:controller.dialog is not None)
         dialog=controller.dialog;window.hide();app.processEvents()
@@ -290,7 +290,7 @@ def test_slow_or_failed_generation_does_not_block_qt(isolated,app,monkeypatch):
     from PySide6.QtWidgets import QWidget
     from PySide6.QtCore import QTimer
     from fluent_ui.components.auto_crash_reports import AutoCrashReports
-    seed();entered=threading.Event();release=threading.Event()
+    seed(assessment='fatal_error_recorded',evidence_kind='fatal_signature');entered=threading.Event();release=threading.Event()
     def blocked(*a,**kw):
         entered.set();assert release.wait(3);raise PermissionError('synthetic report denied')
     monkeypatch.setattr(exports,'export_automatic_report',blocked)

@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel
 from PySide6.QtTest import QTest
 from test_phase2_interaction import surface, settle
 from services.library_index import ROOT
-from services.i18n import i18n_engine
+from services.i18n import i18n_engine, t
 from fluent_ui.views.settings_center import SettingsCenter
 from fluent_ui.components.number_box import CompactNumberBox
 from fluent_ui.components.feedback import FeedbackHost
@@ -258,7 +258,7 @@ def test_hotkey_conflict_inline_and_export_saved_only(surface, settings, monkeyp
     main.set_value('ctrl+shift+k');main.changed.emit()
     quick.set_value('shift+ctrl+k');quick.changed.emit()
     assert not c.btn_save.isEnabled() and not c.save()
-    assert main.hint_label.text()==quick.hint_label.text()
+    assert main.status_label.text()==quick.status_label.text()==t('快捷键不能与其它功能相同。')
     assert not c.feedback_host.notices and not c.feedback_host.toasts
     quick.set_value('alt+2');quick.changed.emit();assert c.btn_save.isEnabled()
     c._stage('accent_color','#123456')

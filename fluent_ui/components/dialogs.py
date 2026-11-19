@@ -480,7 +480,7 @@ class TagEditorDialog(NekoriDialog):
 class FramePickerDialog(NekoriDialog):
     """Choose which frame of a GIF / animated WebP represents it in the grid."""
 
-    def __init__(self, parent, storage, path, *, on_apply=None, title="选择缩略图帧"):
+    def __init__(self, parent, storage, path, *, on_apply=None, title="选择缩略图"):
         super().__init__(parent, title, code="FRAME")
         # Needed by _apply / _reset: without it the confirm button raised
         # AttributeError, so the frame was never saved, the dialog never closed
@@ -490,7 +490,9 @@ class FramePickerDialog(NekoriDialog):
         self.on_apply = on_apply
         self.metadata = storage.resource_metadata(path)
 
-        self.preview = QLabel(self)
+        from fluent_ui.components.crop_preview import CropPreview
+        self.preview = CropPreview(self, storage.representative_crop(path))
+        bind_text(self.preview,"裁切区域","setAccessibleName")
         self.preview.setFixedSize(240, 240)
         self.preview.setAlignment(Qt.AlignCenter)
         self.preview.setStyleSheet(f"border: 1px solid {colors()['border']};")
@@ -512,6 +514,10 @@ class FramePickerDialog(NekoriDialog):
         self.previous_frame.clicked.connect(lambda:self.slider.setValue(self.slider.value()-1))
         self.next_frame.clicked.connect(lambda:self.slider.setValue(self.slider.value()+1))
         row.addWidget(self.previous_frame);row.addWidget(self.slider,1);row.addWidget(self.next_frame)
+        self.reset_crop_button=TransparentToolButton(Icon.RESTORE,frame_controls)
+        self.reset_crop_button.setFixedSize(28,28)
+        bind_text(self.reset_crop_button,'取消裁切','setToolTip');bind_text(self.reset_crop_button,'取消裁切','setAccessibleName')
+        self.reset_crop_button.clicked.connect(self.preview.reset_crop);row.addWidget(self.reset_crop_button)
         self.add_widget(frame_controls)
 
         self.frame_label = QLabel(self)
@@ -553,25 +559,25 @@ class FramePickerDialog(NekoriDialog):
             bind_text(self.preview, t("无法读取该帧"), 'setText')
             self.frame_label.setText("")
             return
-        pixmap = QPixmap.fromImage(image).scaled(
-            self.preview.width() - 8, self.preview.height() - 8,
-            Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.preview.setPixmap(pixmap)
+        self.preview.set_frame(image)
         bind_text(self.frame_label, t('帧 {value_0} / {value_1}').format(value_0=int(index) + 1, value_1=self.frame_count), 'setText')
 
     def _apply(self):
         self.metadata["thumb_frame"] = int(self.slider.value())
+        if self.preview.crop:self.metadata["thumb_crop"]=list(self.preview.crop)
+        else:self.metadata.pop("thumb_crop",None)
         if self.on_apply is not None:
             self.on_apply(int(self.slider.value()))
         else:
             self.storage.set_resource_metadata(self.path, self.metadata)
-        # The grid card re-attaches by itself: the thumbnail cache key carries
-        # the frame, so the new frame is a cache miss and the old entry ages out.
+        # The owning gallery publishes the saved representative after exec.
         self.saved = True
         self.accept()
 
     def _reset(self):
         self.metadata.pop("thumb_frame", None)
+        self.metadata.pop("thumb_crop", None)
+        self.preview.reset_crop()
         if self.on_apply is not None:
             self.on_apply(0)
         else:
