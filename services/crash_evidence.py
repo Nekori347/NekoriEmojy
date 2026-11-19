@@ -165,7 +165,7 @@ def _valid_session(value):
             and (value['state']=='running' or
                  (type(value.get('completed_at')) in (int,float)
                   and value['started_at'] <= value['completed_at'] < 10**11
-                  and value.get('completion') in {'event_loop_returned','startup_cancelled'})))
+                  and value.get('completion') in {'event_loop_returned','startup_cancelled','system_session_ended'})))
 
 
 def session_snapshot():
@@ -293,8 +293,72 @@ def begin_session():
         return None
 
 
+GUI_STALL_SECONDS = 20
+_gui_watch = None
+
+
+class GuiHeartbeat:
+    """One sleeping observer. The Qt thread only updates the heartbeat in memory."""
+    def __init__(self, session_id):
+        self.session_id = session_id
+        self.gui_ident = threading.get_ident()
+        self.last = time.monotonic()
+        self.stopped = threading.Event()
+
+    def observe(self):
+        try:
+            while not self.stopped.is_set():
+                last = self.last
+                remaining = GUI_STALL_SECONDS - (time.monotonic() - last)
+                if remaining > 0:
+                    self.stopped.wait(remaining)
+                    continue
+                frame = sys._current_frames().get(self.gui_ident)
+                stack = []
+                while frame is not None and len(stack) < 32:
+                    code = frame.f_code
+                    module = frame.f_globals.get('__name__', '')
+                    name = code.co_name
+                    stack.append([module if isinstance(module,str) and re.fullmatch(r'[A-Za-z0-9_.]{1,96}',module) else '<module>',
+                                  frame.f_lineno, name if re.fullmatch(r'[A-Za-z0-9_<>]{1,80}',name) else '<function>'])
+                    frame = frame.f_back
+                if self.last != last:
+                    continue
+                if stack and not self.stopped.is_set():
+                    logging.getLogger('nekori.crash_evidence').warning(
+                        'gui_unresponsive_sample pid=%d session=%s missed_ms=%d frames=%s',
+                        os.getpid(), self.session_id, int((time.monotonic()-last)*1000),
+                        json.dumps(stack,separators=(',',':')))
+                return
+        except Exception:
+            # The optional observer must not invoke the application's exception hook.
+            return
+        finally:
+            self.stopped.set()
+
+
+def start_gui_watch():
+    global _gui_watch
+    if (not _installed or not _session or _session['state'] != 'running'
+            or _gui_watch is not None or threading.current_thread() is not threading.main_thread()):
+        return None
+    watch = GuiHeartbeat(_session['id'])
+    try:
+        threading.Thread(target=watch.observe, name='GUI heartbeat', daemon=True).start()
+    except RuntimeError:
+        return None
+    _gui_watch = watch
+    return watch
+
+
+def stop_gui_watch():
+    if _gui_watch is not None:
+        _gui_watch.stopped.set()
+
+
 def complete_session(reason='event_loop_returned'):
-    if _session is None or reason not in {'event_loop_returned','startup_cancelled'}:return False
+    if _session is None or reason not in {'event_loop_returned','startup_cancelled','system_session_ended'}:return False
+    stop_gui_watch()
     # Logging/rotation may read session state; never hold its write lock here.
     try:flush_exception_counts()
     except Exception:pass
@@ -303,9 +367,9 @@ def complete_session(reason='event_loop_returned'):
 
 @_serialized
 def _complete_session(reason):
-    """Only after normal primary control-flow return, never aboutToQuit/hide/atexit."""
+    """Normal return or committed OS session end; never aboutToQuit/hide/query."""
     global _session
-    if _session is None or reason not in {'event_loop_returned','startup_cancelled'}:return False
+    if _session is None or reason not in {'event_loop_returned','startup_cancelled','system_session_ended'}:return False
     try:
         value=session_snapshot()
         if not value or value.get('unavailable') or value['current']['id']!=_session['id']:return False

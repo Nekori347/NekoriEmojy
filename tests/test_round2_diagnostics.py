@@ -105,7 +105,7 @@ def test_local_report_survives_event_query_denial_and_carries_native_fields(isol
         assert report['native_fault']['status']=='unknown'
         assert b'private path' not in b''.join(archive.read(n) for n in archive.namelist())
     second=seed(native=False)
-    monkeypatch.setattr(native,'query_fault',lambda session:dict(status='matched',exception_code='0xc0000005',module='Qt6Core.dll',module_offset='0x1234',pid=session['pid'],occurred_at=session['started_at']+1,event_id=1000))
+    monkeypatch.setattr(native,'query_fault',lambda session, *, event_id=1000:dict(status='unknown') if event_id==1002 else dict(status='matched',exception_code='0xc0000005',module='Qt6Core.dll',module_offset='0x1234',pid=session['pid'],occurred_at=session['started_at']+1,event_id=1000))
     with zipfile.ZipFile(export.export_automatic_report(second)) as archive:
         report=json.loads(archive.read('report.json'))
         assert report['native_fault']['module']=='Qt6Core.dll'
@@ -116,3 +116,64 @@ def test_exception_summary_failure_does_not_prevent_normal_completion(isolated,m
     monkeypatch.setattr(c,'flush_exception_counts',Mock(side_effect=OSError('synthetic log unavailable')))
     assert c.complete_session()
     assert c.session_snapshot()['current']['state']=='completed'
+
+def test_hang_matches_its_own_identity_fields_without_fatal_signature(isolated,monkeypatch):
+    import zipfile
+    from services import diagnostic_export as export
+    candidate=seed(native=False)
+    session=candidate['session']
+    if not session.get('process_created'):
+        session['process_created']=0x123
+    session['executable_hash']=native._image_hash(r'C:\private\App.exe')
+    now=candidate['capture_started']
+    stamp=datetime.fromtimestamp(now,timezone.utc).isoformat()
+    xml=fr"""<Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">
+      <System><Provider Name="Application Hang"/><EventID>1002</EventID><TimeCreated SystemTime="{stamp}"/></System>
+      <EventData><Data Name="ProcessId">{session['pid']:#x}</Data><Data Name="StartTime">{session['process_created']:#x}</Data>
+      <Data Name="ExeFileName">C:\private\App.exe</Data></EventData></Event>"""
+    match=lambda events:native.match_fault(session,events,now,event_id=1002)
+    assert match([xml])['event_id']==1002
+    assert match([xml,xml])['reason']=='ambiguous'
+    assert match([xml.replace('StartTime','Other')])['reason']=='incomplete_identity'
+    assert match([xml.replace('App.exe','Else.exe')])['status']=='unknown'
+    assert native.match_fault(session,[xml],now)['status']=='unknown'
+    monkeypatch.setattr(native,'_read_events',lambda *args:([xml],False))
+    with zipfile.ZipFile(export.export_automatic_report(candidate)) as archive:
+        report=json.loads(archive.read('report.json'))
+        assert report['assessment']=='possible_abnormal_exit'
+        assert report['windows_hang']['status']=='matched' and report['native_fault']['status']=='unknown'
+        assert not report['gui_hang_python_sample'] and not report['symbolized_native_stack_available']
+        assert 'private' not in json.dumps(report)
+
+def test_gui_sample_is_bounded_survives_recovery_and_normal_exit(tmp_path):
+    from test_crash_evidence import child
+    result=child(tmp_path,"""
+import time, zipfile, json
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QApplication,QWidget
+from fluent_ui.components.runtime_diagnostics import install_runtime_diagnostics
+from services import crash_evidence as c, diagnostic_export as ex
+app=QApplication([]);session=c.begin_session();c.install();window=QWidget()
+observer=install_runtime_diagnostics(app,window)
+c.GUI_STALL_SECONDS=.25;observer.heartbeat.setInterval(20)
+def blocked_gui_callback():
+    private='MY_PRIVATE_QUERY'
+    time.sleep(.55)
+QTimer.singleShot(150,blocked_gui_callback)
+QTimer.singleShot(950,blocked_gui_callback)
+QTimer.singleShot(1800,app.quit)
+app.exec()
+directory=c.app_data_dir()/'diagnostics'
+candidate=c._previous_evidence(directory,session)
+archive_path=ex.export_automatic_report(candidate)
+with zipfile.ZipFile(archive_path) as archive:
+    meta=json.loads(archive.read('report.json'))
+    assert meta['gui_hang_python_sample'] and meta['assessment']=='possible_abnormal_exit'
+    assert not meta['fatal_python_stack_available']
+    text=archive.read('evidence/0.txt').decode()
+    assert text.count('gui_unresponsive_sample')==1 and 'blocked_gui_callback' in text
+    assert 'MY_PRIVATE_QUERY' not in text and str(directory) not in text
+assert c.complete_session()
+assert c.session_snapshot()['current']['state']=='completed' and not c.session_snapshot()['pending']
+""")
+    assert result.returncode==0,result.stderr

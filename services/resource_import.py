@@ -69,12 +69,13 @@ class ResourceImporter:
         return saved, duplicate
 
     def file(self, source, target=ImportTarget(), strict=False, *, library_added_seq=None):
+        decoded = []
         # The first deduplication index build scans the existing library. It
         # owns its own single-flight lock and need not block gallery ordering.
         self.storage._get_sync_key_index()
         with self.storage.lock:
             self._validate_target(target)
-            saved, duplicate = self.storage._save_file_source(source, strict=strict)
+            saved, duplicate = self.storage._save_file_source(source, strict=strict, on_decoded=decoded.append)
             if not saved:
                 return None, False
             normalized=getattr(self.storage.import_context,'normalized',None)
@@ -82,44 +83,50 @@ class ResourceImporter:
             # A crash may leave validated bytes/features but no accepted catalog
             # resource. Reuse those bytes as a new acceptance, not a user conflict.
             duplicate=False
+        animated = decoded[-1] if decoded and not duplicate else None
         if duplicate:
             self._defer_duplicate(saved,source,target)
-            saved,duplicate=self._resolve_duplicate(saved,source,normalized)
+            saved,duplicate,animated=self._resolve_duplicate(saved,source,normalized,decoded[-1] if decoded else None)
         with self.storage.lock:
             result = self._accept(saved, duplicate, Path(source).name, target, library_added_seq)
-        self._notify(saved,duplicate,target)
+        self._notify(saved,duplicate,target,animated=animated)
         return result
 
     def image(self, image, target=ImportTarget()):
+        decoded = []
         self.storage._get_sync_key_index()
         with self.storage.lock:
             self._validate_target(target)
-            saved, duplicate = self.storage._save_qimage_source(image)
+            saved, duplicate = self.storage._save_qimage_source(image, on_decoded=decoded.append)
             if not saved:
                 return None, False
             normalized=getattr(self.storage.import_context,'normalized',None)
+        animated = decoded[-1] if decoded and not duplicate else None
         if duplicate:
             self._defer_duplicate(saved,image,target)
-            saved,duplicate=self._resolve_duplicate(saved,image,normalized)
+            saved,duplicate,animated=self._resolve_duplicate(saved,image,normalized,decoded[-1] if decoded else None)
         with self.storage.lock:
             result = self._accept(saved, duplicate, Path(saved).name, target)
-        self._notify(saved,duplicate,target)
+        self._notify(saved,duplicate,target,animated=animated)
         return result
 
-    def _resolve_duplicate(self,saved,source,normalized):
+    def _resolve_duplicate(self,saved,source,normalized,animated):
         resolver=getattr(self.storage.import_context,'duplicate_resolver',None)
-        if not resolver:return saved,True
+        if not resolver:return saved,True,None
         # No storage/database lock is held while the GUI waits for a choice.
         decision=resolver(saved,source)
-        if decision=='reuse':return saved,True
+        if decision=='reuse':return saved,True,None
         if decision=='skip':
             context=self.storage.import_context
             context.skipped=getattr(context,'skipped',0)+1
             raise ImportSkipped()
         if decision=='keep':
             with self.storage.lock:
-                return self.storage._standardize_and_save(normalized[0],normalized[1],strict=True,force_new=True)
-        if decision=='replace':return self.storage.replace_normalized(saved,normalized),True
+                kept,duplicate=self.storage._standardize_and_save(normalized[0],normalized[1],strict=True,force_new=True)
+                return kept,duplicate,animated
+        if decision=='replace':
+            result=self.storage.replace_normalized(saved,normalized)
+            return result,True,animated
         raise ValueError('Unknown duplicate decision')
 
     def _defer_duplicate(self,saved,source,target):
@@ -133,12 +140,23 @@ class ResourceImporter:
         pending.append(DuplicateCandidate(saved,source,target,before,getattr(self.storage.import_context,'checkpoint',None)))
         raise ImportDeferred()
 
-    def _notify(self,saved,duplicate=False,target=ImportTarget()):
+    def _notify(self,saved,duplicate=False,target=ImportTarget(),*,animated=None):
+        # Only this operation's accepted decode result may be persisted here.
+        # Missing attributes are scheduled AFTER the normal GUI commit signal.
+        import sqlite3
+        from services.animation_attributes import store_import_animation
+        missing = saved
+        try:
+            missing = store_import_animation(self.storage, saved, animated)
+        except (OSError, ValueError, sqlite3.Error):
+            pass  # Keep the saved resource; the same backfill can retry it.
         self.storage.ensure_category_icon(target.parent_node,saved)
         committed=getattr(self.storage.import_context,'committed',None)
         if committed:committed([saved],{ROOT,target.parent_node})
         accepted=getattr(self.storage.import_context,'accepted',None)
         if accepted is not None:accepted.append((saved,duplicate))
+        backfill=getattr(self.storage,'animation_backfill',None)
+        if missing and backfill is not None:backfill.requested.emit(missing)
         if getattr(self.storage.import_context,'job_id',None):return
         if not self.storage.import_listeners:return
         record=self.storage.index.resource(saved)

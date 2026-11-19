@@ -188,6 +188,14 @@ def test_search_projection_reuses_snapshot_and_edit_invalidates(context,tmp_path
     assert storage.index.search_texts() is not first
     assert path in storage.search_images('放弃')
 
+    assert not storage.search_records('brandnewkeyword')
+    second = save(storage, tmp_path, 'brandnewkeyword.png', 'blue')
+    assert storage.search_images('brandnewkeyword') == [second]
+    storage.apply_tags([second], ['獨特標籤'], 'add')
+    assert storage.search_images('独特标签') == [second]
+    storage.apply_tags([second], ['獨特標籤'], 'remove')
+    assert not storage.search_records('独特标签')
+
 
 def test_queued_insertion_keeps_stable_anchor_and_request_order(context,tmp_path,app):
     from PySide6.QtWidgets import QWidget

@@ -303,14 +303,14 @@ class SettingsCenter(QWidget):
 
     def _page_library(self):
         section = self._section("CURRENT LIBRARY")
-        self.library_info = FullPathRow("当前表情库", "表情和分类保存在以下目录；可选中文字复制完整路径。", self._library_path(), self)
+        self.library_info = FullPathRow("当前表情库", "表情与分类的保存位置，可选中并复制路径。", self._library_path(), self)
         self._all_rows['library_path']=(self.library_info,'')
         section.add_row(self.library_info)
         section.add_row(ActionRow(
             "选择 / 重新连接表情库",
-            "保存后需要重启程序才会切换到新的表情库。",
+            "保存后切换到新的表情库；有活动任务时请先等待完成。",
             [("选择文件夹…", self._choose_library, True)], self))
-        section.add_row(self._track(RangeRow("最近使用上限", "设置最近使用记录中显示的表情数量。\n主面板与快速面板共用此设置。", "recent_limit",
+        section.add_row(self._track(RangeRow("最近使用上限", "设置主面板与快速面板显示的最近使用表情数量。", "recent_limit",
                      self.config.get("recent_limit", 30), 1, 999, 1, self, count_only=True), "recent_limit", 30))
 
         section = self._section("MAINTENANCE")
@@ -363,7 +363,7 @@ class SettingsCenter(QWidget):
         service=self._backup_service;state=service.state;success=state.get('last_success_at','')
         try:success=datetime.fromisoformat(success).astimezone().strftime('%Y-%m-%d %H:%M:%S') if success else t('尚未备份')
         except ValueError:pass
-        status=STATUS_TEXT[state['state']]
+        status='备份服务启动失败' if service.startup_error else STATUS_TEXT[state['state']]
         if service.active and service.job.get('mode')=='restore':
             status={'running':'正在恢复','paused':'恢复因前台繁忙暂缓','waiting':'等待开始恢复'}.get(state['state'],status)
         lines=[t('当前状态：{state}').format(state=t(status)),t('上次成功备份：{time}').format(time=success)]
@@ -372,6 +372,7 @@ class SettingsCenter(QWidget):
         if service.active and service.progress[1]>0:lines.append(t('进度：{value}%').format(value=int(service.progress[0]*100/service.progress[1])))
         if state.get('last_error'):lines.append(t('最近失败原因：{reason}').format(reason=t(state['last_error'])))
         if service.operation_error:lines.append(t(service.operation_error))
+        if service.startup_error:lines.append(service.startup_error)
         self.backup_status_row.set_hint('\n'.join(lines))
         for button,enabled in zip(self.backup_status_row.findChildren(PushButton),
                 (not service.pending,service.pending,bool(state.get('last_valid_location')),not service.pending)):
@@ -423,7 +424,7 @@ class SettingsCenter(QWidget):
         self._stage("library_path", directory)
         self._pending_library_mode=actual
         self.library_info.set_value(directory)
-        self.library_info.set_hint(t('保存并重启后，将使用下面的表情库。'))
+        self.library_info.set_hint(t('保存后，将切换到下面的表情库。'))
 
     def _check_library(self):
         if not self.storage:
@@ -447,7 +448,7 @@ class SettingsCenter(QWidget):
         row = AccentRow(self.pending.get('accent_color', self.config.get('accent_color', visual.DEFAULT_ACCENT)), self)
         section.add_row(self._track(row, 'accent_color', visual.DEFAULT_ACCENT))
         section.add_row(self._track(SwitchRow(
-            '界面动效', '控制窗口及界面的过渡动画，不影响表情动图播放。',
+            '界面动效', '控制窗口和界面的过渡动画。',
             'ui_animations_enabled', self.config.get('ui_animations_enabled', True), self),
             'ui_animations_enabled', True))
         section.add_row(self._track(SwitchRow(
@@ -458,14 +459,14 @@ class SettingsCenter(QWidget):
     def _page_gallery_display(self):
         section = self._section("图库显示")
         section.add_row(self._track(SwitchRow(
-            '动画标记','在多帧动画左下角显示 {animation_badge} 标记，不改变缩略图或原图。',
+            '动画标记','在动态表情左下角显示 {animation_badge} 标记。',
             'show_animation_badges',self.config.get('show_animation_badges',True),self),'show_animation_badges',True))
         section.add_row(self._track(SwitchRow(
             '新表情标记', '新添加的表情显示 {new_resource_icon} 星标，悬停查看后消除。\n关闭并保存将清除现有星标。',
             'show_new_resource_markers', self.config.get('show_new_resource_markers', True), self),
             'show_new_resource_markers', True))
         section.add_row(self._track(
-            RangeRow("缩略图大小", "调整主面板中表情的显示大小。\n也可在主面板中直接调整，或按住 Ctrl 滚动滚轮。\n两处调整会同步生效。",
+            RangeRow("缩略图大小", "调整图库缩略图大小，也可在主面板按住 Ctrl 滚动滚轮。",
                      "thumbnail_size", self.config.get("thumbnail_size", 120), 60, 300, 10, self),
             "thumbnail_size", 120))
 
@@ -475,11 +476,11 @@ class SettingsCenter(QWidget):
             "gallery_node_icon_size", 22))
 
         section.add_row(self._track(SwitchRow(
-            '自动分类图标','为无图标分类首次加入的图片生成一次性静态图标。\n开启并保存时补全已有分类，人工图标不会被覆盖。',
+            '自动分类图标','为尚无图标的分类自动生成图标；开启后也会补全已有分类。',
             'auto_category_icons',self.config.get('auto_category_icons',False),self),'auto_category_icons',False))
         section = self._section("SIDEBAR")
         mode = self._track(ModeRow(
-            "分类栏显示方式", "切换分类树与分类图标视图。\n也可通过分类栏顶部按钮快速切换。", "sidebar_mode",
+            "分类栏显示方式", "在分类树和分类图标视图之间切换，也可使用分类栏顶部按钮。", "sidebar_mode",
             self.config.get('sidebar_mode', 'tree'), [('tree', '分类树'), ('categorized_icons', '分类图标')], self),
             'sidebar_mode', 'tree')
         section.add_row(mode)
@@ -495,7 +496,7 @@ class SettingsCenter(QWidget):
             "sidebar_icon_size", 20))
         section = self._section('标签面板')
         section.add_row(self._track(SpatialRow(
-            "标签面板位置", "选择标签面板在表情库中的停靠位置。\n点击示意窗口的对应边缘进行调整。", 'tag_panel_placement',
+            "标签面板位置", "点击示意窗口边缘，设置标签面板位置。", 'tag_panel_placement',
             self.config.get('tag_panel_placement', 'bottom'), self),
             'tag_panel_placement', 'bottom'))
 
@@ -504,11 +505,11 @@ class SettingsCenter(QWidget):
         section.add_row(self._track(RangeRow('快速面板缩略图大小', '', 'quick_panel_thumbnail_size',
             self.config.get('quick_panel_thumbnail_size', 72), 40, 200, 6, self), 'quick_panel_thumbnail_size', 72))
         section.add_row(self._track(
-            RangeRow("面板宽度", "快速面板的宽度。", "quick_panel_width",
+            RangeRow("面板宽度", "", "quick_panel_width",
                      self.config.get("quick_panel_width", 360), 250, 800, 10, self),
             "quick_panel_width", 360))
         section.add_row(self._track(
-            RangeRow("面板高度", "快速面板的高度。", "quick_panel_height",
+            RangeRow("面板高度", "", "quick_panel_height",
                      self.config.get("quick_panel_height", 480), 150, 1000, 10, self),
             "quick_panel_height", 480))
 
@@ -522,7 +523,7 @@ class SettingsCenter(QWidget):
             f"border: 1px solid {visual.colors()['border']};")
         self._refresh_icon_preview()
         from fluent_ui.components.setting_rows import SettingRow
-        row = SettingRow("当前软件图标", "用于主窗口、任务栏和托盘。动图使用选定的缩略图帧，未选择时使用第一帧。更换图标会立即生效。", self)
+        row = SettingRow("当前软件图标", "用于主窗口、任务栏和托盘。动图使用选定的缩略画面，更换后立即生效。", self)
         row.add_control(self.icon_preview)
         section.add_row(row)
         from fluent_ui.components.interaction_controls import DropDownButton
@@ -586,9 +587,8 @@ class SettingsCenter(QWidget):
         # Replacing the application icon replaces a visible identity choice, and
         # the previous image is not restored by Discard, so it is confirmed.
         if not dialogs.confirm(self.window(), t("恢复默认图标"),
-                               t("恢复为程序自带的软件图标？"),
-                               ok_text=t("恢复默认"), danger=True, code="APPICON/RESET",
-                               hint=t("当前使用的自定义图标会被替换，原表情文件不受影响。")):
+                               t("恢复为软件自带的默认图标？"),
+                               ok_text=t("恢复默认"), danger=True, code="APPICON/RESET"):
             return
         ApplicationIconService(self.config).reset()
         self._apply_icon_change()
@@ -628,13 +628,13 @@ class SettingsCenter(QWidget):
             'convert_static_to_gif', self.config.get('convert_static_to_gif', True), self),
             'convert_static_to_gif', True))
         section.add_row(self._track(SwitchRow('发送后自动隐藏主面板',
-            '表情发送成功后隐藏主面板，仍可使用快捷键重新呼出。',
+            '表情发送成功后隐藏主面板。',
             'hide_main_after_paste', self.config.get('hide_main_after_paste', False), self),
             'hide_main_after_paste', False))
 
     def _page_sounds(self):
         section = self._section('音量')
-        section.add_row(self._track(RangeRow('音效音量', '所有操作音效共用音量，试听也使用此音量。',
+        section.add_row(self._track(RangeRow('音效音量', '调整操作音效及试听音量。',
             'sound_volume', self.config.get('sound_volume', 85), 0, 100, 1, self, unit='%'), 'sound_volume', 85))
         section = self._section('操作音效')
         self._sound_rows = {}
@@ -812,7 +812,7 @@ class SettingsCenter(QWidget):
     def _page_settings_file(self):
         section = self._section("SETTINGS FILE")
         self.export_hint = ActionRow(
-            "导出设置", "将已保存的应用设置导出为 JSON 文件。",
+            "导出设置", "将已保存的设置导出为 JSON 文件。",
             [("导出…", self._export_settings, True)], self)
         section.add_row(self.export_hint)
         import_row = ActionRow(
@@ -839,7 +839,7 @@ class SettingsCenter(QWidget):
         self.btn_update.clicked.connect(self._open_updates);self.version_row.add_control(self.btn_update)
         section.add_row(self.version_row)
         section.add_row(self._track(SwitchRow(
-            '启动时自动检查更新', '后台检查，每24小时最多一次；不会自动下载或安装。',
+            '启动时自动检查更新', '每 24 小时最多后台检查一次更新；下载和安装由用户确认。',
             'auto_check_updates', self.config.get('auto_check_updates', True), self),
             'auto_check_updates', True))
         self.diagnostics_row=ActionRow(
@@ -995,7 +995,7 @@ class SettingsCenter(QWidget):
         for button in getattr(self, '_dirty_blocked_actions', []):
             button.setEnabled(not dirty)
         if hasattr(self, 'export_hint'):
-            self.export_hint.set_hint(t('未保存修改不会包含在导出文件中。') if dirty else '')
+            self.export_hint.set_hint(t('未保存修改不会包含在导出文件中。') if dirty else t('将已保存的设置导出为 JSON 文件。'))
 
     def has_pending_changes(self):
         return bool(self.pending)
@@ -1005,15 +1005,29 @@ class SettingsCenter(QWidget):
         keys = dict(self.pending)
         if not keys:
             return True
+        switch_owner=getattr(self.window(),'owner',None)
+        switching = False
+        if 'library_path' in keys and hasattr(switch_owner, 'switch_library'):
+            from services.library_switch import same_library
+            try:
+                switching = not same_library(self.storage, keys['library_path'])
+            except (OSError, ValueError) as error:
+                self.show_error(t('无法切换表情库'), str(error))
+                return False
+            if not switching:
+                keys['library_path'] = self.storage.library_root
+            elif reason := switch_owner.library_switch_block_reason():
+                self.show_error(t('无法切换表情库'), t(reason))
+                return False
         if not self._hotkeys_valid(keys):
             return False
-        if any(key.startswith('backup_') for key in keys):
+        if switching or any(key.startswith('backup_') for key in keys):
             from services.library_backup import output_directory
             values={**self.config.config,**keys}
             try:
                 if not 1<=values['backup_interval_hours']<=720 or not 1<=values['backup_keep']<=100:
                     raise ValueError('备份设置中的数值超出允许范围')
-                output_directory(self._library_path(),values.get('backup_path',''))
+                output_directory(keys.get('library_path', self._library_path()), values.get('backup_path',''))
             except Exception as exc:self.show_error(t('保存失败'),t(str(exc)));return False
         if keys.get('window_acrylic_enabled') and getattr(self,'_win10_consent',False):keys['win10_acrylic_confirmed']=True
         original = dict(self.config.config)
@@ -1034,23 +1048,31 @@ class SettingsCenter(QWidget):
         try:
             from contextlib import nullcontext
             from services.library_setup import prepare_library
-            preparation=prepare_library(keys['library_path'],getattr(self,'_pending_library_mode','connect'),self.config) if 'library_path' in keys else nullcontext()
-            with preparation:
-                if 'autostart' in keys:
-                    self.autostart.set_enabled(keys['autostart'])
-                    autostart_applied = True
-                self.config.config.update({k: v for k, v in keys.items() if k != 'autostart'})
-                if keys.get('show_new_resource_markers') is False and self.storage is not None:
-                    import sqlite3
-                    try:
-                        with self.storage.lock, self.storage.index.connect(search=False) as db:
-                            db.execute('DELETE FROM resource_unseen')
-                            self.config._save_config(self.config.config)
-                    except sqlite3.Error as error:
-                        self.config._save_config(original)
-                        raise RuntimeError(str(error)) from error
-                else:
-                    self.config._save_config(self.config.config)
+            mode = getattr(self, '_pending_library_mode', 'connect')
+            if 'autostart' in keys:
+                self.autostart.set_enabled(keys['autostart'])
+                autostart_applied = True
+            values = {**self.config.config, **{k: v for k, v in keys.items() if k != 'autostart'}}
+            if switching:
+                retired = switch_owner.switch_library(keys['library_path'], mode, values,
+                                            clear_markers=keys.get('show_new_resource_markers') is False)
+            else:
+                preparation = (prepare_library(keys['library_path'], mode, self.config)
+                               if 'library_path' in keys and not hasattr(switch_owner, 'switch_library')
+                               else nullcontext())
+                with preparation:
+                    if keys.get('show_new_resource_markers') is False and self.storage is not None:
+                        import sqlite3
+                        try:
+                            with self.storage.lock, self.storage.index.connect(search=False) as db:
+                                db.execute('DELETE FROM resource_unseen')
+                                self.config._save_config(values)
+                        except sqlite3.Error as error:
+                            self.config._save_config(original)
+                            raise RuntimeError(str(error)) from error
+                    else:
+                        self.config._save_config(values)
+                    self.config.config.update(values)
         except Exception as error:
             if 'library_path' not in keys and not isinstance(error,(OSError,RuntimeError)):raise
             self.config.config.clear()
@@ -1072,27 +1094,67 @@ class SettingsCenter(QWidget):
             self._set_dirty(bool(self.pending))
             self.show_error(t('保存失败'), failure)
             return False
-        if keys.get('auto_category_icons') is True and not original.get('auto_category_icons',False) and self.storage is not None:
-            self.storage.fill_missing_category_icons()
-        if keys.get('show_new_resource_markers') is False and self.storage is not None:
-            self.storage.unseen_changed.emit()
+        active = switch_owner.setting_interface if switching else self
+        errors = []
+        try:
+            self._finish_save(active, keys, original, errors)
+        finally:
+            if switching:
+                from services.library_switch import retire_library
+                errors.extend(retire_library(switch_owner, retired))
+        if errors:
+            details = '\n'.join(f'{t(title)}：{reason}' for title, reason in dict.fromkeys(errors))
+            active.show_error(t('设置已保存'), details)
+        else:
+            active.show_success(t('设置已保存'), quiet=True)
+        return True
+
+    def _finish_save(self, active, keys, original, errors):
+        import logging
+
+        def report(title, error):
+            logging.getLogger(__name__).error('%s', title,
+                                              exc_info=(type(error), error, error.__traceback__))
+            errors.append((title, str(error) or type(error).__name__))
+
+        def apply(title, operation):
+            try:
+                operation()
+            except Exception as error:
+                if active is self:
+                    raise
+                report(title, error)
+
+        storage = active.storage
+        enabling_icons = keys.get('auto_category_icons') is True and not original.get('auto_category_icons', False)
+        if storage is not None and (active is not self or enabling_icons):
+            def fill_icons():
+                if active is self:
+                    storage.fill_missing_category_icons()
+                    return
+                filled = storage.fill_missing_category_icons(
+                    on_error=lambda error: report('分类图标补全失败', error))
+                if filled and 'auto_category_icons' not in keys:
+                    active.window().owner.gallery_interface.on_settings_changed('auto_category_icons')
+            apply('分类图标补全失败', fill_icons)
+        if keys.get('show_new_resource_markers') is False and storage is not None:
+            apply('新表情标记', storage.unseen_changed.emit)
         self.pending.clear()
         self.config.preview_values.clear()
         self._preview_backup.clear()
         if 'ui_animations_enabled' in keys:
-            visual.finish_ui_animations()
-            visual.theme.motion_changed.emit()
-        for key in keys:
+            apply('界面动效', visual.finish_ui_animations)
+            apply('界面动效', visual.theme.motion_changed.emit)
+        for key, value in keys.items():
+            title = str(t('应用设置失败：{key}').format(key=key))
+            if active is not self:
+                apply(title, lambda: active.sync_external_preference(key, value))
             if key == 'language':
-                i18n_engine.set_language(keys[key])
-            self.settings_changed.emit(key)
-        self._set_dirty(False)
+                apply(title, lambda: i18n_engine.load_language(value))
+            apply(title, lambda: active.settings_changed.emit(key))
+        apply('设置已保存', lambda: active._set_dirty(False))
         if 'window_acrylic_enabled' in keys:
-            visual.theme.apply_material_preference()
-            self.show_success(t('设置已保存'),quiet=True)
-        else:
-            self.show_success(t('设置已保存'), quiet=True)
-        return True
+            apply('窗口毛玻璃', visual.theme.apply_material_preference)
 
     def _hotkeys_valid(self, keys):
         from services.import_hotkey import hotkey_parts
@@ -1172,7 +1234,6 @@ class SettingsCenter(QWidget):
         self._set_dirty(False)
         if hasattr(self, 'library_info'):
             self.library_info.set_value(self._library_path())
-            self.library_info.set_hint(t('保存后重启切换表情库。'))
         if hasattr(self, 'icon_options'):
             self.icon_options.setEnabled(self.config.get('sidebar_mode', 'tree') == 'categorized_icons')
         self.show_success(t("已放弃修改"), quiet=True)

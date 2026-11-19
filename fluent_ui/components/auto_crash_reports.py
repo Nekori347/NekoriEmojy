@@ -21,7 +21,7 @@ class CrashReportDialog(NekoriDialog):
         self.status=QLabel(self);self.status.setWordWrap(True);self.add_widget(self.status)
         self.view_button=self.add_button('查看报告',on_click=self._view)
         self.folder_button=self.add_button('打开诊断文件夹',on_click=self._folder)
-        self.close_button=self.add_button('关闭',role='primary',on_click=self.accept)
+        self.close_button=self.add_button('关闭本弹窗',role='primary',on_click=self.accept)
         self.setMinimumWidth(500)
 
     def _open(self, folder=False):
@@ -83,7 +83,8 @@ class AutoCrashReports(QObject):
         if not value or value.get('unavailable'):return
         for candidate in value['pending']:
             identity=candidate['session']['id']
-            if (identity not in self.queued or identity in self.dismissed
+            if (candidate.get('assessment')!='fatal_error_recorded'
+                or identity not in self.queued or identity in self.dismissed
                 or candidate.get('report_state')!='ready' or candidate.get('notification_state')=='dismissed'):continue
             if not valid_automatic_report(report_path(identity),candidate):continue
             self.dialog=CrashReportDialog(self.window,candidate)

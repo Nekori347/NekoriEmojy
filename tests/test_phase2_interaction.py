@@ -319,17 +319,17 @@ def test_context_groups_phase1_guards_and_node_cleanup(surface):
         ['使用 / 发送'], ['加入分类…', '移动到…', '移出当前分类', '标签…',
                       '识别文字', '重新识别文字', '查看与编辑文字…'],
         ['在资源管理器中显示', '复制文件路径', '导出选中项到文件夹…'],
-        ['选择缩略图帧…'], ['设为当前分类图标', '设为软件图标'], ['删除表情（回收站）']]
+        ['选择缩略图…'], ['设为当前分类图标', '设为软件图标'], ['删除表情（回收站）']]
     g._select_single(s.paths[2])
     missing = actions(g._build_resource_menu(card(s, s.paths[2])))
-    assert '使用 / 发送' not in missing and '选择缩略图帧…' not in missing
+    assert '使用 / 发送' not in missing and '选择缩略图…' not in missing
     assert missing['重新绑定文件…'].isEnabled() and missing['移除失效记录'].isEnabled()
     context = g._action_context()
     for label, key in [('在资源管理器中显示', 'show_in_explorer'), ('复制文件路径', 'copy_path'),
                        ('导出选中项到文件夹…', 'export'), ('标签…', 'tag_edit'), ('设为软件图标', 'set_icon')]:
         assert missing[label].isEnabled() == ActionPolicy.enabled(key, context)
     more = actions(g._build_selection_more_menu())
-    assert '选择缩略图帧…' not in more and '重新绑定文件…' not in more
+    assert '选择缩略图…' not in more and '重新绑定文件…' not in more
     assert '在资源管理器中显示' not in more
     assert not more['导出选中项到文件夹…'].isEnabled()
     assert {'移出当前分类', '复制文件路径'} <= set(more)

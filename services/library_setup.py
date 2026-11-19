@@ -92,7 +92,7 @@ def check_target(directory,mode):
 
 
 @contextmanager
-def prepare_library(directory,mode,config):
+def prepare_library(directory,mode,config,*,fill_icons=True):
     """Initialize after confirmation; undo only this call's new empty target."""
     from services.storage import StorageService
     root=Path(directory).expanduser().resolve();mode=check_target(root,mode)
@@ -108,7 +108,7 @@ def prepare_library(directory,mode,config):
             # its pre-existing files and directories never belong to rollback.
             fd=os.open(root/'index.sqlite3',os.O_CREAT|os.O_EXCL|os.O_WRONLY)
             os.close(fd);owned_index=True
-        storage=StorageService(library_path=root,config=config)
+        storage=StorageService(library_path=root,config=config,fill_icons=fill_icons)
         # Includes the FeatureDB initialization which historically logs errors.
         with storage.index.connect(search=False) as db:db.execute('SELECT image_path FROM image_features LIMIT 0')
         yield storage

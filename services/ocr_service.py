@@ -16,7 +16,7 @@ class OcrService(QObject):
     imported=Signal(str)
     component_finished=Signal(bool,str)
 
-    def __init__(self,storage,parent=None,process=None):
+    def __init__(self,storage,parent=None,process=None,*,start=True):
         super().__init__(parent)
         self.storage=storage
         self.config=storage.config
@@ -32,17 +32,29 @@ class OcrService(QObject):
         self.session_jobs=set()
         if self.summary.get('id') and self.summary['id'] not in self.jobs:self.jobs[self.summary['id']]=self.summary
         self._current_job=None;self._active_item=None
-        for job in self.jobs.values():
-            if job.get('state')=='running':job['state']='interrupted'
-        if self.summary.get('id'):self.summary=self.jobs[self.summary['id']]
-        self._save_summary()
-        with storage.index.connect(search=False) as db:
-            db.executemany("DELETE FROM task_checkpoints WHERE task_id=? AND kind='ocr'",
-                           [(j['id'],) for j in self.jobs.values() if j['state'] in {'completed','cancelled'}])
+        self._import_callback = None
         self.imported.connect(self._auto_enqueue)
-        self._import_callback=self.imported.emit
-        storage.import_listeners.append(self._import_callback)
         self.component_finished.connect(self._on_component_finished)
+        if start:
+            self.start()
+
+    def start(self):
+        """Recover saved jobs after the owning Library becomes active."""
+        if self._import_callback is not None or self._closing:
+            return
+        for job in self.jobs.values():
+            if job.get('state') == 'running':
+                job['state'] = 'interrupted'
+        if self.summary.get('id'):
+            self.summary = self.jobs[self.summary['id']]
+        self._save_summary()
+        with self.storage.index.connect(search=False) as db:
+            db.executemany("DELETE FROM task_checkpoints WHERE task_id=? AND kind='ocr'",
+                           [(job['id'],) for job in self.jobs.values()
+                            if job['state'] in {'completed','cancelled'}])
+        self._import_callback = self.imported.emit
+        self.storage.import_listeners.append(self._import_callback)
+        self.changed.emit()
 
     @property
     def available(self):return self.component.installed and not self.installing
@@ -300,7 +312,11 @@ class OcrService(QObject):
         self.install_state='';self.changed.emit()
 
     def close(self):
+        if self._closing:
+            return
         self._closing=True;self._install_cancel.set()
+        if self._import_callback is None:
+            return
         if self._import_callback in self.storage.import_listeners:
             self.storage.import_listeners.remove(self._import_callback)
         self.cancel('interrupted' if self.busy else self.summary.get('state','idle'))
@@ -308,11 +324,11 @@ class OcrService(QObject):
         if self._install_thread:self._install_thread.join(timeout=2)
 
 
-def ocr_service(storage):
+def ocr_service(storage, *, start=True):
     service=getattr(storage,'ocr',None)
     if service is None:
         from PySide6.QtCore import QCoreApplication
         app=QCoreApplication.instance()
-        storage.ocr=service=OcrService(storage,app)
+        storage.ocr=service=OcrService(storage,app,start=start)
         if app:app.aboutToQuit.connect(service.close)
     return service

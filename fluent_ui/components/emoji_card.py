@@ -20,14 +20,6 @@ except ImportError:
 from fluent_ui import visual
 
 
-def _tag_animation(image,path):
-    # The existing PNG/QImage/QPixmap cache carries the result across cards and launches.
-    if image is not None and not image.isNull():
-        from services.image_frames import frame_count
-        image.setText('nekori.animation_frames',str(frame_count(path,animation_only=True)))
-    return image
-
-
 class _ThumbnailLoadSignals(QObject):
     finished = Signal(str, object, int, int)
 
@@ -35,12 +27,13 @@ class _ThumbnailLoadSignals(QObject):
 class _ThumbnailLoadTask(QRunnable):
     """在线程池中解码缩略图，只传递 QImage，不在线程中创建 QPixmap。"""
 
-    def __init__(self, image_path, target_size, request_id, frame=0, cache_file=None):
+    def __init__(self, image_path, target_size, request_id, frame=0, cache_file=None, crop=None):
         super().__init__()
         self.image_path = image_path
         self.target_size = target_size
         self.request_id = request_id
         self.frame = int(frame or 0)
+        self.crop = crop
         self.cache_file = cache_file
         self._cancelled = False
         self.signals = _ThumbnailLoadSignals()
@@ -54,20 +47,16 @@ class _ThumbnailLoadTask(QRunnable):
             if self.cache_file and os.path.isfile(self.cache_file):
                 cached = QImageReader(self.cache_file).read()
                 if not cached.isNull():
-                    if not cached.text('nekori.animation_frames'):
-                        _tag_animation(cached,self.image_path)
-                        temporary=self.cache_file+'.tmp'
-                        try:
-                            if cached.save(temporary,'PNG'):os.replace(temporary,self.cache_file)
-                        except OSError:pass
                     self._emit_finished(self.image_path, cached, self.request_id, self.target_size)
                     return
-            if self.frame:
+            if self.frame or self.crop:
                 # A requested frame goes through the shared frame decoder:
                 # QImageReader cannot step GIF frames here, so asking it for a
                 # frame silently produced frame 0 every time.
                 from services.image_frames import frame_at
                 loaded = frame_at(self.image_path, self.frame)
+                from services.image_frames import crop_image
+                loaded = crop_image(loaded,self.crop)
                 if loaded is not None and not loaded.isNull():
                     loaded = loaded.scaled(self.target_size, self.target_size,
                                            Qt.KeepAspectRatio, Qt.SmoothTransformation)
@@ -87,7 +76,7 @@ class _ThumbnailLoadTask(QRunnable):
             if self._cancelled:
                 return
             if loaded and not loaded.isNull():
-                image = _tag_animation(loaded,self.image_path)
+                image = loaded
                 if self.cache_file:
                     temporary = self.cache_file + '.tmp'
                     if image.save(temporary, 'PNG'):
@@ -134,27 +123,10 @@ class ThumbnailCache:
     def __init__(self):
         if not self._initialized:
             self._normal_limit_kb = 128 * 1024  # Bounded resource cache, independent of cards.
-            self._idle_limit_kb = self._normal_limit_kb
 
             QPixmapCache.setCacheLimit(self._normal_limit_kb)
-
-            # 空闲收缩定时器 (60秒)
-            self._idle_timer = QTimer()
-            self._idle_timer.setSingleShot(True)
-            self._idle_timer.timeout.connect(self._on_idle_timeout)
-            self._idle_timer.start(60000)
 
             self._initialized = True
-
-    def reset_idle_timer(self):
-        """由外部交互(滚动、切换分类等)调用，重置空闲状态"""
-        if QPixmapCache.cacheLimit() != self._normal_limit_kb:
-            QPixmapCache.setCacheLimit(self._normal_limit_kb)
-        self._idle_timer.start(60000)
-
-    def _on_idle_timeout(self):
-        """Qt's LRU limit evicts on pressure; idle does not invalidate resources."""
-        pass
 
     _library_identity = None
     _library_identity_source = None
@@ -185,31 +157,32 @@ class ThumbnailCache:
         return cls._library_identity
 
     @classmethod
-    def cache_key(cls, image_path, target_size, frame=0):
+    def cache_key(cls, image_path, target_size, frame=0, crop=None, library_id=None):
         """Identity of one cached thumbnail.
 
         The library root is part of the key so switching libraries without
         restarting cannot hit another library's file under the same path.
         """
-        return (f"{cls.library_identity()}|{image_path}"
-                f"|{target_size}x{target_size}|{int(frame or 0)}")
+        return (f"{cls.library_identity() if library_id is None else library_id}|{image_path}"
+                f"|{target_size}x{target_size}|{int(frame or 0)}" + (f"|crop={tuple(crop)}" if crop else ""))
 
-    def get_thumbnail(self, image_path, target_size, frame=0):
-        cache_key = self.cache_key(image_path, target_size, frame)
+    def get_thumbnail(self, image_path, target_size, frame=0, crop=None, library_id=None):
+        cache_key = self.cache_key(image_path, target_size, frame, crop, library_id)
 
         pixmap = QPixmap()
         if QPixmapCache.find(cache_key, pixmap):
             return pixmap
 
         try:
-            if frame:
+            if frame or crop:
                 # Same reason as the async path: the shared decoder is the only
                 # one that can actually reach a GIF frame here.
                 from services.image_frames import frame_at
                 image = frame_at(image_path, int(frame))
+                from services.image_frames import crop_image
+                image = crop_image(image,crop)
                 if image is None or image.isNull():
                     return None
-                _tag_animation(image,image_path)
                 pixmap = QPixmap.fromImage(image)
                 if pixmap.width() > target_size or pixmap.height() > target_size:
                     pixmap = pixmap.scaled(target_size, target_size,
@@ -228,7 +201,6 @@ class ThumbnailCache:
 
             img = reader.read()
             if img and not img.isNull():
-                _tag_animation(img,image_path)
                 pixmap = QPixmap.fromImage(img)
 
                 # 确保最终尺寸不超过 target_size，并应用平滑缩放以保证画质
@@ -263,7 +235,7 @@ class EmojiCard(QLabel):
     drag_finished = Signal()
     recycle_requested = Signal(object)
 
-    def __init__(self, image_path, size=120, parent=None, load_image=True, frame=0, availability=None, status=None):
+    def __init__(self, image_path, size=120, parent=None, load_image=True, frame=0, availability=None, status=None, crop=None, library_id=None, animated=None):
         super().__init__(parent)
         self.image_path = image_path
         self.setFocusPolicy(Qt.StrongFocus)
@@ -271,7 +243,9 @@ class EmojiCard(QLabel):
         self._is_dragging = False
         self.current_size = size
         self.frame = int(frame or 0)
-        self._animated = False
+        self.crop = crop
+        self.thumbnail_library_id = library_id
+        self._animated = animated is True
         # Set by the gallery: returns every path that should travel with one drag.
         self.drag_payload_provider = None
         self.drag_sources_provider = None
@@ -356,7 +330,11 @@ class EmojiCard(QLabel):
         if self._animated and self.property('state')!='missing' and (config is None or config.get('show_animation_badges',True)):
             size=visual.animation_badge_size()
             badge=QRectF(4,self.height()-size.height()-4,size.width(),size.height())
+            p.save()
+            if self._hovered:
+                p.setOpacity(p.opacity() * 0.15)
             visual.paint_animation_badge(p,badge)
+            p.restore()
         if self.is_selected or self._hovered:
             p.setBrush(Qt.NoBrush);p.setPen(QPen(QColor(c['accent']),2 if self._hovered else 1.5))
             selection=r.adjusted(1,1,-1,-1)
@@ -372,14 +350,17 @@ class EmojiCard(QLabel):
             return False
         return not self._is_loaded or self._loaded_size != target_size
 
-    def set_frame(self, frame):
-        self.frame = int(frame or 0)
-        self._is_loaded = False
-        self._loaded_size = 0
-        if hasattr(self, 'gallery_reload'):
-            self.gallery_reload(self.image_path)
-            return
-        self.update_size(self.current_size, load_image=True)
+    def set_representative(self, frame, crop, *, load_image=True):
+        """Replace the pair once; obsolete async results keep their old identity."""
+        frame = max(0, int(frame or 0))
+        crop = tuple(crop) if crop is not None else None
+        if (self.frame, self.crop) == (frame, crop):
+            return False
+        self.clear_resources()
+        self.frame, self.crop = frame, crop
+        if load_image:
+            self.update_size(self.current_size, load_image=True)
+        return True
 
     def _stop_appear_animation(self):
         """停止入场动画并恢复正常绘制状态。"""
@@ -483,7 +464,6 @@ class EmojiCard(QLabel):
         self._is_loading = False
         self._loading_size = 0
         self.clear()
-        self._animated = False
         self._is_loaded = False
         self._loaded_size = 0
         self.setText("⋯")
@@ -491,7 +471,7 @@ class EmojiCard(QLabel):
     def _cache_key(self, target_img_size):
         # One key format for the whole app: the card and the shared cache must
         # agree, and the key carries the library identity.
-        return ThumbnailCache.cache_key(self.image_path, target_img_size, self.frame)
+        return ThumbnailCache.cache_key(self.image_path, target_img_size, self.frame, self.crop, self.thumbnail_library_id)
 
     def _on_thumbnail_loaded(
         self, image_path, image, request_id, target_size
@@ -513,7 +493,6 @@ class EmojiCard(QLabel):
             self.setText("?" if not os.path.isfile(self.image_path) else " ")
             return
 
-        self._animated = int(image.text('nekori.animation_frames') or 1)>1
         pixmap = QPixmap.fromImage(image)
         if pixmap.isNull():
             self._is_loaded = False
@@ -535,7 +514,6 @@ class EmojiCard(QLabel):
         cache_key = self._cache_key(target_size)
         cached = QPixmap()
         if QPixmapCache.find(cache_key, cached):
-            self._animated = int(cached.toImage().text('nekori.animation_frames') or 1)>1
             self.setText("")
             self.setPixmap(cached.scaled(target_size, target_size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
             self._is_loaded = True
@@ -553,6 +531,7 @@ class EmojiCard(QLabel):
             target_size,
             request_id,
             self.frame,
+            crop=self.crop,
         )
         task.signals.finished.connect(self._on_thumbnail_loaded)
         self._load_task = task

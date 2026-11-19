@@ -37,9 +37,20 @@ class GalleryEntryModel:
             self.direct[parent] = self.storage.entries_of(parent)
         return self.direct[parent]
 
+    def remember_view(self, signature, entries, position):
+        self.snapshots.pop(signature, None)
+        self.snapshots[signature] = (list(entries), position)
+        if len(self.snapshots) > 24:
+            del self.snapshots[next(iter(self.snapshots))]
+
+    def invalidate_projections(self, *, recent_only=False):
+        for signature, (_, position) in self.snapshots.items():
+            if not recent_only or (signature[-1] and not signature[1]):
+                self.snapshots[signature] = (None, position)
+
     def invalidate(self):
         self.direct.clear()
-        self.snapshots.clear()
+        self.invalidate_projections()
 
     def sync(self, parents=None, paths=(), *, nodes=None, counts=None):
         """Read ordered identities, fetching resource records only when changed.
@@ -47,7 +58,7 @@ class GalleryEntryModel:
         Existing records survive insertion/removal/order changes. A Tag edit
         supplies its paths and doesn't query membership at all.
         """
-        self.snapshots.clear()
+        self.invalidate_projections()
         changed = {record['id']: record for record in self.storage.index.resource_records(paths)} if paths else {}
         counts = self.storage.node_counts() if counts is None else counts
         nodes = self.storage.index.nodes() if nodes is None else nodes

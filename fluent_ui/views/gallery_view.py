@@ -667,7 +667,7 @@ class CategorySidebar(Surface):
         from services.image_frames import is_animated
         if is_animated(path):
             dialog = dialogs.FramePickerDialog(self.window(), self.storage, path,
-                on_apply=lambda frame: self.storage.set_node_icon(node_id, path, frame=frame),
+                on_apply=lambda frame: self.storage.set_node_icon(node_id, path, frame=frame, crop=dialog.preview.crop),
                 title='选择分类图标帧')
             if not dialog.exec():
                 return
@@ -819,9 +819,11 @@ class GalleryInterface(QWidget):
     about_requested = Signal()
     hide_after_paste_requested = Signal()
     send_finished = Signal(object)
+    representative_changed = Signal(str)
 
-    def __init__(self, storage_service, clipboard_service, config_service, parent=None, *, send_target_service=None):
+    def __init__(self, storage_service, clipboard_service, config_service, parent=None, *, send_target_service=None, defer_background=False):
         super().__init__(parent=parent)
+        self._defer_background = defer_background
         self.storage = storage_service
         self.clipboard = clipboard_service
         self.config = config_service
@@ -836,8 +838,7 @@ class GalleryInterface(QWidget):
         # Session position is restored from the saved working state; the
         # *transient* side of a session (search, filter, management mode,
         # selection) is deliberately not, and starts clean on every launch.
-        self._initial_anchor = self._decode_anchor(self._saved_view_state.get('gallery_anchor'))
-        self._live_anchor = self._initial_anchor
+        self._pending_position = (self._decode_anchor(self._saved_view_state.get('gallery_anchor')), 0)
         self._location_anchors = dict(self._saved_view_state.get('gallery_anchors', {}))
         # The saved scroll is kept separately from the live one: the tree is
         # rebuilt during start-up and would otherwise overwrite it before the
@@ -852,8 +853,7 @@ class GalleryInterface(QWidget):
         self.active_view_node = self._saved_view_state.get('active_relative_view_node_id', self.current_node)
         if self.content_scope_node() != self.active_view_node:
             self.active_view_node = self.current_node
-            self._initial_anchor = self._decode_anchor(self._location_anchors.get(self.current_node))
-            self._live_anchor = self._initial_anchor
+            self._pending_position = (self._decode_anchor(self._location_anchors.get(self.current_node)), 0)
         self._activate_inline_scope()
         self.current_category = "全部表情"
         self.search_keyword = ""
@@ -932,7 +932,6 @@ class GalleryInterface(QWidget):
         self._lazy_load_timer.setSingleShot(True)
         self._lazy_load_timer.timeout.connect(self._apply_lazy_loading)
 
-        self._saved_scroll_position = 0
         self.sidebar.tree.itemExpanded.connect(lambda _: self._save_view_state())
         self.sidebar.tree.itemCollapsed.connect(lambda _: self._save_view_state())
         # Tracked in memory: writing the session file on every wheel tick would
@@ -944,7 +943,7 @@ class GalleryInterface(QWidget):
         self.storage.availability.changed.connect(self._availability_changed)
         self.storage.recent_changed.connect(self._recent_changed)
         from services.ocr_service import ocr_service
-        self.ocr=ocr_service(self.storage)
+        self.ocr=ocr_service(self.storage,start=not self._defer_background)
         self._ocr_paths=set()
         self._ocr_refresh_timer=QTimer(self)
         self._ocr_refresh_timer.setSingleShot(True);self._ocr_refresh_timer.setInterval(600)
@@ -960,7 +959,7 @@ class GalleryInterface(QWidget):
         self.imports.resources_committed.connect(self._queued_resources_committed)
         self.imports.restore(self)
         from services.backup_service import backup_service
-        self.backups=backup_service(self.storage,self,self.feedback_host)
+        self.backups=backup_service(self.storage,self,self.feedback_host,start=not self._defer_background)
         self._schedule_task_refresh()
         visual.theme.changed.connect(self.refresh_theme)
         i18n_engine.language_changed.connect(self.refresh_texts)
@@ -1310,15 +1309,12 @@ class GalleryInterface(QWidget):
     def set_relative_view(self, node_id):
         if node_id not in self._tab_nodes or node_id == self.content_scope_node():
             return
-        self._remember_location_anchor()
         self.active_view_node = node_id
         self._activate_inline_scope()
         self._load_content_sort()
-        self._initial_anchor = self._decode_anchor(self._location_anchors.get(node_id))
-        self._live_anchor = self._initial_anchor
         self._search_timer.stop()
         self.finish_selection()
-        self.refresh_content()
+        self.refresh_content(location_anchor=self._decode_anchor(self._location_anchors.get(node_id)))
         self._save_view_state()
 
     def _view_state_is_default(self):
@@ -1354,7 +1350,6 @@ class GalleryInterface(QWidget):
         if not force and node_id == self.current_node and self.content_scope_node() == node_id and self._view_state_is_default():
             self.finish_selection()
             return
-        self._remember_location_anchor()
         if node_id != self.current_node:
             ancestors = {n['id'] for n in self.storage.node_path(self.current_node)[:-1] if n['id'] != ROOT}
             self.return_child_hint = self.current_node if node_id in ancestors else None
@@ -1362,8 +1357,6 @@ class GalleryInterface(QWidget):
         self.active_view_node = node_id
         self._activate_inline_scope()
         self._load_content_sort()
-        self._initial_anchor = self._decode_anchor(self._location_anchors.get(node_id))
-        self._live_anchor = self._initial_anchor
         self.sidebar.tree.select_node(node_id, reveal=False)
         self.finish_selection()
         self.search_keyword = ''
@@ -1373,7 +1366,7 @@ class GalleryInterface(QWidget):
         self._search_timer.stop()
         self.filter_state = FilterState()
         self.active_tags.clear()
-        self.refresh_content()
+        self.refresh_content(location_anchor=self._decode_anchor(self._location_anchors.get(node_id)))
         self._save_view_state()
 
     def set_category(self, category_name):
@@ -1407,11 +1400,11 @@ class GalleryInterface(QWidget):
         content_node = self.content_scope_node()
         keyword = normalize_search(self.search_keyword.strip())
         self._display_mode = 'search' if keyword else ('resources' if content_node == ROOT else 'mixed')
-        texts = self.storage.get_search_metadata() if keyword else {}
+        texts = self.storage.index.search_texts() if keyword else {}
         categories = self.storage.get_image_to_categories_map() if self.filter_state.unclassified else {}
         def matches(entry):
             tags = set(self.storage.parse_tags(entry['tags']))
-            return (not keyword or keyword in texts.get(entry['path'], '').casefold()) and self.active_tags.issubset(tags) and self._matches_filter(entry, tags, categories)
+            return (not keyword or keyword in texts.get(entry['id'], '')) and self.active_tags.issubset(tags) and self._matches_filter(entry, tags, categories)
         # HERE/ALL describe keyword search, including when the recent lens
         # is open. An empty search retains the existing recent-only view.
         if getattr(self, '_recent_view', False) and not keyword:
@@ -1434,7 +1427,8 @@ class GalleryInterface(QWidget):
         if not keyword:
             return self._apply_content_sort(collect(content_node, 0))
         search_node = ROOT if self.search_scope == 'all' else content_node
-        scope = {n['id'] for n in self.storage.index.subtree(search_node)} | {search_node}
+        scope = ({n['id'] for n in self.storage.index.subtree(search_node)} | {search_node}
+                 if search_node != ROOT else set())
         memberships = {}
         for member in self.storage.index.memberships():
             if search_node == ROOT or member['node_id'] in scope:
@@ -1503,8 +1497,6 @@ class GalleryInterface(QWidget):
         if enabled == active:return
         if enabled:
             self._save_view_state()
-            self._before_recent_anchor = self.renderer.anchor()
-            self._before_recent_scroll = self.scroll_area.verticalScrollBar().value()
             self._before_recent_controls = (self.search_keyword, self.filter_state, set(self.active_tags), self.content_sort)
             self.search_keyword = ''; self.filter_state = FilterState(); self.active_tags.clear(); self.content_sort = 'manual'
         else:
@@ -1514,20 +1506,16 @@ class GalleryInterface(QWidget):
         self.finish_selection()
         self._recent_view = enabled
         self.btn_recent.setChecked(enabled)
-        self.entry_model.snapshots.clear()
-        self._initial_anchor = None
-        self.refresh_content(anchor=None if enabled else getattr(self, '_before_recent_anchor', None))
-        if not enabled and not getattr(self, '_before_recent_anchor', None):
-            self.scroll_area.verticalScrollBar().setValue(getattr(self, '_before_recent_scroll', 0))
+        self.refresh_content()
 
     def _recent_changed(self):
-        if getattr(self, '_recent_view', False):
-            self.refresh_content_incremental(reason='recent',parents=set())
+        self.entry_model.invalidate_projections(recent_only=True)
+        if getattr(self, '_recent_view', False) and not self.search_keyword.strip():
+            self.refresh_content(reason='recent')
 
     def refresh_content_incremental(self, *, reason='', paths=(), parents=None, nodes=None, counts=None):
         if self._view_signature_at_build != self._view_signature() or not self.storage.index.node(self.current_node):
-            self.entry_model.invalidate()
-            self.refresh_content(reason=reason)
+            self.refresh_content(reason=reason, invalidate=True)
             return
         anchors = tuple(self.renderer.visible_anchors())
         old_scroll = self.scroll_area.verticalScrollBar().value()
@@ -1541,7 +1529,7 @@ class GalleryInterface(QWidget):
         anchor = next((candidate for candidate in anchors if candidate[0] in surviving), None)
         self._reconcile_selection()
         if first < max(len(self._entries), len(self.renderer.index.rects)):
-            self.renderer.relayout(first, anchor=anchor if old_scroll else None)
+            self.renderer.relayout(first, anchor=anchor if old_scroll else None, scroll=old_scroll)
         else:
             self.renderer.sync()
         self._rebuild_context_strip(nodes=node_records)
@@ -1550,7 +1538,7 @@ class GalleryInterface(QWidget):
 
         self._update_back_top()
 
-    def refresh_content(self, *, reason='', anchor=None, first_key=None):
+    def refresh_content(self, *, reason='', anchor=None, first_key=None, invalidate=False, location_anchor=None):
         """Rebuild the entry list; `anchor` keeps one entry fixed on screen.
 
         `first_key` names the entry that changed: everything from its row on is
@@ -1559,12 +1547,11 @@ class GalleryInterface(QWidget):
         if not self.storage.index.node(self.current_node):
             self.current_node = ROOT
             self.active_view_node = ROOT
-            self._initial_anchor = self._live_anchor = None
+            self._pending_position = None
             self._save_view_state()
         if self.active_view_node != self.content_scope_node():
             self.active_view_node = self.current_node
-            self._initial_anchor = self._decode_anchor(self._location_anchors.get(self.current_node))
-            self._live_anchor = self._initial_anchor
+            self._pending_position = (self._decode_anchor(self._location_anchors.get(self.current_node)), 0)
         self._activate_inline_scope()
         self.current_category = '全部表情' if self.current_node == ROOT else self.storage.node(self.current_node)['name']
         self.sidebar.tree.select_node(self.current_node)
@@ -1572,37 +1559,33 @@ class GalleryInterface(QWidget):
             self.preview_controller.cancel()
         signature = self._view_signature()
         old = self._view_signature_at_build
-        if old is not None:
-            self.entry_model.snapshots[old] = (list(self._entries), self.renderer.anchor())
-            if len(self.entry_model.snapshots) > 24:
-                del self.entry_model.snapshots[next(iter(self.entry_model.snapshots))]
-        snapshot = self.entry_model.snapshots.get(signature)
+        # The scrollbar and occurrence belong to the built projection, even
+        # when a new search term has already been typed.
+        current_position = self._pending_position or self._position()
+        if old is not None and old != signature:
+            self._remember_location_anchor()
+            self.entry_model.remember_view(old, self._entries, current_position)
+        if invalidate:
+            self.entry_model.invalidate()
+        snapshot = self.entry_model.snapshots.get(signature) if old != signature else None
         self._display_mode = 'search' if self.search_keyword.strip() else ('resources' if self.content_scope_node() == ROOT else 'mixed')
-        cold_start = False
-        if snapshot:
-            self._entries, scroll = list(snapshot[0]), 0
-            anchor = anchor or self._initial_anchor or snapshot[1]
+        if snapshot is not None and snapshot[0] is not None:
+            self._entries = list(snapshot[0])
         else:
-            self._entries, scroll = self._collect_entries(), 0
-            if self._initial_anchor is not None:
-                if self._initial_anchor is not None:
-                    # Cold start: put the gallery back on the entry the user was
-                    # looking at. An occurrence id plus a pixel offset survives
-                    # inserted or removed resources, which a raw scrollbar value
-                    # would not.
-                    anchor, cold_start = self._initial_anchor, True
-                else:
-                    self._initial_anchor = None
+            self._entries = self._collect_entries()
+
+        if anchor is not None:
+            position = (anchor, current_position[1])
+        elif old == signature:
+            position = self._pending_position or current_position
+        elif snapshot is not None:
+            position = snapshot[1]
+        else:
+            position = current_position if old is None else (location_anchor, 0)
+        self._pending_position = None
         self._reconcile_selection()
         self._view_signature_at_build = signature
-        if anchor is not None:
-            # Callers that changed something below the viewport (expanding a
-            # node, for instance) restore by entry instead of laying out at 0
-            # and jumping back a frame later.
-            self.renderer.relayout(first=self._first_index(first_key), anchor=anchor)
-        else:
-            self.renderer.relayout(scroll=scroll)
-        self._finish_position_layout(anchor)
+        self._layout_position(position or (None, 0), first=self._first_index(first_key))
         self._rebuild_context_strip()
         self._sync_command_bar()
         self._update_placeholder()
@@ -1618,45 +1601,35 @@ class GalleryInterface(QWidget):
                 return index
         return 0
 
-    def _anchor_landed(self, anchor):
-        """Whether the viewport really sits on the entry the anchor names.
+    def _position(self):
+        bar = self.scroll_area.verticalScrollBar()
+        return self.renderer.anchor(), bar.value()
 
-        A scroll area has no scroll range until it has been laid out, so a
-        restore attempted during construction is silently clamped to the top;
-        the anchor is kept for the first layout that can honour it.
-        """
-        current = self.renderer.anchor()
-        return bool(current) and current[0] == anchor[0]
-
-    def _apply_initial_anchor(self):
-        self._trigger_responsive_layout()
-
-    def _finish_position_layout(self, anchor=None):
-        if not self.scroll_area.viewport().isVisible():
-            return
-        if self._initial_anchor is not None:
-            # Consume only after the actual visible viewport and scroll range
-            # exist. Never replace a pending saved anchor with a clamped zero.
-            target = self._initial_anchor
-            self.renderer.restore(target)
-            self._initial_anchor = None
-        self._live_anchor = self.renderer.anchor()
-        self._position_geometry = self.scroll_area.viewport().size()
+    def _layout_position(self, position, *, first=0):
+        if self.scroll_area.viewport().isVisible():
+            self._pending_position = None
+            self.renderer.relayout(first, anchor=position[0], scroll=position[1])
+        else:
+            # A hidden viewport may clamp its range while being resized.
+            self._pending_position = position
+            self.renderer.relayout(first)
 
     def _remember_location_anchor(self):
-        if getattr(self,'_recent_view',False):return
-        anchor = self._current_anchor()
-        if anchor:
-            self._location_anchors[self.content_scope_node()] = anchor
+        signature = self._view_signature_at_build
+        if signature is None:
+            return
+        node, keyword, _, _, filters, tags, _, recent = signature
+        if not keyword and not any(filters) and not tags and not recent:
+            anchor = self._current_anchor()
+            if anchor:
+                self._location_anchors[node] = anchor
 
     def sync_content_after_reorder(self):
         self.refresh_content_incremental(reason='structure')
 
     def on_images_changed(self):
-        self.entry_model.invalidate()
         self.renderer.loader.revisions.clear()
-        self._view_signature_at_build = None
-        self.refresh_content()
+        self.refresh_content(invalidate=True)
 
     def refresh_gallery(self):
         self.on_images_changed()
@@ -2132,25 +2105,20 @@ class GalleryInterface(QWidget):
 
 
 
-    def _rearrange_gallery(self, columns=None):
-        self.renderer.relayout()
-
     def _trigger_responsive_layout(self, force=False):
         self._responsive_layout_timer.stop()
         if hasattr(self, 'renderer'):
-            anchor = self._initial_anchor or self.renderer.anchor() or self._live_anchor
             index=self.renderer.index
             geometry=(max(60,self.scroll_area.viewport().width()),self.config.get('thumbnail_size',120),
                       max(14,min(48,int(self.config.get('gallery_node_icon_size',22)))))
-            if not force and geometry==(index.width,index.size,index.node_icon_size):
+            if self._pending_position is None and not force and geometry==(index.width,index.size,index.node_icon_size):
                 # Command-bar visibility changes only viewport height. The
                 # mixed flow has not changed; update realization, not all rows.
                 # Height-only changes preserve Qt's current value. A cached
                 # live anchor may predate a wheel/selection event in this turn.
                 self.renderer.sync()
             else:
-                self.renderer.relayout(anchor=anchor)
-            self._finish_position_layout(anchor)
+                self._layout_position(self._pending_position or self._position())
             self._update_back_top()
 
     def _schedule_responsive_layout(self):
@@ -2169,13 +2137,9 @@ class GalleryInterface(QWidget):
         self.renderer.sync()
 
     def _on_scroll(self, value):
-        if (not self.renderer.updating and self.scroll_area.viewport().isVisible()
-                and self._initial_anchor is None
-                and getattr(self, '_position_geometry', None) == self.scroll_area.viewport().size()
-                and not self._responsive_layout_timer.isActive()):
-            self._live_anchor = self.renderer.anchor()
-        self.renderer.sync(scroll_only=True)
-        self._update_back_top()
+        if not self.renderer.updating:
+            self.renderer.sync(scroll_only=True)
+            self._update_back_top()
 
     def available_gallery_rect(self):
         return self.tag_panel_host.available_rect(self.scroll_area.viewport()).intersected(self.scroll_area.viewport().rect())
@@ -2228,32 +2192,18 @@ class GalleryInterface(QWidget):
 
     def _on_splitter_moved(self, pos, index):
         sizes = self.splitter.sizes()
-        if sizes:
+        if sizes and not self._defer_background:
             self.config.set("sidebar_width_list", sizes[0])
         self._schedule_responsive_layout()
 
-    def _capture_scroll_anchor(self):
-        return self.renderer.anchor()
-
-    def _restore_scroll_anchor(self, anchor):
-        self.renderer.restore(anchor)
-
-    def save_scroll_position(self):
-        if hasattr(self, 'scroll_area'):
-            self._saved_scroll_position = self.scroll_area.verticalScrollBar().value()
-            self._saved_scroll_signature = self._view_signature()
-            self._saved_scroll_anchor = self.renderer.anchor()
-
-    def restore_scroll_position(self):
-        if (hasattr(self, 'scroll_area') and
-                getattr(self,'_saved_scroll_signature',None)==self._view_signature()):
-            anchor=getattr(self,'_saved_scroll_anchor',None)
-            if anchor:self.renderer.restore(anchor)
-            else:self.scroll_area.verticalScrollBar().setValue(self._saved_scroll_position)
+    def hideEvent(self, event):
+        if hasattr(self, 'renderer') and self._pending_position is None:
+            self._pending_position = self._position()
+        super().hideEvent(event)
 
     def showEvent(self, event):
         super().showEvent(event)
-        self._schedule_responsive_layout()
+        self._trigger_responsive_layout()
         # Session restore attributes belong to a fully constructed view; a
         # handler that can fire on a partially built one must not crash.
         if getattr(self, '_saved_sidebar_scroll', None) is not None:
@@ -2825,7 +2775,7 @@ class GalleryInterface(QWidget):
         if single and not context.existing:
             action(FIF.LINK, '重新绑定文件…', lambda: self.rebind_resource(path))
         if ActionPolicy.enabled('thumbnail_frame', context):
-            action(FIF.PHOTO, '选择缩略图帧…', lambda: self._choose_thumbnail_frame(path))
+            action(FIF.PHOTO, '选择缩略图…', lambda: self._choose_thumbnail_frame(path))
         menu.addSeparator()
         action(FIF.CATEGORY_ICON, '设为当前分类图标', lambda: self._set_category_icon(path, context.active_view),
                context.active_view != ROOT and ActionPolicy.enabled('set_icon', context))
@@ -2864,16 +2814,16 @@ class GalleryInterface(QWidget):
     def _reload_resource_thumbnail(self, path):
         self.renderer.loader.invalidate([path])
         self.refresh_content_incremental(reason='thumbnail', paths=[path], parents=set())
+        self.representative_changed.emit(path)
 
     def _choose_thumbnail_frame(self, path):
         if not ActionPolicy.enabled('thumbnail_frame', self._action_context([path], revalidate=True)):
             return
         if not dialogs.FramePickerDialog(self.window(), self.storage, path).exec():
             return
-        frame = self.storage.representative_frame(path)
-        for widget in self._all_card_widgets:
-            if getattr(widget, "image_path", None) == path and hasattr(widget, "set_frame"):
-                widget.set_frame(frame)
+        # One resource mutation, one projection/cache refresh, irrespective of
+        # how many category occurrences currently display this resource.
+        self._reload_resource_thumbnail(path)
         self.show_success(t("缩略图帧已更新"), quiet=True)
 
     def _set_category_icon(self, path, node_id):
@@ -3854,20 +3804,18 @@ class GalleryInterface(QWidget):
             for card in self._all_card_widgets:card.update()
         elif key == 'auto_category_icons':
             self.sidebar.refresh_list(self.current_node)
-            for card in self._all_card_widgets:
-                if isinstance(card,NodeCard):card.refresh_icon()
+            self.refresh_content_incremental(reason='node_icon', parents=set())
         if key == 'show_new_resource_markers':
             self.new_markers.cancel()
             self.new_markers.refresh()
         if key in ('sidebar_icon_size', 'sidebar_show_labels', 'sidebar_mode'):
             self.sidebar.apply_presentation()
         elif key == 'gallery_node_icon_size':
-            anchor = self.renderer.anchor()
+            position = self._pending_position or self._position()
             for card in self._all_card_widgets:
                 if isinstance(card, NodeCard):
                     card.refresh_icon()
-            self.renderer.relayout(anchor=anchor)
-            self.renderer.sync()
+            self._layout_position(position)
         elif key in ("appearance_mode", "light_theme_key", "dark_theme_key"):
             self.sidebar.update_theme()
             self.context_strip.setStyleSheet(visual.strip_style())
@@ -3985,12 +3933,13 @@ class GalleryInterface(QWidget):
         if mode == self.content_sort:
             self._update_resource_sort_label()
             return
+        anchor = self.renderer.anchor()
         self.content_sort = mode
         if not getattr(self,'_recent_view',False):
             self._content_sorts[self.content_scope_node()] = mode
-            self._save_view_state()
         self._update_resource_sort_label()
-        self.refresh_content()
+        self.refresh_content(anchor=anchor)
+        self._save_view_state()
 
     def _update_resource_sort_label(self):
         label = {ResourceSort.MANUAL: '表情排序：手动', ResourceSort.RECENT_ADDED: '表情排序：最近添加',
@@ -4055,9 +4004,7 @@ class GalleryInterface(QWidget):
             return None
 
     def _current_anchor(self):
-        anchor = self._initial_anchor or self._live_anchor
-        if anchor is None and hasattr(self, 'renderer'):
-            anchor = self.renderer.anchor()
+        anchor, _ = self._pending_position or self._position()
         if not anchor:
             return None
         (entry_id, parent), offset = anchor
@@ -4071,7 +4018,12 @@ class GalleryInterface(QWidget):
         self._save_view_state()
 
     def _save_view_state(self):
-        if getattr(self,'_recent_view',False):return
+        if self._defer_background or getattr(self,'_recent_view',False):return
+        states = self.library_view_states()
+        if states != self.config.config.get('library_view_states', {}):
+            self.config.set('library_view_states', states)
+
+    def library_view_states(self):
         self._remember_location_anchor()
         states = dict(self.config.config.get('library_view_states', {}))
         state = {'location': self.current_node,
@@ -4080,13 +4032,12 @@ class GalleryInterface(QWidget):
                  'inline_expanded_by_scope': {key: sorted(value) for key, value in self._expanded_by_scope.items()},
                  'active_relative_view_node_id': self.content_scope_node(),
                  'sidebar_scroll': int(self._sidebar_scroll or 0),
-                 'gallery_anchor': self._current_anchor(),
+                 'gallery_anchor': self._location_anchors.get(self.content_scope_node()),
                  'gallery_anchors': dict(self._location_anchors),
                  'content_sorts': {key:value for key,value in self._content_sorts.items()
                                    if key == ROOT or self.storage.index.node(key)}}
-        if states.get(self._view_state_key) != state:
-            states[self._view_state_key] = state
-            self.config.set('library_view_states', states)
+        states[self._view_state_key] = state
+        return states
 
     def _restore_sidebar_scroll(self):
         """Put the sidebar back where it was, once it has a scroll range."""

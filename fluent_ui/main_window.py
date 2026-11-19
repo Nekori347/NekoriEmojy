@@ -244,11 +244,6 @@ class MainWindow(NekoriWindow):
             if not self.settings_window.close():
                 event.ignore()
                 return
-        # The caption close path bypasses hide_window_group(). Refresh the
-        # same tray-restore snapshot here, rather than restoring an initial
-        # zero or a position saved by an earlier tray/shortcut hide.
-        if hasattr(self, 'gallery_interface'):
-            self.gallery_interface.save_scroll_position()
         self._save_session_state()
         self._save_window_state()
         if hasattr(self, 'qq_scan_interface') and hasattr(self.qq_scan_interface, 'shutdown'):
@@ -301,19 +296,15 @@ class MainWindow(NekoriWindow):
         self.exchange_interface = ExchangeInterface(self)
         self.exchange_interface.hide()
         self.exchange_interface.back_requested.connect(self.show_gallery)
-        self.exchange_interface.import_requested.connect(self.gallery_interface._import_exchange_package)
-        self.exchange_interface.export_all_requested.connect(self.gallery_interface._export_all_exchange_package)
-        self.exchange_interface.export_selected_requested.connect(self.gallery_interface._export_selected_categories_exchange_package)
+        self.exchange_interface.import_requested.connect(lambda *args: self.gallery_interface._import_exchange_package(*args))
+        self.exchange_interface.export_all_requested.connect(lambda *args: self.gallery_interface._export_all_exchange_package(*args))
+        self.exchange_interface.export_selected_requested.connect(lambda *args: self.gallery_interface._export_selected_categories_exchange_package(*args))
         self.exchange_interface.qq_scan_requested.connect(self.show_qq_scan)
         self.exchange_interface.tg_sticker_requested.connect(self.show_tg_sticker)
-        self.exchange_interface.nekori_export_requested.connect(
-            self.setting_interface.export_nekori_package)
-        self.exchange_interface.nekori_import_requested.connect(
-            self.setting_interface.import_nekori_package)
-        self.exchange_interface.suzu_data_migration_requested.connect(
-            self.setting_interface.migrate_from_suzu_data)
-        self.exchange_interface.suzu_package_migration_requested.connect(
-            self.setting_interface.migrate_from_suzu_package)
+        self.exchange_interface.nekori_export_requested.connect(lambda *args: self.setting_interface.export_nekori_package(*args))
+        self.exchange_interface.nekori_import_requested.connect(lambda *args: self.setting_interface.import_nekori_package(*args))
+        self.exchange_interface.suzu_data_migration_requested.connect(lambda *args: self.setting_interface.migrate_from_suzu_data(*args))
+        self.exchange_interface.suzu_package_migration_requested.connect(lambda *args: self.setting_interface.migrate_from_suzu_package(*args))
 
 
         # QQ / TG 是低频工具窗，按需创建：它们的界面构造在冷启动路径上要花
@@ -335,10 +326,18 @@ class MainWindow(NekoriWindow):
         
         from fluent_ui.components.quick_panel import QuickPanel
         self.quick_panel = QuickPanel(self.storage, self.clipboard, self.config,
-                                     send_target_service=self.send_target_service)
+                                     send_target_service=self.send_target_service, representative_source=self.gallery_interface)
         self.quick_panel.feedback_owner=self.gallery_interface.feedback_host
         # The shared desktop import queue refreshes the affected gallery entries.
         
+    def library_switch_block_reason(self):
+        from services.library_switch import busy_reason
+        return busy_reason(self)
+
+    def switch_library(self, directory, mode, values, *, clear_markers=False):
+        from services.library_switch import switch_library
+        return switch_library(self, directory, mode, values, clear_markers=clear_markers)
+
     def refresh_library(self):
         """An owner-local import updates the shared library and existing views."""
         self.gallery_interface.sidebar.refresh_list(self.gallery_interface.current_node)
@@ -521,7 +520,6 @@ class MainWindow(NekoriWindow):
 
     def _hide_after_paste(self):
         self.clear_transient_button_states()
-        self.gallery_interface.save_scroll_position()
         self.gallery_interface.preview_controller.cancel()
         self.hide_window_group()
 
@@ -565,7 +563,6 @@ class MainWindow(NekoriWindow):
             return
         self._main_restore_state = self.windowState() & ~Qt.WindowMinimized
         self.clear_transient_button_states()
-        self.gallery_interface.save_scroll_position()
         self._hide_owned_for_tray()
         self.hide()
 
@@ -587,13 +584,6 @@ class MainWindow(NekoriWindow):
         hiding it.
         """
         if self.isVisible() and not self.isMinimized():
-            # 隐藏前清除标题栏按钮的悬停绘制状态
-            self.clear_transient_button_states()
-
-            # 记录滚动位置
-            if hasattr(self, 'gallery_interface'):
-                self.gallery_interface.save_scroll_position()
-
             self.hide_window_group()
         else:
             self.show_gallery(refresh=False)
@@ -603,12 +593,6 @@ class MainWindow(NekoriWindow):
             user32.SetForegroundWindow(ctypes.c_void_p(int(self.winId())))
             self._restore_owned_from_tray()
             
-            # 在下一帧恢复滚动位置
-            if hasattr(self, 'gallery_interface'):
-                # Restore once after the current layout turn; late retries would
-                # overwrite a new user scroll or a different category.
-                QTimer.singleShot(0, self.gallery_interface, self.gallery_interface.restore_scroll_position)
-
     def _owned_window_depth(self, window):
         current=window;seen=set();depth=0
         while current is not None and id(current) not in seen:
@@ -785,6 +769,8 @@ class MainWindow(NekoriWindow):
 
     def on_settings_changed(self, changed_key=""):
         """当设置界面修改了配置时被调用，按需局部刷新"""
+        if changed_key == 'library_path':
+            return  # LibrarySwitch already installed the new projection.
         if changed_key == 'recent_limit':
             self.storage.recent_changed.emit()
             return
@@ -845,6 +831,8 @@ class MainWindow(NekoriWindow):
 
         else:
             self.gallery_interface.on_settings_changed(changed_key)
+            if changed_key == "preview_delay":
+                self.quick_panel.preview_controller.set_delay(self.config.get(changed_key, 500))
             self.quick_panel.update_theme()
             if changed_key in ("", "always_on_top"):
                 self.apply_window_flags()

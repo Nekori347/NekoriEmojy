@@ -75,14 +75,14 @@ def test_live_settings_language_and_conflict_states(surface, settings):
             row = c._all_rows[key][0]
             expected = next(r['source'] for r in RECORDS if r['id'] == id and r['role'] == 'name')
             assert row.title_label.text() == t(expected)
-        warning = next(r['source'] for r in RECORDS if r['id'] == '186')
+        warning = '快捷键不能与其它功能相同。'
         assert not c._hotkeys_valid({'global_hotkey': 'ctrl+alt+a', 'quick_panel_hotkey': 'ctrl+alt+a', 'clipboard_import_enabled': False})
-        assert c._all_rows['global_hotkey'][0].hint_label.text() == t(warning)
-        warning = next(r['source'] for r in RECORDS if r['id'] == '187')
+        assert c._all_rows['global_hotkey'][0].status_label.text() == t(warning)
+        warning = '快捷键不能与其它功能相同。'
         assert not c._hotkeys_valid({'global_hotkey': 'ctrl+alt+a', 'quick_panel_hotkey': 'ctrl+alt+b', 'clipboard_import_enabled': True, 'clipboard_import_hotkey': 'ctrl+alt+a'})
-        assert c._all_rows['clipboard_import_hotkey'][0].hint_label.text() == t(warning)
+        assert c._all_rows['clipboard_import_hotkey'][0].status_label.text() == t(warning)
         c._set_dirty(True)
         assert c.export_hint.hint_label.text() == t('未保存修改不会包含在导出文件中。')
         c._set_dirty(False)
-        assert c.export_hint.hint_label.text() == ''
+        assert c.export_hint.hint_label.text() == t('将已保存的设置导出为 JSON 文件。')
     i18n_engine.load_language('zh')

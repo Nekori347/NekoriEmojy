@@ -10,6 +10,101 @@ sys.path.insert(0,str(ROOT))
 from services.update_protocol import MANIFEST,read_manifest,sha256
 from scripts.release_layout import validate_layout
 
+def installation_guards(names):
+    binaries = {name for name in names if Path(name).suffix.lower() in {'.exe', '.dll', '.pyd'}}
+    ordered = sorted(names, key=lambda name: (name != 'bin/NekoriEmojy.exe', name not in binaries, name))
+    entries = []
+    for name in ordered:
+        path = name.replace('/', chr(92)).replace("'", "''")
+        prefix = "" if name in binaries else "if Installing then "
+        entries.append(f"    {prefix}Files.Add('{path}');")
+    checks = '\n'.join(entries)
+    return r'''
+[CustomMessages]
+english.UninstallFilesInUse=Close NekoriEmojy, including from the system tray, and wait for any update to finish before uninstalling. If the files remain inaccessible, check the uninstall log.
+chinesesimp.UninstallFilesInUse=请从系统托盘完全退出 NekoriEmojy，并等待更新完成后再卸载。如果仍无法访问程序文件，请查看卸载日志。
+chinesetrad.UninstallFilesInUse=請從系統匣完全關閉 NekoriEmojy，並等待更新完成後再解除安裝。如果仍無法存取程式檔案，請查看解除安裝記錄。
+japanese.UninstallFilesInUse=システムトレイから NekoriEmojy を終了し、更新が終わってからアンインストールしてください。ファイルにアクセスできない場合は、アンインストールログを確認してください。
+
+english.InstallFilesInUse=Exit NekoriEmojy from the system tray and wait for any update to finish. Then close this installer and run it again. If files remain inaccessible, check the setup log.
+chinesesimp.InstallFilesInUse=请从系统托盘完全退出 NekoriEmojy，并等待更新完成，然后关闭并重新运行安装程序。如果仍无法访问文件，请查看安装日志。
+chinesetrad.InstallFilesInUse=請從系統匣完全關閉 NekoriEmojy，並等待更新完成，再關閉並重新執行安裝程式。如果仍無法存取檔案，請查看安裝記錄。
+japanese.InstallFilesInUse=システムトレイから NekoriEmojy を終了し、更新が終わるまでお待ちください。その後、セットアップを閉じて再実行してください。ファイルにアクセスできない場合は、セットアップログを確認してください。
+
+[Code]
+const
+  WriteAndDelete = $40010000; { GENERIC_WRITE or DELETE }
+  ShareReadWriteDelete = 7;
+  OpenExisting = 3;
+
+function OpenForReplacementCheck(const FileName: String; Access, ShareMode: Cardinal;
+  Security: Cardinal; Disposition, Flags: Cardinal; Template: Cardinal): Cardinal;
+  external 'CreateFileW@kernel32.dll stdcall';
+function CloseReplacementCheckHandle(Handle: Cardinal): Boolean;
+  external 'CloseHandle@kernel32.dll stdcall';
+
+function ReplacementError(const FileName: String): Integer;
+var
+  Handle: Cardinal;
+begin
+  { Request access only. Never write, rename or delete a probed file. }
+  Handle := OpenForReplacementCheck(FileName, WriteAndDelete,
+    ShareReadWriteDelete, 0, OpenExisting, 0, 0);
+  if Handle <> $FFFFFFFF then begin
+    if CloseReplacementCheckHandle(Handle) then
+      Result := 0
+    else
+      Result := DLLGetLastError;
+    Exit;
+  end;
+  Result := DLLGetLastError;
+  { Missing files and directories require no replacement. }
+  if (Result = 2) or (Result = 3) then Result := 0;
+end;
+
+function BlockedReleaseFile(const Operation: String; Installing: Boolean): Boolean;
+var
+  AppDir: String;
+  Files: TStringList;
+  I, ErrorCode: Integer;
+begin
+  Result := False;
+  AppDir := AddBackslash(ExpandConstant('{app}'));
+  Files := TStringList.Create;
+  try
+''' + checks + r'''
+    if not Installing then Files.Add('.update\NekoriEmojyUpdater.exe');
+    for I := 0 to Files.Count - 1 do begin
+      ErrorCode := ReplacementError(AppDir + Files[I]);
+      if ErrorCode <> 0 then begin
+        Log(Operation + ' blocked: ' + Files[I] + ' (Win32 ' + IntToStr(ErrorCode) + ').');
+        Result := True;
+        Exit;
+      end;
+    end;
+  finally
+    Files.Free;
+  end;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  if BlockedReleaseFile('Install', True) then
+    Result := CustomMessage('InstallFilesInUse');
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep <> usUninstall then Exit;
+  if not BlockedReleaseFile('Uninstall', False) then Exit;
+  if not UninstallSilent then
+    MsgBox(CustomMessage('UninstallFilesInUse'), mbError, MB_OK);
+  Abort;
+end;
+'''
+
+
 def build(stage,compiler,iscc,output):
     stage=Path(stage).resolve();output=Path(output).resolve()
     manifest=read_manifest(stage,verify=True)
@@ -49,6 +144,7 @@ VersionInfoVersion={version}.0
 VersionInfoProductVersion={version}
 AppPublisher=Nekori_Net
 DefaultDirName={{localappdata}}\\Programs\\NekoriEmojy
+AppendDefaultDirName=no
 DefaultGroupName=NekoriEmojy
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
@@ -83,7 +179,7 @@ Name: "{group}\\NekoriEmojy"; Filename: "{app}\\NekoriEmojy.exe"; WorkingDir: "{
 Name: "{autodesktop}\\NekoriEmojy"; Filename: "{app}\\NekoriEmojy.exe"; WorkingDir: "{app}"; Tasks: desktopicon; AppUserModelID: "Nekori.NekoriEmojy"
 [Run]
 Filename: "{app}\\NekoriEmojy.exe"; Description: "{cm:LaunchProgram,NekoriEmojy}"; Flags: nowait postinstall skipifsilent
-''',encoding='utf-8-sig')
+'''+installation_guards(names),encoding='utf-8-sig')
     subprocess.run([str(Path(iscc).resolve()),str(script)],check=True)
     # Verify both packaging operations left the source application set unchanged.
     read_manifest(stage,verify=True)

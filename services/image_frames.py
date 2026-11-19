@@ -108,3 +108,27 @@ def sampled_frames(path, preferred=0, limit=5):
             frame.paste(rgba,mask=rgba.getchannel('A'))
             decoded[i]=frame
         return [(i,decoded[i]) for i in selected]
+
+
+def normalized_crop(value):
+    """Validated unit rectangle; None is the uncropped resource identity."""
+    import math
+    try:
+        if not isinstance(value,(tuple,list)) or len(value)!=4:return None
+        l,t,r,b=(float(v) for v in value)
+        if not all(math.isfinite(v) for v in (l,t,r,b)):return None
+        if not (0<=l<r<=1 and 0<=t<b<=1):return None
+        return None if (l,t,r,b)==(0.,0.,1.,1.) else (l,t,r,b)
+    except (TypeError,ValueError):return None
+
+
+def crop_image(image,crop):
+    """Crop before scaling; preserve animation metadata on the detached QImage."""
+    crop=normalized_crop(crop)
+    if not crop or image is None or image.isNull():return image
+    import math
+    l,t,r,b=crop;w,h=image.width(),image.height()
+    x,y=int(l*w),int(t*h);right,bottom=min(w,math.ceil(r*w)),min(h,math.ceil(b*h))
+    result=image.copy(x,y,max(1,right-x),max(1,bottom-y))
+    for key in image.textKeys():result.setText(key,image.text(key))
+    return result

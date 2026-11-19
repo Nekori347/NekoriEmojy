@@ -55,7 +55,13 @@ class ApplicationIconService:
             # Reuse the library's existing chosen thumbnail frame.
             if getattr(image, "is_animated", False):
                 image.seek(max(0,min(int(frame),image.n_frames-1)))
-            canvas = self._square(image.convert("RGBA"))
+            representative=image.convert("RGBA")
+            crop=self.storage.representative_crop(image_path) if self.storage else None
+            if crop:
+                import math
+                l,t,r,b=crop;w,h=representative.size
+                representative=representative.crop((int(l*w),int(t*h),math.ceil(r*w),math.ceil(b*h)))
+            canvas = self._square(representative)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         canvas.save(self.custom_path, format="ICO", sizes=ICO_SIZES)
         return str(self.custom_path)
